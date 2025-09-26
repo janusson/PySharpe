@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysharpe"
+version = "0.1.0"
+description = "Investment portfolio optimization and visualization toolkit"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "PySharpe Developers"}]
+license = {file = "LICENSE"}
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scipy>=1.10",
+    "yfinance>=0.2",
+    "PyPortfolioOpt>=1.5",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.0",
+    "isort>=5.12",
+    "pytest>=7.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/"
+Issues = "https://github.com/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+target-version = ["py39"]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
