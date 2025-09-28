@@ -31,7 +31,7 @@ pyportfolioopt==1.6.2
 python-dateutil==2.9.0.post0
 pytz==2024.1
 qdldl==0.1.7.post4
-requests==2.32.3
+requests==2.32.4
 scikit-learn==1.5.0
 scipy==1.14.0
 scs==3.2.5
