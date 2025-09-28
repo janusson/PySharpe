@@ -1,6 +1,6 @@
 # pyportfolioopt @ git+https://github.com/janusson/PyPortfolioOpt.git@a4b22f6b855a7df2f1fc9be60e2e8c9e613e6eed
 beautifulsoup4==4.12.3
-certifi==2024.6.2
+certifi==2024.7.4
 charset-normalizer==3.3.2
 clarabel==0.9.0
 contourpy==1.2.1
@@ -31,7 +31,7 @@ pyportfolioopt==1.6.2
 python-dateutil==2.9.0.post0
 pytz==2024.1
 qdldl==0.1.7.post4
-requests==2.32.3
+requests==2.32.4
 scikit-learn==1.5.0
 scipy==1.14.0
 scs==3.2.5
@@ -40,6 +40,6 @@ six==1.16.0
 soupsieve==2.5
 threadpoolctl==3.5.0
 tzdata==2024.1
-urllib3==2.2.2
+urllib3==2.5.0
 webencodings==0.5.1
 yfinance==0.2.40
