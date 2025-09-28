@@ -10,6 +10,7 @@ import pandas as pd
 
 from ..models import PortfolioAllocation, PortfolioPerformance
 from .optimizer import OptimizationResult, PortfolioOptimizer
+from ..data.data_collector import DEFAULT_EXPORT_DIR
 
 
 class PortfolioOptimizationError(RuntimeError):
@@ -28,14 +29,16 @@ def read_price_history(path: Path, *, index_col: str = "Date") -> pd.DataFrame:
     try:
         frame = pd.read_csv(csv_path, index_col=index_col, parse_dates=True)
     except FileNotFoundError as exc:  # pragma: no cover - guardrail for callers
-        raise PortfolioOptimizationError(f"Price history file not found: {path}") from exc
+        raise PortfolioOptimizationError(
+            f"Price history file not found: {path}") from exc
     except ValueError as exc:
         raise PortfolioOptimizationError(
             f"Price history file is missing expected column '{index_col}': {path}"
         ) from exc
 
     if frame.empty:
-        raise PortfolioOptimizationError(f"Price history file is empty: {path}")
+        raise PortfolioOptimizationError(
+            f"Price history file is empty: {path}")
 
     frame = frame.ffill().dropna(axis=1, how="all").sort_index()
     if frame.empty:
@@ -65,7 +68,8 @@ def window_prices(
     windowed = prices.loc[start:end]
     windowed = windowed.dropna(axis=1, how="all")
     if windowed.empty:
-        raise PortfolioOptimizationError("No price data available in the requested window.")
+        raise PortfolioOptimizationError(
+            "No price data available in the requested window.")
     return windowed
 
 
@@ -78,7 +82,8 @@ def optimize_prices(
 ) -> OptimizationResult:
     """Run a maximum Sharpe ratio optimisation for *prices*."""
 
-    sliced = window_prices(prices, start=start, end=end) if start or end else prices
+    sliced = window_prices(prices, start=start,
+                           end=end) if start or end else prices
     optimizer = PortfolioOptimizer(sliced)
     return optimizer.max_sharpe(weight_bounds=weight_bounds)
 
@@ -102,7 +107,8 @@ def optimize_price_file(
             weight_bounds=weight_bounds,
         )
     except ValueError as exc:
-        raise PortfolioOptimizationError(f"Failed to optimise portfolio '{name}'.") from exc
+        raise PortfolioOptimizationError(
+            f"Failed to optimise portfolio '{name}'.") from exc
 
 
 def batch_optimize(
@@ -131,6 +137,79 @@ def batch_optimize(
     return results
 
 
+def optimize_portfolio(
+    name: str,
+    *,
+    collated_dir: Path | str = DEFAULT_EXPORT_DIR,
+    start: Optional[pd.Timestamp | str] = None,
+    end: Optional[pd.Timestamp | str] = None,
+    weight_bounds: tuple[float, float] = (0.0, 1.0),
+    output_dir: Optional[Path | str] = DEFAULT_EXPORT_DIR,
+    export_plot: bool = False,
+) -> OptimizationResult:
+    """Optimise a single portfolio using the legacy collated CSV naming convention."""
+
+    collated_path = Path(collated_dir) / f"{name}_collated.csv"
+    result = optimize_price_file(
+        name,
+        collated_path,
+        start=start,
+        end=end,
+        weight_bounds=weight_bounds,
+    )
+
+    if output_dir is not None:
+        export_result(
+            name,
+            result,
+            Path(output_dir),
+            export_plot=export_plot,
+        )
+
+    return result
+
+
+def optimize_all_portfolios(
+    collated_dir: Path | str = DEFAULT_EXPORT_DIR,
+    *,
+    start: Optional[pd.Timestamp | str] = None,
+    end: Optional[pd.Timestamp | str] = None,
+    weight_bounds: tuple[float, float] = (0.0, 1.0),
+    output_dir: Optional[Path | str] = DEFAULT_EXPORT_DIR,
+    export_plot: bool = False,
+) -> Dict[str, OptimizationResult]:
+    """Optimise every collated portfolio found in *collated_dir*."""
+
+    directory = Path(collated_dir)
+    price_files: Dict[str, Path] = {}
+    for csv_path in directory.glob("*_collated.csv"):
+        portfolio_name = csv_path.stem.replace("_collated", "")
+        price_files[portfolio_name] = csv_path
+
+    if not price_files:
+        raise PortfolioOptimizationError(
+            f"No collated price files found in {directory} with pattern '*_collated.csv'."
+        )
+
+    results = batch_optimize(
+        price_files,
+        start=start,
+        end=end,
+        weight_bounds=weight_bounds,
+    )
+
+    if output_dir is not None:
+        for name, result in results.items():
+            export_result(
+                name,
+                result,
+                Path(output_dir),
+                export_plot=export_plot,
+            )
+
+    return results
+
+
 def allocation_pie(
     allocation: PortfolioAllocation,
     *,
@@ -141,15 +220,18 @@ def allocation_pie(
     try:
         import matplotlib.pyplot as plt
     except ImportError as exc:  # pragma: no cover - defensive, depends on optional extra
-        raise RuntimeError("matplotlib is required to plot allocations") from exc
+        raise RuntimeError(
+            "matplotlib is required to plot allocations") from exc
 
     weights = allocation.as_series()
     non_zero = weights[weights > 0]
     if non_zero.empty:
-        raise ValueError("Cannot build allocation plot without positive weights.")
+        raise ValueError(
+            "Cannot build allocation plot without positive weights.")
 
     fig, ax = plt.subplots()
-    ax.pie(non_zero.values, labels=non_zero.index, autopct="%1.1f%%", startangle=90)
+    ax.pie(non_zero.values, labels=non_zero.index,
+           autopct="%1.1f%%", startangle=90)
     ax.axis("equal")
     ax.set_title(title or "Portfolio Allocation")
     return fig
@@ -173,23 +255,28 @@ def save_allocation_plot(
 
 
 def save_weights(allocation: PortfolioAllocation, destination: Path) -> Path:
-    """Write portfolio weights to *destination* as a CSV file."""
+    """Write portfolio weights to *destination* in the original text layout."""
 
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    allocation.as_series().to_csv(destination, header=["weight"])
+
+    weights = allocation.as_series()
+    lines = ["ticker,weight"]
+    lines.extend(f"{ticker},{weight:.8f}" for ticker,
+                 weight in weights.items())
+    destination.write_text("\n".join(lines), encoding="utf-8")
     return destination
 
 
 def save_performance(performance: PortfolioPerformance, destination: Path) -> Path:
-    """Write portfolio performance metrics to *destination* as plain text."""
+    """Write portfolio performance metrics to *destination* matching the legacy format."""
 
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        f"expected_annual_return={performance.expected_annual_return:.6f}",
-        f"annual_volatility={performance.annual_volatility:.6f}",
-        f"sharpe_ratio={performance.sharpe_ratio:.6f}",
+        f"Expected annual return: {performance.expected_annual_return * 100:.2f}%",
+        f"Annual volatility: {performance.annual_volatility * 100:.2f}%",
+        f"Sharpe Ratio: {performance.sharpe_ratio:.2f}",
     ]
     destination.write_text("\n".join(lines), encoding="utf-8")
     return destination
@@ -226,7 +313,7 @@ def export_result(
     if export_weights:
         weights_path = save_weights(
             result.allocation,
-            output_dir / f"{name}_weights.csv",
+            output_dir / f"{name}_weights.txt",
         )
 
     if export_performance:

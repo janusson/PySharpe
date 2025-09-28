@@ -4,22 +4,34 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
 
 import pandas as pd
 
-from .data.data_collector import (
+# Allow running this module directly without installing the package by ensuring
+# the ``pysharpe`` package root is on ``sys.path`` before imports below resolve.
+if __package__ in {None, ""}:
+    package_dir = Path(__file__).resolve().parent
+    sys.path.insert(0, str(package_dir.parent))
+
+from pysharpe.data.data_collector import (  # type: ignore  # noqa: E402
+    DEFAULT_EXPORT_DIR,
     DEFAULT_PORTFOLIO_DIR,
     DEFAULT_PRICE_HISTORY_DIR,
     PortfolioTickerReader,
     collate_prices,
     get_csv_file_paths,
     process_portfolio,
+    save_collated_prices,
 )
-from .models import PortfolioPerformance
-from .optimization import portfolio_optimization as p_opt
+from pysharpe.models import (  # type: ignore  # noqa: E402
+    PortfolioAllocation,
+    PortfolioPerformance,
+)
+from pysharpe.optimization import portfolio_optimization as p_opt  # type: ignore  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -89,15 +101,6 @@ def _collate_portfolio_prices(
     return collate_prices(portfolio_name, csv_files, tickers)
 
 
-def _save_collated_prices(prices: pd.DataFrame, output_dir: Optional[Path], name: str) -> Optional[Path]:
-    if output_dir is None or prices.empty:
-        return None
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{name}.csv"
-    prices.to_csv(output_path, index=True)
-    return output_path
-
-
 def _print_performance(name: str, performance: PortfolioPerformance) -> None:
     stats = performance.as_dict()
     logger.info(
@@ -128,7 +131,8 @@ def _handle_optimize(args: argparse.Namespace) -> int:
             logger.warning("Skipping %s: no price data found.", name)
             continue
 
-        _save_collated_prices(prices, collated_dir, name)
+        if collated_dir is not None:
+            save_collated_prices(name, prices, collated_dir)
 
         try:
             optimization = p_opt.optimize_prices(
@@ -203,11 +207,16 @@ def _build_parser() -> argparse.ArgumentParser:
     optimize_parser.add_argument(
         "--collated-dir",
         type=Path,
-        help="Optional directory to write collated price histories for each portfolio.",
+        default=DEFAULT_EXPORT_DIR,
+        help=(
+            "Directory to write collated price histories for each portfolio. "
+            "Defaults to data/exports."
+        ),
     )
     optimize_parser.add_argument(
         "--output",
         type=Path,
+        default=DEFAULT_EXPORT_DIR,
         help="Directory to write optimisation outputs (weights, performance, plots).",
     )
     optimize_parser.add_argument(
@@ -229,6 +238,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
+    '''Main entry point for command line interface.'''
     parser = _build_parser()
     args = parser.parse_args(argv)
 

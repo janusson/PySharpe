@@ -22,16 +22,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "flake8>=6.0",
-    "isort>=5.12",
-    "pylint>=2.17",
+    "ruff>=0.6",
     "pytest>=7.3",
     "pytest-cov>=4.1",
     "coverage>=7.5",
 ]
 
 [project.urls]
-Homepage = "https://github.com/"
+Homepage = "https://github.com/janusson/PySharpe/"
 Issues = "https://github.com/"
 
 [project.scripts]
@@ -40,13 +38,27 @@ pysharpe = "pysharpe.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.isort]
-line_length = 88
-src_paths = ["src", "tests"]
+[tool.ruff]
+line-length = 88
+target-version = "py39"
 
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ["E203", "W503"]
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "B",  # bugbear
+    "I",  # import sorting
+    "UP", # pyupgrade
+]
+ignore = ["E203"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

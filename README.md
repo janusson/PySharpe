@@ -50,25 +50,29 @@ coordinate data downloads and portfolio optimisation:
 # Download price history for portfolios defined under data/portfolio/
 pysharpe download --start 2020-01-01 --interval 1d
 
-# Optimise those portfolios, writing weights and performance metrics
-pysharpe optimize --output data/exports --collated-dir data/collated
+# Optimise those portfolios, writing collated prices, weights, and performance
+pysharpe optimize
 ```
 
-Both commands accept `--portfolio-dir` and `--price-dir` switches if you keep
-data in custom locations. Run `pysharpe --help` for the full set of options.
+By default the commands mirror the original scripts by reading from
+`data/portfolio/`, writing per-ticker histories to `data/price_hist/`, and
+saving collated/optimisation artefacts in `data/exports/`. Pass
+`--portfolio-dir`, `--price-dir`, `--collated-dir`, or `--output` to work with
+custom locations. Run `pysharpe --help` for the full set of options.
 
 ## Usage example
 
 ```python
 from datetime import datetime
 
-from pysharpe import PortfolioOptimizer, fetch_price_history
+from pysharpe.data import data_collector
+from pysharpe.optimization import portfolio_optimization
 
-prices = fetch_price_history(["AAPL", "MSFT", "GOOG"], start=datetime(2020, 1, 1))
-optimizer = PortfolioOptimizer(prices)
-result = optimizer.max_sharpe()
-print(result.allocation.weights)
-print(result.performance.as_dict())
+# Collect price histories, collate them, and persist the CSV files
+data_collector.process_all_portfolios(start=datetime(2020, 1, 1))
+
+# Optimise the collated portfolios and export weights/performance summaries
+portfolio_optimization.optimize_all_portfolios()
 ```
 
 More documentation and notebook examples will be added as the project evolves.
@@ -77,4 +81,4 @@ More documentation and notebook examples will be added as the project evolves.
 
 Please open an issue or submit a pull request with proposed changes. Make sure
 that any added code paths are covered by tests where possible and that linters
-(`pylint`, `flake8`, `isort`) have been run locally.
+(`ruff`, or any additional linters you rely on) has been run locally.

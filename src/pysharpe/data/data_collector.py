@@ -19,18 +19,22 @@ DEFAULT_DATA_ROOT = PROJECT_ROOT / "data"
 DEFAULT_PORTFOLIO_DIR = DEFAULT_DATA_ROOT / "portfolio"
 DEFAULT_PRICE_HISTORY_DIR = DEFAULT_DATA_ROOT / "price_hist"
 DEFAULT_INFO_DIR = DEFAULT_DATA_ROOT / "info"
+DEFAULT_EXPORT_DIR = DEFAULT_DATA_ROOT / "exports"
 
 __all__ = [
     "DEFAULT_DATA_ROOT",
     "DEFAULT_PORTFOLIO_DIR",
     "DEFAULT_PRICE_HISTORY_DIR",
+    "DEFAULT_EXPORT_DIR",
     "PortfolioTickerReader",
     "collate_prices",
     "download_portfolio_prices",
     "get_csv_file_paths",
     "process_portfolio",
+    "process_all_portfolios",
     "read_tickers_from_file",
     "SecurityDataCollector",
+    "save_collated_prices",
 ]
 
 
@@ -143,22 +147,30 @@ def download_portfolio_prices(
         raise ValueError("At least one ticker symbol must be provided.")
 
     prices = fetch_price_history(symbols, start=start, end=end, interval=interval)
-
-    if isinstance(prices, pd.Series):
-        prices = prices.to_frame()
-    if len(symbols) == 1 and prices.columns.size == 1 and prices.columns[0] != symbols[0]:
-        prices = prices.rename(columns={prices.columns[0]: symbols[0]})
+    prices = prices.loc[:, symbols].sort_index()
 
     if destination is not None:
         destination = Path(destination)
         destination.mkdir(parents=True, exist_ok=True)
-        for symbol in prices.columns:
+
+        for symbol in symbols:
+            if symbol not in prices.columns:
+                logger.warning("Downloaded prices missing expected symbol %s", symbol)
+                continue
+
             symbol_history = prices[[symbol]].dropna(how="all")
             if symbol_history.empty:
+                logger.debug("Skipping %s because no price history was returned", symbol)
                 continue
-            symbol_history.to_csv(destination / f"{symbol}_hist.csv")
 
-    return prices.sort_index()
+            csv_frame = symbol_history.rename(columns={symbol: "Close"})
+            csv_frame.index.name = "Date"
+            csv_frame.to_csv(
+                destination / f"{symbol}_hist.csv",
+                index_label="Date",
+            )
+
+    return prices
 
 
 def collate_prices(
@@ -226,6 +238,68 @@ def process_portfolio(
         )
 
     return tickers
+
+
+def save_collated_prices(
+    portfolio_name: str,
+    prices: pd.DataFrame,
+    directory: Path,
+) -> Path:
+    """Persist *prices* for *portfolio_name* in the legacy collated layout."""
+
+    if prices.empty:
+        raise ValueError("Cannot save an empty price table.")
+
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{portfolio_name}_collated.csv"
+    prices.to_csv(path, index=True)
+    return path
+
+
+def process_all_portfolios(
+    portfolio_dir: Path | str = DEFAULT_PORTFOLIO_DIR,
+    *,
+    price_history_dir: Path | str = DEFAULT_PRICE_HISTORY_DIR,
+    collated_dir: Optional[Path | str] = DEFAULT_EXPORT_DIR,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    interval: str = "1d",
+) -> Dict[str, pd.DataFrame]:
+    """Run the original data collection workflow for every portfolio file."""
+
+    portfolio_dir = Path(portfolio_dir)
+    price_history_dir = Path(price_history_dir)
+    collated_path = Path(collated_dir) if collated_dir is not None else None
+
+    results: Dict[str, pd.DataFrame] = {}
+
+    for portfolio_file in get_csv_file_paths(portfolio_dir):
+        portfolio_name = portfolio_file.stem
+        tickers = process_portfolio(
+            portfolio_file,
+            price_history_dir=price_history_dir,
+            start=start,
+            end=end,
+            interval=interval,
+        )
+
+        if not tickers:
+            logger.warning("Skipping %s because no tickers were found", portfolio_name)
+            continue
+
+        csv_files = [price_history_dir / f"{ticker}_hist.csv" for ticker in tickers]
+        prices = collate_prices(portfolio_name, csv_files, tickers)
+        if prices.empty:
+            logger.warning("Skipping %s because no price data could be collated", portfolio_name)
+            continue
+
+        if collated_path is not None:
+            save_collated_prices(portfolio_name, prices, collated_path)
+
+        results[portfolio_name] = prices
+
+    return results
 
 
 class SecurityDataCollector:

@@ -89,5 +89,5 @@ def test_cli_optimize_collates_and_exports(monkeypatch, tmp_path):
     )
 
     assert exit_code == 0
-    assert (collated_dir / "growth.csv").exists()
+    assert (collated_dir / "growth_collated.csv").exists()
     assert any(output_dir.iterdir())

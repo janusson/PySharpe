@@ -124,4 +124,81 @@ def test_save_helpers(tmp_path: Path):
     assert set(weights.index) == {"AAA", "BBB"}
 
     content = artifacts.performance_file.read_text(encoding="utf-8")
-    assert "sharpe_ratio" in content
+    assert "Sharpe Ratio" in content
+
+
+def test_optimize_portfolio_loads_collated_file(monkeypatch, tmp_path: Path):
+    collated_dir = tmp_path / "exports"
+    output_dir = tmp_path / "output"
+    collated_dir.mkdir()
+
+    csv_path = collated_dir / "alpha_collated.csv"
+    _sample_prices().reset_index().rename(columns={"index": "Date"}).to_csv(csv_path, index=False)
+
+    expected_result = OptimizationResult(
+        PortfolioAllocation({"AAA": 0.5, "BBB": 0.5}),
+        PortfolioPerformance(0.1, 0.2, 0.3),
+    )
+
+    def fake_optimize_price_file(name, path, **kwargs):  # noqa: D401 - testing stub
+        assert name == "alpha"
+        assert path == csv_path
+        return expected_result
+
+    exported: dict[str, Path] = {}
+
+    def fake_export_result(name, result, destination, **kwargs):  # noqa: D401 - testing stub
+        exported[name] = Path(destination)
+        return p_opt.ExportArtifacts()
+
+    monkeypatch.setattr(p_opt, "optimize_price_file", fake_optimize_price_file)
+    monkeypatch.setattr(p_opt, "export_result", fake_export_result)
+
+    outcome = p_opt.optimize_portfolio(
+        "alpha",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        export_plot=True,
+    )
+
+    assert outcome is expected_result
+    assert exported["alpha"] == output_dir
+
+
+def test_optimize_all_portfolios_discovers_files(monkeypatch, tmp_path: Path):
+    collated_dir = tmp_path / "exports"
+    output_dir = tmp_path / "output"
+    collated_dir.mkdir()
+
+    csv_a = collated_dir / "growth_collated.csv"
+    csv_b = collated_dir / "income_collated.csv"
+    _sample_prices().reset_index().rename(columns={"index": "Date"}).to_csv(csv_a, index=False)
+    _sample_prices().reset_index().rename(columns={"index": "Date"}).to_csv(csv_b, index=False)
+
+    def fake_batch_optimize(price_files, **kwargs):  # noqa: D401 - testing stub
+        assert set(price_files.keys()) == {"growth", "income"}
+        return {
+            name: OptimizationResult(
+                PortfolioAllocation({name: 1.0}),
+                PortfolioPerformance(0.1, 0.2, 0.3),
+            )
+            for name in price_files
+        }
+
+    exports: dict[str, Path] = {}
+
+    def fake_export_result(name, result, destination, **kwargs):  # noqa: D401 - testing stub
+        exports[name] = Path(destination)
+        return p_opt.ExportArtifacts()
+
+    monkeypatch.setattr(p_opt, "batch_optimize", fake_batch_optimize)
+    monkeypatch.setattr(p_opt, "export_result", fake_export_result)
+
+    results = p_opt.optimize_all_portfolios(
+        collated_dir,
+        output_dir=output_dir,
+        export_plot=False,
+    )
+
+    assert set(results.keys()) == {"growth", "income"}
+    assert exports == {"growth": output_dir, "income": output_dir}
