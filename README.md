@@ -1,14 +1,8 @@
 # PySharpe
 
-<<<<<<< HEAD
 PySharpe is a Python toolkit for building, analyzing, and visualizing investment
 portfolios that maximize the Sharpe ratio. The project combines data pulled from
 Yahoo Finance (via [yfinance](https://pypi.org/project/yfinance/)) with the optimization tooling provided by
-=======
-PySharpe is a Python toolkit for building, analyzing, and visualizing optimized investment
-portfolios. The project combines data pulled from
-Yahoo Finance with the optimization tooling provided by
->>>>>>> 70b35dd43fbb272b8fce3aaf2a971c2b80eb402e
 [PyPortfolioOpt](https://pyportfolioopt.readthedocs.io/) to help investors and
 researchers evaluate asset allocations.
 
