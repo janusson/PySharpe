@@ -35,13 +35,15 @@ def fetch_price_history(
         adjusted close prices.
     """
 
-    if not symbols:
+    symbol_list = list(symbols)
+
+    if not symbol_list:
         raise ValueError("At least one ticker symbol must be provided.")
 
     # Import lazily so that the package can be imported without yfinance installed.
     import yfinance as yf
 
-    tickers = " ".join(symbols)
+    tickers = " ".join(symbol_list)
     data = yf.download(tickers, start=start, end=end, interval=interval, progress=False)
 
     if data.empty:
@@ -49,8 +51,21 @@ def fetch_price_history(
 
     # yfinance returns a multi-index column when multiple tickers are provided.
     if isinstance(data.columns, pd.MultiIndex):
-        data = data["Adj Close"]
+        adj_close = data["Adj Close"].copy()
     else:
-        data = data.rename("Adj Close")
+        if "Adj Close" not in data.columns:
+            raise ValueError("Downloaded price history is missing the 'Adj Close' column.")
+        adj_close = data[["Adj Close"]].copy()
+        adj_close.columns = [symbol_list[0]]
 
-    return data.sort_index()
+    if isinstance(adj_close, pd.Series):
+        adj_close = adj_close.to_frame(name=symbol_list[0])
+
+    missing_columns = set(symbol_list) - set(adj_close.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Price history is missing symbols: {missing}")
+
+    ordered = adj_close.loc[:, symbol_list]
+
+    return ordered.sort_index()

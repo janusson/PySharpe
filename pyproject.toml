@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pysharpe"
 version = "0.1.0"
-description = "Investment portfolio optimization and visualization toolkit"
+description = "Python tools for portfolio optimization and analysis."
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "PySharpe Developers"}]
@@ -22,8 +22,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "black>=23.0",
+    "flake8>=6.0",
     "isort>=5.12",
+    "pylint>=2.17",
     "pytest>=7.3",
 ]
 
@@ -31,17 +32,19 @@ dev = [
 Homepage = "https://github.com/"
 Issues = "https://github.com/"
 
+[project.scripts]
+pysharpe = "pysharpe.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.black]
-target-version = ["py39"]
-line-length = 88
-
 [tool.isort]
-profile = "black"
 line_length = 88
 src_paths = ["src", "tests"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

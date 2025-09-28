@@ -41,6 +41,22 @@ PySharpe/
    pytest
    ```
 
+## Command line interface
+
+Once installed, the `pysharpe` command becomes available with subcommands that
+coordinate data downloads and portfolio optimisation:
+
+```bash
+# Download price history for portfolios defined under data/portfolio/
+pysharpe download --start 2020-01-01 --interval 1d
+
+# Optimise those portfolios, writing weights and performance metrics
+pysharpe optimize --output data/exports --collated-dir data/collated
+```
+
+Both commands accept `--portfolio-dir` and `--price-dir` switches if you keep
+data in custom locations. Run `pysharpe --help` for the full set of options.
+
 ## Usage example
 
 ```python
