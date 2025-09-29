@@ -1,0 +1,71 @@
+2025-09-28 19:35:01,805 - INFO - Logging initialised: logs/2025-09-28_log.log
+2025-09-28 19:35:01,806 - INFO - Tickers for diversified_growth: AAPL, MSFT, QQQ, VOO, VTI
+2025-09-28 19:35:01,806 - INFO - Downloading price history for: AAPL
+2025-09-28 19:35:02,719 - INFO - Downloading price history for: MSFT
+2025-09-28 19:35:03,164 - INFO - Downloading price history for: QQQ
+2025-09-28 19:35:03,488 - INFO - Downloading price history for: VOO
+2025-09-28 19:35:03,700 - INFO - Downloading price history for: VTI
+2025-09-28 20:08:23,664 - INFO - Logging initialised: logs/2025-09-28_log.log
+2025-09-28 20:08:23,665 - INFO - Tickers for diversified_growth: BND, GLD, QQQ, VNQ, VOO, VT, VTI
+2025-09-28 20:08:23,665 - INFO - Downloading price history for: BND
+2025-09-28 20:08:24,272 - INFO - Downloading price history for: GLD
+2025-09-28 20:08:24,522 - INFO - Downloading price history for: QQQ
+2025-09-28 20:08:24,805 - INFO - Downloading price history for: VNQ
+2025-09-28 20:08:25,122 - INFO - Downloading price history for: VOO
+2025-09-28 20:08:25,297 - INFO - Downloading price history for: VT
+2025-09-28 20:08:25,640 - INFO - Downloading price history for: VTI
+2025-09-28 20:08:26,007 - INFO - Tickers for sr_1: AAPL, AMZN, AVGO, BAC, BRK.B, GOOGL, HD, JNJ, JPM, MA, META, MSFT, NVDA, PG, TSLA, UNH, V, WMT, XOM
+2025-09-28 20:08:26,007 - INFO - Downloading price history for: AAPL
+2025-09-28 20:08:26,434 - INFO - Downloading price history for: AMZN
+2025-09-28 20:08:26,753 - INFO - Downloading price history for: AVGO
+2025-09-28 20:08:27,039 - INFO - Downloading price history for: BAC
+2025-09-28 20:08:27,756 - INFO - Downloading price history for: BRK.B
+2025-09-28 20:08:28,183 - ERROR - $BRK.B: possibly delisted; no timezone found
+2025-09-28 20:08:28,184 - WARNING - No data returned for BRK.B
+2025-09-28 20:08:28,184 - INFO - Downloading price history for: GOOGL
+2025-09-28 20:08:28,502 - INFO - Downloading price history for: HD
+2025-09-28 20:08:29,034 - INFO - Downloading price history for: JNJ
+2025-09-28 20:08:29,859 - INFO - Downloading price history for: JPM
+2025-09-28 20:08:30,435 - INFO - Downloading price history for: MA
+2025-09-28 20:08:30,795 - INFO - Downloading price history for: META
+2025-09-28 20:08:31,012 - INFO - Downloading price history for: MSFT
+2025-09-28 20:08:31,344 - INFO - Downloading price history for: NVDA
+2025-09-28 20:08:31,907 - INFO - Downloading price history for: PG
+2025-09-28 20:08:32,945 - INFO - Downloading price history for: TSLA
+2025-09-28 20:08:33,311 - INFO - Downloading price history for: UNH
+2025-09-28 20:08:33,925 - INFO - Downloading price history for: V
+2025-09-28 20:08:34,272 - INFO - Downloading price history for: WMT
+2025-09-28 20:08:35,216 - INFO - Downloading price history for: XOM
+2025-09-28 20:08:36,023 - WARNING - Price history missing for BRK.B
+2025-09-28 20:08:36,516 - INFO - Tickers for sr_large_cap_growth: AER, AZO, BLD, BLDR, DKS, EME, FANG, IBKR, KKR, LEN, LPLA, MPC, NVT, OKE, PCAR, PHM, STLA, TM, ULTA, URI
+2025-09-28 20:08:36,517 - INFO - Downloading price history for: AER
+2025-09-28 20:08:36,739 - INFO - Downloading price history for: AZO
+2025-09-28 20:08:37,021 - INFO - Downloading price history for: BLD
+2025-09-28 20:08:37,172 - INFO - Downloading price history for: BLDR
+2025-09-28 20:08:37,408 - INFO - Downloading price history for: DKS
+2025-09-28 20:08:37,705 - INFO - Downloading price history for: EME
+2025-09-28 20:08:38,047 - INFO - Downloading price history for: FANG
+2025-09-28 20:08:38,237 - INFO - Downloading price history for: IBKR
+2025-09-28 20:08:38,530 - INFO - Downloading price history for: KKR
+2025-09-28 20:08:38,751 - INFO - Downloading price history for: LEN
+2025-09-28 20:08:39,220 - INFO - Downloading price history for: LPLA
+2025-09-28 20:08:39,471 - INFO - Downloading price history for: MPC
+2025-09-28 20:08:39,724 - INFO - Downloading price history for: NVT
+2025-09-28 20:08:39,987 - INFO - Downloading price history for: OKE
+2025-09-28 20:08:40,525 - INFO - Downloading price history for: PCAR
+2025-09-28 20:08:41,045 - INFO - Downloading price history for: PHM
+2025-09-28 20:08:41,717 - INFO - Downloading price history for: STLA
+2025-09-28 20:08:42,046 - INFO - Downloading price history for: TM
+2025-09-28 20:08:42,578 - INFO - Downloading price history for: ULTA
+2025-09-28 20:08:42,801 - INFO - Downloading price history for: URI
+2025-09-28 20:08:43,510 - INFO - Tickers for sr_large_cap_value: ADM, ALB, BG, CAG, EG, GM, HCA, L, LOW, MOS
+2025-09-28 20:08:43,510 - INFO - Downloading price history for: ADM
+2025-09-28 20:08:44,051 - INFO - Downloading price history for: ALB
+2025-09-28 20:08:44,473 - INFO - Downloading price history for: BG
+2025-09-28 20:08:44,835 - INFO - Downloading price history for: CAG
+2025-09-28 20:08:45,360 - INFO - Downloading price history for: EG
+2025-09-28 20:08:45,759 - INFO - Downloading price history for: GM
+2025-09-28 20:08:46,058 - INFO - Downloading price history for: HCA
+2025-09-28 20:08:46,386 - INFO - Downloading price history for: L
+2025-09-28 20:08:47,020 - INFO - Downloading price history for: LOW
+2025-09-28 20:08:47,576 - INFO - Downloading price history for: MOS

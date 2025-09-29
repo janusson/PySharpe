@@ -32,9 +32,6 @@ dev = [
 Homepage = "https://github.com/janusson/PySharpe/"
 Issues = "https://github.com/janusson/PySharpe/issues"
 
-[project.scripts]
-pysharpe = "pysharpe.cli:main"
-
 [tool.setuptools.packages.find]
 where = ["src"]
 
