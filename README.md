@@ -43,22 +43,90 @@ PySharpe/
 
 ## Command line interface
 
-Once installed, the `pysharpe` command becomes available with subcommands that
-coordinate data downloads and portfolio optimisation:
+PySharpe ships with a small CLI that wraps the two major workflows: collecting
+price histories and optimising the resulting portfolios. Once installed
+(for example via `pip install -e .[dev]` during development), the `pysharpe`
+command becomes available and exposes the following subcommands:
+
+```text
+pysharpe
+├── download  # fetch ticker history and collate per-portfolio CSV files
+└── optimize  # run max-Sharpe optimisation against collated data
+```
+
+### Downloading market data
 
 ```bash
-# Download price history for portfolios defined under data/portfolio/
-pysharpe download --start 2020-01-01 --interval 1d
+# Pull price history for the default portfolios defined under data/portfolio/
+pysharpe download --interval 1d --period 1y
 
-# Optimise those portfolios, writing collated prices, weights, and performance
+# Constrain the window explicitly
+pysharpe download --start 2020-01-01 --end 2024-01-01
+
+# Target specific portfolio files (name or path) and enable logging
+pysharpe download growth.csv income --log-dir logs
+```
+
+`--start` and `--end` accept ISO-8601 dates. When neither is supplied the CLI
+forwards `--period` as-is to `yfinance`, mirroring the original script
+behaviour. The downloaded ticker CSV files land in `data/price_hist/` (or the
+directory supplied via `--price-dir`), and collated portfolio CSVs are written
+to `data/exports/` unless overridden with `--export-dir`.
+
+### Optimising portfolios
+
+```bash
+# Optimise every collated CSV under data/exports/
 pysharpe optimize
+
+# Skip plots and only optimise assets from 1995 onwards
+pysharpe optimize --start 1995-01-01 --no-plot
+
+# Focus on specific portfolios and write artefacts elsewhere
+pysharpe optimize tech_dividend --collated-dir data/exports --output-dir results
+```
+
+The optimisation command always expects collated CSV files (produced by the
+download step). It generates weight allocations (`*_weights.txt`), performance
+summaries (`*_performance.txt`), and optional allocation plots for each
+portfolio.
+
+### Alternative invocation methods
+
+You can always inspect additional options with `pysharpe download --help` or
+`pysharpe optimize --help`.
+
+If you prefer not to install the package, invoke the CLI module directly:
+
+```bash
+python -m pysharpe.cli download
+python -m pysharpe.cli optimize --no-plot
+```
+
+From a checked-out repository you can also target the file path explicitly:
+
+```bash
+python src/pysharpe/cli.py download --portfolio-dir data/portfolio
 ```
 
 By default the commands mirror the original scripts by reading from
 `data/portfolio/`, writing per-ticker histories to `data/price_hist/`, and
 saving collated/optimisation artefacts in `data/exports/`. Pass
 `--portfolio-dir`, `--price-dir`, `--collated-dir`, or `--output` to work with
-custom locations. Run `pysharpe --help` for the full set of options.
+custom locations, and add `--start`/`--end` to constrain the time window.
+Run `pysharpe --help` for the full set of options.
+
+## Workflow overview
+
+1. Define portfolios as newline-delimited ticker lists under `data/portfolio/`.
+2. Run `pysharpe download` (or call
+   `pysharpe.data_collector.process_all_portfolios`) to download individual
+   ticker histories and collate them per portfolio.
+3. Run `pysharpe optimize` (or call
+   `pysharpe.portfolio_optimization.optimise_all_portfolios`) to compute
+   Sharpe-maximising weights and performance metrics.
+4. Review artefacts under `data/price_hist/`, `data/exports/`, and `logs/` as
+   needed.
 
 ## Usage example
 

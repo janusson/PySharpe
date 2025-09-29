@@ -28,6 +28,9 @@ dev = [
     "coverage>=7.5",
 ]
 
+[project.scripts]
+pysharpe = "pysharpe.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/janusson/PySharpe/"
 Issues = "https://github.com/janusson/PySharpe/issues"

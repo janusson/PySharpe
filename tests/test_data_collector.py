@@ -10,14 +10,17 @@ from pysharpe import data_collector
 
 
 def _fake_yfinance(history_frame: pd.DataFrame):
+    calls: list[dict[str, object]] = []
+
     class _Ticker:
         def __init__(self, symbol: str) -> None:
             self.symbol = symbol
 
-        def history(self, *, period: str, interval: str):  # noqa: D401 - stub method signature
+        def history(self, **kwargs):  # noqa: D401 - stub method signature
+            calls.append({"symbol": self.symbol, "kwargs": kwargs})
             return history_frame
 
-    return types.SimpleNamespace(Ticker=_Ticker)
+    return types.SimpleNamespace(Ticker=_Ticker, calls=calls)
 
 
 def test_get_csv_file_paths(tmp_path):
@@ -37,7 +40,8 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
         }
     )
 
-    monkeypatch.setattr(data_collector, "yf", _fake_yfinance(history))
+    fake_yf = _fake_yfinance(history)
+    monkeypatch.setattr(data_collector, "yf", fake_yf)
 
     portfolio_file = tmp_path / "demo.csv"
     portfolio_file.write_text("AAA\n", encoding="utf-8")
@@ -56,6 +60,21 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
     assert "AAA" in frame.columns
     assert (price_dir / "AAA_hist.csv").exists()
     assert (export_dir / "demo_collated.csv").exists()
+    assert fake_yf.calls[0]["kwargs"]["period"] == "1y"
+    assert "start" not in fake_yf.calls[0]["kwargs"]
+
+    fake_yf.calls.clear()
+
+    data_collector.process_portfolio(
+        portfolio_file,
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+        interval="1d",
+        start="2023-01-01",
+    )
+
+    assert fake_yf.calls[0]["kwargs"]["start"] == "2023-01-01"
+    assert "period" not in fake_yf.calls[0]["kwargs"]
 
 
 def test_security_data_collector_download(monkeypatch, tmp_path):

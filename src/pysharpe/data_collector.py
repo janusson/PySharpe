@@ -111,12 +111,14 @@ def download_portfolio_prices(
     price_history_dir: Path = PRICE_HISTORY_DIR,
     period: str = "max",
     interval: str = "1d",
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ) -> dict[str, pd.DataFrame]:
     """Download price histories for *tickers* and write each to CSV.
 
-    Behaviour mirrors the original implementation: each ticker is downloaded
-    individually using ``yfinance.Ticker.history`` and persisted under
-    ``data/price_hist`` (or ``price_history_dir`` when supplied).
+    When ``start`` or ``end`` are provided the request is constrained to the
+    supplied window; otherwise the ``period`` argument is forwarded unchanged to
+    ``yfinance``.
     """
 
     yf_module = _ensure_yfinance()
@@ -125,10 +127,18 @@ def download_portfolio_prices(
 
     results: dict[str, pd.DataFrame] = {}
 
+    history_kwargs: dict[str, object] = {"interval": interval}
+    if start is not None:
+        history_kwargs["start"] = start
+    if end is not None:
+        history_kwargs["end"] = end
+    if start is None and end is None and period:
+        history_kwargs["period"] = period
+
     for ticker in sorted(set(tickers)):
         logger.info("Downloading price history for: %s", ticker)
         try:
-            history = yf_module.Ticker(ticker).history(period=period, interval=interval)
+            history = yf_module.Ticker(ticker).history(**history_kwargs.copy())
         except Exception as exc:  # pragma: no cover - API/network errors
             logger.error("Error downloading %s: %s", ticker, exc)
             continue
@@ -199,6 +209,8 @@ def process_portfolio(
     export_dir: Path = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ) -> pd.DataFrame:
     """Download and collate prices for the portfolio described in *portfolio_file*."""
 
@@ -215,6 +227,8 @@ def process_portfolio(
         price_history_dir=price_history_dir,
         period=period,
         interval=interval,
+        start=start,
+        end=end,
     )
 
     return collate_prices(
@@ -232,6 +246,8 @@ def process_all_portfolios(
     export_dir: Path = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ) -> dict[str, pd.DataFrame]:
     """Run the full download/collation workflow for every portfolio file."""
 
@@ -245,6 +261,8 @@ def process_all_portfolios(
             export_dir=export_dir,
             period=period,
             interval=interval,
+            start=start,
+            end=end,
         )
         if not frame.empty:
             results[csv_path.stem] = frame
@@ -374,8 +392,18 @@ class SecurityDataCollector:
         *,
         period: str = "max",
         interval: str = "1d",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> pd.DataFrame:
-        data = yf.Ticker(self.ticker).history(period=period, interval=interval)
+        history_kwargs: dict[str, object] = {"interval": interval}
+        if start is not None:
+            history_kwargs["start"] = start
+        if end is not None:
+            history_kwargs["end"] = end
+        if start is None and end is None and period:
+            history_kwargs["period"] = period
+
+        data = yf.Ticker(self.ticker).history(**history_kwargs)
         destination = Path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         output = destination / f"{self.ticker}_hist.csv"
