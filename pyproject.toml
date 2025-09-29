@@ -30,7 +30,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/janusson/PySharpe/"
-Issues = "https://github.com/"
+Issues = "https://github.com/janusson/PySharpe/issues"
 
 [project.scripts]
 pysharpe = "pysharpe.cli:main"

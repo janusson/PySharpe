@@ -14,8 +14,32 @@ from .fetch import fetch_price_history
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DATA_ROOT = PROJECT_ROOT / "data"
+
+def _find_project_root(start: Optional[Path] = None) -> Optional[Path]:
+    """Return the repository root if it can be discovered."""
+
+    search_root = (start or Path(__file__).resolve().parent).resolve()
+    for candidate in [search_root, *search_root.parents]:
+        if (candidate / "pyproject.toml").exists() or (candidate / ".git").is_dir():
+            return candidate
+    return None
+
+
+def _resolve_default_data_root() -> Path:
+    """Pick a default ``data`` directory mimicking the legacy scripts."""
+
+    cwd_data = Path.cwd() / "data"
+    if cwd_data.exists():
+        return cwd_data
+
+    project_root = _find_project_root()
+    if project_root is not None:
+        return project_root / "data"
+
+    return cwd_data
+
+
+DEFAULT_DATA_ROOT = _resolve_default_data_root()
 DEFAULT_PORTFOLIO_DIR = DEFAULT_DATA_ROOT / "portfolio"
 DEFAULT_PRICE_HISTORY_DIR = DEFAULT_DATA_ROOT / "price_hist"
 DEFAULT_INFO_DIR = DEFAULT_DATA_ROOT / "info"
@@ -94,6 +118,8 @@ class PortfolioTickerReader:
     """Load portfolio tickers from CSV files located in a directory."""
 
     def __init__(self, directory: Optional[Path] = None) -> None:
+        if directory is None:
+            directory = DEFAULT_PORTFOLIO_DIR
         self.directory = Path(directory) if directory is not None else None
         self.portfolio_tickers: Dict[str, Set[str]] = {}
         if self.directory is not None:
