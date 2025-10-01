@@ -1,108 +1,90 @@
-"""Utilities for downloading and collating portfolio price data.
-
-This module recreates the behaviour of the original standalone
-``data_collector.py`` script while organising the code into importable
-functions. The defaults mirror the legacy workflow: portfolios are defined in
-``./data/portfolio`` and downloads land under ``./data/price_hist`` with
-collated outputs in ``./data/exports``.
-"""
+"""Utilities for downloading and collating portfolio price data."""
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set
+from typing import Iterable, Optional, Sequence, Set
 
 import pandas as pd
 
-try:  # Lazy import so tests can stub yfinance easily.
+from pysharpe.config import get_settings
+from pysharpe.data import (
+    CollationService,
+    PortfolioDownloadWorkflow,
+    PortfolioRepository,
+    YFinancePriceFetcher,
+    read_tickers,
+)
+from pysharpe.logging_utils import configure_logging
+
+try:  # pragma: no cover - lazy import for optional dependency
     import yfinance as yf
-except ImportError:  # pragma: no cover - surfaced at call sites
+except ImportError:  # pragma: no cover - surfaced via helper
     yf = None  # type: ignore[assignment]
 
 
-DATA_DIR = Path("data")
-PORTFOLIO_DIR = DATA_DIR / "portfolio"
-PRICE_HISTORY_DIR = DATA_DIR / "price_hist"
-EXPORT_DIR = DATA_DIR / "exports"
-INFO_DIR = DATA_DIR / "info"
-LOG_DIR = Path("logs")
+_SETTINGS = get_settings()
+DATA_DIR = _SETTINGS.data_dir
+PORTFOLIO_DIR = _SETTINGS.portfolio_dir
+PRICE_HISTORY_DIR = Path(_SETTINGS.price_history_dir)
+EXPORT_DIR = Path(_SETTINGS.export_dir)
+INFO_DIR = _SETTINGS.info_dir
+LOG_DIR = _SETTINGS.log_dir
 
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(log_dir: Path = LOG_DIR) -> None:
-    """Configure basic logging to a dated file under *log_dir*."""
+def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
+    """Configure basic file logging under *log_dir*."""
 
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_name = datetime.now().strftime("%Y-%m-%d_log.log")
-    log_path = log_dir / log_name
-    logging.basicConfig(
-        level=logging.INFO,
-        filename=str(log_path),
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-    logger.info("Logging initialised: %s", log_path)
+    return configure_logging(log_dir=log_dir, level=level)
 
 
-def _ensure_yfinance() -> "yf":  # type: ignore[name-defined]
-    if yf is None:
-        raise RuntimeError(
-            "yfinance must be installed to download market data."
-        )
-    return yf
+def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
+    """Return portfolio CSV files in *directory*. Defaults to configured dir."""
 
-
-def get_csv_file_paths(directory: Path) -> List[Path]:
-    """Return CSV files in *directory*, mirroring the original script."""
-
-    directory = Path(directory)
-    if not directory.exists():
-        logger.error("Portfolio directory not found: %s", directory)
-        return []
-
-    return sorted(path for path in directory.iterdir() if path.suffix.lower() == ".csv")
+    repo = PortfolioRepository(_SETTINGS, directory=directory)
+    return [definition.path for definition in repo.list_portfolios()]
 
 
 def read_tickers_from_file(path: Path) -> Set[str]:
     """Read tickers from a CSV-style file containing one symbol per line."""
 
-    tickers: Set[str] = set()
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            tickers.add(cleaned)
-    return tickers
+    return set(read_tickers(Path(path)))
 
 
 class PortfolioTickerReader:
-    """Load portfolio definitions from the legacy ``data/portfolio`` directory."""
+    """Legacy-compatible wrapper around :class:`PortfolioRepository`."""
 
     def __init__(self, directory: Path = PORTFOLIO_DIR) -> None:
         self.directory = Path(directory)
+        self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
         self.portfolio_tickers: dict[str, Set[str]] = {}
         self.refresh()
 
     def refresh(self) -> None:
-        self.portfolio_tickers.clear()
-
-        for csv_path in get_csv_file_paths(self.directory):
-            portfolio_name = csv_path.stem
-            try:
-                tickers = read_tickers_from_file(csv_path)
-            except FileNotFoundError:
-                logger.error("Portfolio file missing: %s", csv_path)
-                continue
-
-            if not tickers:
-                logger.warning("No tickers found in %s", csv_path)
-                continue
-            self.portfolio_tickers[portfolio_name] = tickers
+        self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
+        self.portfolio_tickers = {
+            definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
+        }
 
     def get_portfolio_tickers(self, portfolio_name: str) -> Set[str]:
         return self.portfolio_tickers.get(portfolio_name, set())
+
+
+def _collation_service(
+    *,
+    price_history_dir: Path,
+    export_dir: Optional[Path] = None,
+) -> CollationService:
+    return CollationService(
+        YFinancePriceFetcher(),
+        _SETTINGS,
+        price_history_dir=price_history_dir,
+        export_dir=export_dir or Path(_SETTINGS.export_dir),
+    )
 
 
 def download_portfolio_prices(
@@ -114,44 +96,16 @@ def download_portfolio_prices(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> dict[str, pd.DataFrame]:
-    """Download price histories for *tickers* and write each to CSV.
+    """Download price histories for *tickers* and write each to CSV."""
 
-    When ``start`` or ``end`` are provided the request is constrained to the
-    supplied window; otherwise the ``period`` argument is forwarded unchanged to
-    ``yfinance``.
-    """
-
-    yf_module = _ensure_yfinance()
-    price_history_dir = Path(price_history_dir)
-    price_history_dir.mkdir(parents=True, exist_ok=True)
-
-    results: dict[str, pd.DataFrame] = {}
-
-    history_kwargs: dict[str, object] = {"interval": interval}
-    if start is not None:
-        history_kwargs["start"] = start
-    if end is not None:
-        history_kwargs["end"] = end
-    if start is None and end is None and period:
-        history_kwargs["period"] = period
-
-    for ticker in sorted(set(tickers)):
-        logger.info("Downloading price history for: %s", ticker)
-        try:
-            history = yf_module.Ticker(ticker).history(**history_kwargs.copy())
-        except Exception as exc:  # pragma: no cover - API/network errors
-            logger.error("Error downloading %s: %s", ticker, exc)
-            continue
-
-        if history.empty:
-            logger.warning("No data returned for %s", ticker)
-            continue
-
-        csv_path = price_history_dir / f"{ticker}_hist.csv"
-        history.to_csv(csv_path)
-        results[ticker] = history
-
-    return results
+    service = _collation_service(price_history_dir=Path(price_history_dir))
+    return service.download_portfolio_prices(
+        tickers,
+        period=period,
+        interval=interval,
+        start=start,
+        end=end,
+    )
 
 
 def collate_prices(
@@ -163,43 +117,11 @@ def collate_prices(
 ) -> pd.DataFrame:
     """Combine downloaded price histories into a single CSV per portfolio."""
 
-    frames = []
-    price_history_dir = Path(price_history_dir)
-
-    for ticker in tickers:
-        csv_path = price_history_dir / f"{ticker}_hist.csv"
-        if not csv_path.exists():
-            logger.warning("Price history missing for %s", ticker)
-            continue
-
-        df = pd.read_csv(csv_path)
-        if "Date" not in df.columns or "Close" not in df.columns:
-            logger.error("Unexpected columns in %s", csv_path)
-            continue
-
-        timestamps = pd.to_datetime(df["Date"], utc=True, errors="coerce")
-        if timestamps.isna().all():
-            logger.error("Unable to parse dates for %s", csv_path)
-            continue
-
-        df = df.loc[~timestamps.isna()].copy()
-        df["Date"] = timestamps.loc[~timestamps.isna()].dt.tz_convert(None).dt.date.astype(str)
-        df.set_index("Date", inplace=True)
-        frames.append(df[["Close"]].rename(columns={"Close": ticker}))
-
-    if not frames:
-        logger.warning("No price data collated for %s", portfolio_name)
-        return pd.DataFrame()
-
-    combined = pd.concat(frames, axis=1)
-    cleaned = combined.dropna(axis=1, how="all")
-
-    export_dir = Path(export_dir)
-    export_dir.mkdir(parents=True, exist_ok=True)
-    output_path = export_dir / f"{portfolio_name}_collated.csv"
-    cleaned.to_csv(output_path)
-
-    return cleaned
+    service = _collation_service(
+        price_history_dir=Path(price_history_dir),
+        export_dir=Path(export_dir),
+    )
+    return service.collate_portfolio(portfolio_name, list(tickers))
 
 
 def process_portfolio(
@@ -215,27 +137,22 @@ def process_portfolio(
     """Download and collate prices for the portfolio described in *portfolio_file*."""
 
     portfolio_file = Path(portfolio_file)
-    portfolio_name = portfolio_file.stem
-    tickers = read_tickers_from_file(portfolio_file)
-
+    tickers = sorted(read_tickers_from_file(portfolio_file))
     if not tickers:
-        logger.warning("No tickers found for portfolio: %s", portfolio_name)
+        logger.warning("No tickers found for portfolio: %s", portfolio_file.stem)
         return pd.DataFrame()
 
-    download_portfolio_prices(
+    service = _collation_service(
+        price_history_dir=Path(price_history_dir),
+        export_dir=Path(export_dir),
+    )
+    return service.process_portfolio(
+        portfolio_file.stem,
         tickers,
-        price_history_dir=price_history_dir,
         period=period,
         interval=interval,
         start=start,
         end=end,
-    )
-
-    return collate_prices(
-        portfolio_name,
-        price_history_dir=price_history_dir,
-        tickers=sorted(tickers),
-        export_dir=export_dir,
     )
 
 
@@ -249,29 +166,33 @@ def process_all_portfolios(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> dict[str, pd.DataFrame]:
-    """Run the full download/collation workflow for every portfolio file."""
+    """Run the download/collation workflow for every portfolio file."""
 
-    results: dict[str, pd.DataFrame] = {}
+    workflow = PortfolioDownloadWorkflow(
+        settings=_SETTINGS,
+        portfolio_dir=Path(portfolio_dir),
+        price_history_dir=Path(price_history_dir),
+        export_dir=Path(export_dir),
+    )
 
-    for csv_path in get_csv_file_paths(Path(portfolio_dir)):
-        logger.info("Processing portfolio: %s", csv_path)
-        frame = process_portfolio(
-            csv_path,
-            price_history_dir=price_history_dir,
-            export_dir=export_dir,
-            period=period,
-            interval=interval,
-            start=start,
-            end=end,
-        )
-        if not frame.empty:
-            results[csv_path.stem] = frame
-
+    results = workflow.process_portfolios(
+        names=None,
+        period=period,
+        interval=interval,
+        start=start,
+        end=end,
+    )
     return results
 
 
+def _ensure_yfinance():  # pragma: no cover - compatibility shim
+    if yf is None:
+        raise RuntimeError("yfinance must be installed to download market data.")
+    return yf
+
+
 class SecurityDataCollector:
-    """Wrapper around ``yfinance`` helpers for single-ticker information."""
+    """Wrapper around yfinance helpers for single-ticker information."""
 
     def __init__(self, ticker: str):
         if not ticker:
@@ -395,30 +316,28 @@ class SecurityDataCollector:
         start: Optional[str] = None,
         end: Optional[str] = None,
     ) -> pd.DataFrame:
-        history_kwargs: dict[str, object] = {"interval": interval}
-        if start is not None:
-            history_kwargs["start"] = start
-        if end is not None:
-            history_kwargs["end"] = end
-        if start is None and end is None and period:
-            history_kwargs["period"] = period
-
-        data = yf.Ticker(self.ticker).history(**history_kwargs)
+        fetcher = YFinancePriceFetcher()
+        frame = fetcher.fetch_history(
+            self.ticker,
+            period=period,
+            interval=interval,
+            start=start,
+            end=end,
+        )
         destination = Path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         output = destination / f"{self.ticker}_hist.csv"
-        data.to_csv(output)
-        return data
+        frame.to_csv(output)
+        return frame
 
 
 def main() -> None:  # pragma: no cover - script entry point
     setup_logging()
-
     csv_files = get_csv_file_paths(PORTFOLIO_DIR)
-    for portfolio in csv_files:
-        tickers = read_tickers_from_file(portfolio)
-        logger.info("Tickers for %s: %s", portfolio.stem, ", ".join(sorted(tickers)))
-        process_portfolio(portfolio)
+    for portfolio_path in csv_files:
+        tickers = read_tickers_from_file(portfolio_path)
+        logger.info("Tickers for %s: %s", portfolio_path.stem, ", ".join(sorted(tickers)))
+        process_portfolio(portfolio_path)
 
 
 if __name__ == "__main__":  # pragma: no cover

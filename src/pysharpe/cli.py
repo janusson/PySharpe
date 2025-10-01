@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 try:
-    from pysharpe import data_collector, portfolio_optimization
+    from pysharpe import data_collector, workflows
+    from pysharpe.optimization.models import OptimisationResult
 except ImportError:  # pragma: no cover - support running as a script
     import sys
     package_root = Path(__file__).resolve().parent
     sys.path.insert(0, str(package_root.parent))
-    from pysharpe import data_collector, portfolio_optimization  # type: ignore
+    from pysharpe import data_collector, workflows  # type: ignore
+    from pysharpe.optimization.models import OptimisationResult  # type: ignore
 
 
 
@@ -34,33 +36,17 @@ def _handle_download(args: argparse.Namespace) -> int:
     start: str | None = args.start
     end: str | None = args.end
 
-    if target_portfolios:
-        processed = {}
-        for name in target_portfolios:
-            portfolio_file = _resolve_portfolio_file(name, portfolio_dir)
-            frame = data_collector.process_portfolio(
-                portfolio_file,
-                price_history_dir=price_dir,
-                export_dir=export_dir,
-                period=period,
-                interval=interval,
-                start=start,
-                end=end,
-            )
-            if not frame.empty:
-                processed[portfolio_file.stem] = frame
-        portfolio_names = sorted(processed.keys())
-    else:
-        processed = data_collector.process_all_portfolios(
-            portfolio_dir,
-            price_history_dir=price_dir,
-            export_dir=export_dir,
-            period=period,
-            interval=interval,
-            start=start,
-            end=end,
-        )
-        portfolio_names = sorted(processed.keys())
+    processed = workflows.download_portfolios(
+        portfolio_names=target_portfolios,
+        portfolio_dir=portfolio_dir,
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+        period=period,
+        interval=interval,
+        start=start,
+        end=end,
+    )
+    portfolio_names = sorted(processed.keys())
 
     if not portfolio_names:
         print("No portfolios processed")
@@ -78,70 +64,35 @@ def _handle_optimize(args: argparse.Namespace) -> int:
     time_constraint: str | None = args.start
     make_plot = not args.no_plot
 
-    target_portfolios: Iterable[str]
-    if args.portfolios:
-        target_portfolios = [name for name in args.portfolios]
-    else:
-        target_portfolios = _discover_collated_names(collated_dir)
+    results = workflows.optimise_portfolios(
+        portfolio_names=args.portfolios,
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        time_constraint=time_constraint,
+        make_plot=make_plot,
+    )
 
-    processed_any = False
-    for name in target_portfolios:
-        try:
-            weights, performance = portfolio_optimization.optimise_portfolio(
-                name,
-                collated_dir=collated_dir,
-                output_dir=output_dir,
-                time_constraint=time_constraint,
-                make_plot=make_plot,
-            )
-        except FileNotFoundError as exc:
-            print(f"Skipping {name}: {exc}")
-            continue
-        except ValueError as exc:
-            print(f"Skipping {name}: {exc}")
-            continue
-
-        expected, volatility, sharpe = performance
-        processed_any = True
-        print(
-            f"Optimised {name}: expected return {expected:.2%}, "
-            f"volatility {volatility:.2%}, sharpe {sharpe:.2f}"
-        )
-        non_zero = {ticker: weight for ticker, weight in weights.items() if weight > 0}
-        if non_zero:
-            allocations = ", ".join(
-                f"{ticker}={weight:.2%}" for ticker, weight in sorted(non_zero.items())
-            )
-            print(f"  Weights: {allocations}")
-
-    if not processed_any:
+    if not results:
         print("No portfolios optimised")
         return 1
 
+    _print_optimisation_results(results.values())
     return 0
 
 
-def _resolve_portfolio_file(name: str, directory: Path) -> Path:
-    candidate = Path(name)
-    if candidate.exists() and candidate.is_file():
-        return candidate
-
-    if not name.endswith(".csv"):
-        candidate = directory / f"{name}.csv"
-    else:
-        candidate = directory / name
-
-    if not candidate.exists():
-        raise FileNotFoundError(f"Portfolio file not found: {candidate}")
-
-    return candidate
-
-
-def _discover_collated_names(collated_dir: Path) -> list[str]:
-    return sorted(
-        path.stem.replace("_collated", "")
-        for path in collated_dir.glob("*_collated.csv")
-    )
+def _print_optimisation_results(results: Iterable[OptimisationResult]) -> None:
+    for result in sorted(results, key=lambda item: item.name):
+        perf = result.performance
+        print(
+            f"Optimised {result.name}: expected return {perf.expected_return:.2%}, "
+            f"volatility {perf.volatility:.2%}, sharpe {perf.sharpe_ratio:.2f}"
+        )
+        weights = result.weights.non_zero()
+        if weights:
+            allocations = ", ".join(
+                f"{ticker}={weight:.2%}" for ticker, weight in sorted(weights.items())
+            )
+            print(f"  Weights: {allocations}")
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -14,12 +14,19 @@ decisions before implementation work begins.
 
 ## Module layout
 
-- `pysharpe.data`: APIs for data ingestion and preprocessing.
-- `pysharpe.optimization`: Portfolio construction and rebalancing utilities.
-- `pysharpe.visualization`: Plotting helpers and reusable chart styles.
+- `pysharpe.config`: Centralised configuration points (paths, logging, artefact versioning).
+- `pysharpe.data`: Portfolio repositories, price fetchers, and collation workflows.
+- `pysharpe.optimization`: Dataclasses describing optimisation outcomes.
+- `pysharpe.portfolio_optimization`: Max-Sharpe optimiser built on PyPortfolioOpt.
+- `pysharpe.visualization`: Plotting helpers (including DCA projections) and reusable chart styles.
+- `pysharpe.workflows`: High-level orchestration for CLI, notebooks, or future UIs.
 
 ## Next steps
 
-1. Expand automated test coverage for data ingestion edge cases.
-2. Add a command-line interface for running optimisations from the terminal.
-3. Create example Jupyter notebooks demonstrating the end-to-end workflow.
+The CLI outlined above now ships with the project. Upcoming milestones focus on
+rounding out developer ergonomics and user-facing documentation:
+
+1. Expand automated test coverage for data ingestion, CLI flows, and
+   visualisation utilities.
+2. Create example Jupyter notebooks demonstrating the end-to-end workflow.
+3. Prepare deployment logistics (release automation and packaging guidance).

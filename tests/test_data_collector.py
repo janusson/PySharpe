@@ -9,20 +9,6 @@ import pandas as pd
 from pysharpe import data_collector
 
 
-def _fake_yfinance(history_frame: pd.DataFrame):
-    calls: list[dict[str, object]] = []
-
-    class _Ticker:
-        def __init__(self, symbol: str) -> None:
-            self.symbol = symbol
-
-        def history(self, **kwargs):  # noqa: D401 - stub method signature
-            calls.append({"symbol": self.symbol, "kwargs": kwargs})
-            return history_frame
-
-    return types.SimpleNamespace(Ticker=_Ticker, calls=calls)
-
-
 def test_get_csv_file_paths(tmp_path):
     (tmp_path / "alpha.csv").write_text("AAPL", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("IGNORE", encoding="utf-8")
@@ -30,7 +16,6 @@ def test_get_csv_file_paths(tmp_path):
 
     files = data_collector.get_csv_file_paths(tmp_path)
     assert [path.name for path in files] == ["alpha.csv", "gamma.csv"]
-
 
 def test_download_and_collate_prices(monkeypatch, tmp_path):
     history = pd.DataFrame(
@@ -40,8 +25,38 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
         }
     )
 
-    fake_yf = _fake_yfinance(history)
-    monkeypatch.setattr(data_collector, "yf", fake_yf)
+    instances: list[object] = []
+
+    class _StubFetcher:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def fetch_history(
+            self,
+            ticker: str,
+            *,
+            period: str,
+            interval: str,
+            start: str | None,
+            end: str | None,
+        ):
+            self.calls.append(
+                {
+                    "ticker": ticker,
+                    "period": period,
+                    "interval": interval,
+                    "start": start,
+                    "end": end,
+                }
+            )
+            return history
+
+    def _factory() -> _StubFetcher:
+        instance = _StubFetcher()
+        instances.append(instance)
+        return instance
+
+    monkeypatch.setattr(data_collector, "YFinancePriceFetcher", _factory)
 
     portfolio_file = tmp_path / "demo.csv"
     portfolio_file.write_text("AAA\n", encoding="utf-8")
@@ -60,10 +75,9 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
     assert "AAA" in frame.columns
     assert (price_dir / "AAA_hist.csv").exists()
     assert (export_dir / "demo_collated.csv").exists()
-    assert fake_yf.calls[0]["kwargs"]["period"] == "1y"
-    assert "start" not in fake_yf.calls[0]["kwargs"]
-
-    fake_yf.calls.clear()
+    assert (export_dir / "demo_metadata.json").exists()
+    assert instances[0].calls[0]["period"] == "1y"
+    assert instances[0].calls[0]["start"] is None
 
     data_collector.process_portfolio(
         portfolio_file,
@@ -73,8 +87,9 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
         start="2023-01-01",
     )
 
-    assert fake_yf.calls[0]["kwargs"]["start"] == "2023-01-01"
-    assert "period" not in fake_yf.calls[0]["kwargs"]
+    # second invocation instantiates a new fetcher
+    assert instances[-1].calls[0]["start"] == "2023-01-01"
+    assert instances[-1].calls[0]["period"] == "max"
 
 
 def test_security_data_collector_download(monkeypatch, tmp_path):
@@ -102,3 +117,32 @@ def test_security_data_collector_download(monkeypatch, tmp_path):
 
     price_frame = collector.download_price_history(tmp_path)
     assert not price_frame.empty
+
+
+def test_read_tickers_from_file_strips_comments_and_duplicates(tmp_path):
+    portfolio_file = tmp_path / "demo.csv"
+    portfolio_file.write_text("# comment\nAAPL\nMSFT\nAAPL\n", encoding="utf-8")
+
+    tickers = data_collector.read_tickers_from_file(portfolio_file)
+    assert tickers == {"AAPL", "MSFT"}
+
+
+def test_portfolio_ticker_reader_refresh_handles_empty_files(tmp_path):
+    portfolio_dir = tmp_path / "portfolio"
+    portfolio_dir.mkdir()
+
+    (portfolio_dir / "growth.csv").write_text("AAPL\nMSFT\n", encoding="utf-8")
+    reader = data_collector.PortfolioTickerReader(portfolio_dir)
+    assert reader.get_portfolio_tickers("growth") == {"AAPL", "MSFT"}
+
+    (portfolio_dir / "income.csv").write_text("T\n# placeholder\n", encoding="utf-8")
+    reader.refresh()
+    assert reader.get_portfolio_tickers("income") == {"T"}
+
+    (portfolio_dir / "empty.csv").write_text("# comment only\n", encoding="utf-8")
+    reader.refresh()
+    assert reader.get_portfolio_tickers("empty") == set()
+    assert "empty" not in reader.portfolio_tickers
+
+    # ensure previously loaded portfolios remain intact after refresh
+    assert reader.get_portfolio_tickers("growth") == {"AAPL", "MSFT"}

@@ -12,9 +12,12 @@ researchers evaluate asset allocations.
 PySharpe/
 ├── docs/                 # Design notes and supplementary documentation
 ├── src/pysharpe/         # Library source code (packaged with the src-layout)
+│   ├── config.py         # Centralised settings and path management
 │   ├── data/             # Market data ingestion helpers
-│   ├── optimization/     # Portfolio optimization logic
-│   └── visualization/    # Plotting utilities for analytics
+│   ├── optimization/     # Dataclasses and optimisation primitives
+│   ├── portfolio_optimization.py  # Max-Sharpe engine built on PyPortfolioOpt
+│   ├── visualization/    # Plotting utilities (e.g. DCA projections) for analytics
+│   └── workflows.py      # High-level orchestration for CLI and notebooks
 ├── tests/                # Automated tests
 ├── pyproject.toml        # Packaging and tooling configuration
 └── README.md             # This file
@@ -38,7 +41,7 @@ PySharpe/
 3. **Run the test suite** to verify the environment:
 
    ```bash
-   pytest
+   python3 -m pytest
    ```
 
 ## Command line interface
@@ -91,6 +94,33 @@ download step). It generates weight allocations (`*_weights.txt`), performance
 summaries (`*_performance.txt`), and optional allocation plots for each
 portfolio.
 
+> **Note:** Plot generation requires `matplotlib`. Install it via
+> `pip install matplotlib` or pass `--no-plot` to skip figure creation on
+> minimal environments.
+
+### Dollar-cost averaging projections
+
+PySharpe also ships a reusable simulator for dollar-cost averaging scenarios
+under `pysharpe.visualization`. You can generate projections and optional plots
+directly from Python:
+
+```python
+from pysharpe.visualization import simulate_dca, plot_dca_projection
+
+projection = simulate_dca(
+    months=24 * 12,
+    initial_investment=20_000,
+    monthly_contribution=1_750,
+    annual_return_rate=0.17,
+)
+
+ax = plot_dca_projection(projection)
+ax.figure.savefig("dca_projection.png")
+```
+
+This mirrors the exploratory scripts that previously lived under `drafts/` and
+keeps the logic importable for notebooks or other analysis pipelines.
+
 ### Alternative invocation methods
 
 You can always inspect additional options with `pysharpe download --help` or
@@ -120,10 +150,10 @@ Run `pysharpe --help` for the full set of options.
 
 1. Define portfolios as newline-delimited ticker lists under `data/portfolio/`.
 2. Run `pysharpe download` (or call
-   `pysharpe.data_collector.process_all_portfolios`) to download individual
+   `pysharpe.workflows.download_portfolios`) to download individual
    ticker histories and collate them per portfolio.
 3. Run `pysharpe optimize` (or call
-   `pysharpe.portfolio_optimization.optimise_all_portfolios`) to compute
+   `pysharpe.workflows.optimise_portfolios`) to compute
    Sharpe-maximising weights and performance metrics.
 4. Review artefacts under `data/price_hist/`, `data/exports/`, and `logs/` as
    needed.
@@ -131,16 +161,15 @@ Run `pysharpe --help` for the full set of options.
 ## Usage example
 
 ```python
-from datetime import datetime
+from datetime import date
 
-from pysharpe.data import data_collector
-from pysharpe.optimization import portfolio_optimization
+from pysharpe.workflows import download_portfolios, optimise_portfolios
 
 # Collect price histories, collate them, and persist the CSV files
-data_collector.process_all_portfolios(start=datetime(2020, 1, 1))
+download_portfolios(start=date(2020, 1, 1).isoformat())
 
 # Optimise the collated portfolios and export weights/performance summaries
-portfolio_optimization.optimize_all_portfolios()
+optimise_portfolios(make_plot=False)
 ```
 
 More documentation and notebook examples will be added as the project evolves.

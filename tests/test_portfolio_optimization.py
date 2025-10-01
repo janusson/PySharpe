@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
 import pandas as pd
 
 from pysharpe import portfolio_optimization
-
-matplotlib.use("Agg")
+from pysharpe.optimization.models import OptimisationResult
 
 
 def _write_collated(tmp_path: Path, name: str) -> Path:
@@ -32,15 +30,16 @@ def test_optimise_portfolio_creates_outputs(tmp_path):
 
     _write_collated(collated_dir, "demo")
 
-    weights, performance = portfolio_optimization.optimise_portfolio(
+    result = portfolio_optimization.optimise_portfolio(
         "demo",
         collated_dir=collated_dir,
         output_dir=output_dir,
         make_plot=False,
     )
 
-    assert set(weights.keys()) == {"AAA", "BBB"}
-    assert len(performance) == 3
+    assert isinstance(result, OptimisationResult)
+    assert set(result.weights.allocations.keys()) == {"AAA", "BBB"}
+    assert result.performance.sharpe_ratio != 0
     assert (output_dir / "demo_weights.txt").exists()
     assert (output_dir / "demo_performance.txt").exists()
 
@@ -59,6 +58,8 @@ def test_optimise_all_portfolios(tmp_path):
     )
 
     assert {"alpha", "beta"} == set(results.keys())
+    for value in results.values():
+        assert isinstance(value, OptimisationResult)
 
 
 def test_missing_collated_file_raises(tmp_path):

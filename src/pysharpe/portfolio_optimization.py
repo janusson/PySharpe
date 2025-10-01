@@ -1,24 +1,27 @@
-"""Portfolio optimisation helpers mirroring the original script."""
+"""Portfolio optimisation helpers."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, Optional
 
-import matplotlib.pyplot as plt
 import pandas as pd
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 
-try:  # Allow running as a script without installing the package.
-    from .data_collector import EXPORT_DIR
-except ImportError:
-    import sys
+from pysharpe.config import get_settings
+from pysharpe.optimization.models import (
+    OptimisationPerformance,
+    OptimisationResult,
+    PortfolioWeights,
+)
 
-    PACKAGE_ROOT = Path(__file__).resolve().parent
-    sys.path.insert(0, str(PACKAGE_ROOT.parent))
-    from pysharpe.data_collector import EXPORT_DIR  # type: ignore  # noqa: E402
+_SETTINGS = get_settings()
+EXPORT_DIR = Path(_SETTINGS.export_dir)
+
+logger = logging.getLogger(__name__)
 
 
 def _load_collated_prices(
@@ -45,47 +48,58 @@ def _load_collated_prices(
     return frame
 
 
-def _plot_allocation(weights: Dict[str, float], portfolio_name: str, output_dir: Path) -> Path:
-    filtered = {asset: weight for asset, weight in weights.items() if weight > 0}
-    if not filtered:
+def _require_matplotlib():  # pragma: no cover - optional dependency
+    try:
+        import matplotlib.pyplot as plt  # type: ignore
+    except ImportError as exc:  # pragma: no cover - raised when missing
+        raise RuntimeError(
+            "matplotlib must be installed to generate allocation plots."
+        ) from exc
+    return plt
+
+
+def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
+    weights = result.weights.non_zero()
+    if not weights:
         raise ValueError("No positive weights to plot")
 
+    plt = _require_matplotlib()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{portfolio_name}_allocation.png"
+    output_path = output_dir / f"{result.name}_allocation.png"
 
     fig, ax = plt.subplots()
-    ax.pie(filtered.values(), labels=filtered.keys(), autopct="%1.1f%%", startangle=90)
+    ax.pie(weights.values(), labels=weights.keys(), autopct="%1.1f%%", startangle=90)
     ax.axis("equal")
-    plt.title(f"{portfolio_name} Allocation")
+    ax.set_title(f"{result.name} Allocation")
     plt.savefig(output_path)
     plt.close(fig)
     return output_path
 
 
-def _save_weights(weights: Dict[str, float], portfolio_name: str, output_dir: Path) -> Path:
+def _save_weights(result: OptimisationResult, output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{portfolio_name}_weights.txt"
+    output_path = output_dir / f"{result.name}_weights.txt"
 
     lines = ["ticker,weight"]
-    for ticker, weight in weights.items():
+    for ticker, weight in result.weights.allocations.items():
         lines.append(f"{ticker},{weight:.8f}")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
     return output_path
 
 
-def _save_performance(perf: Tuple[float, float, float], portfolio_name: str, output_dir: Path) -> Path:
+def _save_performance(result: OptimisationResult, output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{portfolio_name}_performance.txt"
+    output_path = output_dir / f"{result.name}_performance.txt"
 
-    expected, volatility, sharpe = perf
+    perf = result.performance
     lines = [
-        f"Expected annual return: {expected * 100:.2f}%",
-        f"Annual volatility: {volatility * 100:.2f}%",
-        f"Sharpe Ratio: {sharpe:.2f}",
+        f"Expected annual return: {perf.expected_return * 100:.2f}%",
+        f"Annual volatility: {perf.volatility * 100:.2f}%",
+        f"Sharpe Ratio: {perf.sharpe_ratio:.2f}",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     return output_path
@@ -100,7 +114,7 @@ def optimise_portfolio(
     asset_constraints: Optional[Dict[str, float]] = None,
     geo_exposure: Optional[Iterable] = None,  # placeholder for future logic
     make_plot: bool = True,
-) -> Tuple[Dict[str, float], Tuple[float, float, float]]:
+) -> OptimisationResult:
     """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow."""
 
     prices = _load_collated_prices(portfolio_name, collated_dir, time_constraint=time_constraint)
@@ -124,15 +138,24 @@ def optimise_portfolio(
 
     ef.max_sharpe()
     cleaned_weights = ef.clean_weights()
-    performance = ef.portfolio_performance(verbose=False)
+    expected, volatility, sharpe = ef.portfolio_performance(verbose=False)
 
-    _save_weights(cleaned_weights, portfolio_name, output_dir)
-    _save_performance(performance, portfolio_name, output_dir)
+    result = OptimisationResult(
+        name=portfolio_name,
+        weights=PortfolioWeights(cleaned_weights),
+        performance=OptimisationPerformance(expected, volatility, sharpe),
+    )
+
+    _save_weights(result, output_dir)
+    _save_performance(result, output_dir)
 
     if make_plot:
-        _plot_allocation(cleaned_weights, portfolio_name, output_dir)
+        try:
+            _plot_allocation(result, output_dir)
+        except RuntimeError as exc:
+            logger.warning("Skipping allocation plot for %s: %s", portfolio_name, exc)
 
-    return cleaned_weights, performance
+    return result
 
 
 def optimise_all_portfolios(
@@ -140,10 +163,10 @@ def optimise_all_portfolios(
     *,
     output_dir: Path = EXPORT_DIR,
     time_constraint: Optional[str] = None,
-) -> Dict[str, Tuple[Dict[str, float], Tuple[float, float, float]]]:
+) -> Dict[str, OptimisationResult]:
     """Optimise every collated portfolio in *collated_dir*."""
 
-    results: Dict[str, Tuple[Dict[str, float], Tuple[float, float, float]]] = {}
+    results: Dict[str, OptimisationResult] = {}
 
     for path in Path(collated_dir).glob("*_collated.csv"):
         name = path.stem.replace("_collated", "")
@@ -161,7 +184,7 @@ def main() -> None:  # pragma: no cover - interactive legacy flow
     collated_dir = EXPORT_DIR
     output_dir = EXPORT_DIR
 
-    portfolio_files = [path for path in Path("data/portfolio").glob("*.csv")]
+    portfolio_files = [path for path in Path(_SETTINGS.portfolio_dir).glob("*.csv")]
     print(f"Found {len(portfolio_files)} portfolios:")
     for csv_path in portfolio_files:
         try:
