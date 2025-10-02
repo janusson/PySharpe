@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 pysharpe = "pysharpe.cli:main"
+pysharpe-gui = "pysharpe.gui:main"
 
 [project.urls]
 Homepage = "https://github.com/janusson/PySharpe/"

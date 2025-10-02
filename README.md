@@ -41,9 +41,31 @@ PySharpe/
    pytest
    ```
 
+## Graphical interface
+
+For an interactive experience PySharpe includes a Tkinter-based desktop
+application. Launch it after installation with:
+
+```bash
+pysharpe-gui
+```
+
+The GUI allows you to:
+
+* Paste or load a CSV containing ticker symbols, then download their price
+  histories to `data/price_hist/` (or a directory of your choice).
+* Collate the downloaded histories into a single portfolio CSV.
+* Optimise an existing collated portfolio and export the resulting weights and
+  performance summaries.
+
+If you prefer not to install the package, the interface can also be started via
+`python -m pysharpe.gui` from the repository root. Tkinter is bundled with most
+Python distributions; if it is missing, install the platform-specific packages
+that provide it before launching the GUI.
+
 ## Command line interface
 
-PySharpe ships with a small CLI that wraps the two major workflows: collecting
+PySharpe also ships with a CLI that wraps the two major workflows: collecting
 price histories and optimising the resulting portfolios. Once installed
 (for example via `pip install -e .[dev]` during development), the `pysharpe`
 command becomes available and exposes the following subcommands:

@@ -17,6 +17,7 @@ from .data_collector import (  # noqa: F401
     read_tickers_from_file,
     setup_logging,
 )
+from .gui import PySharpeGUI  # noqa: F401
 from .portfolio_optimization import (  # noqa: F401
     optimise_all_portfolios,
     optimise_portfolio,
@@ -40,4 +41,5 @@ __all__ = [
     "setup_logging",
     "optimise_portfolio",
     "optimise_all_portfolios",
+    "PySharpeGUI",
 ]
