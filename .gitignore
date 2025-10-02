@@ -1,3 +1,6 @@
+# Project-specific ignores
+original_program/
+
 # Python.gitignore
 logs/
 
