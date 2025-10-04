@@ -1,83 +1,35 @@
-"""Command line interface for PySharpe."""
+"""Simplified command line interface for PySharpe."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, List, Sequence
 
 try:
     from pysharpe import data_collector, workflows
+    from pysharpe.config import get_settings
+    from pysharpe.data import PortfolioDefinition, PortfolioRepository
     from pysharpe.optimization.models import OptimisationResult
 except ImportError:  # pragma: no cover - support running as a script
     import sys
+
     package_root = Path(__file__).resolve().parent
     sys.path.insert(0, str(package_root.parent))
     from pysharpe import data_collector, workflows  # type: ignore
+    from pysharpe.config import get_settings  # type: ignore
+    from pysharpe.data import PortfolioDefinition, PortfolioRepository  # type: ignore
     from pysharpe.optimization.models import OptimisationResult  # type: ignore
 
 
+DEFAULT_PERIOD = "max"
+DEFAULT_INTERVAL = "1d"
 
-def _with_default_path(value: str | Path) -> Path:
+
+def _resolve_path(value: str | Path | None) -> Path | None:
+    if value is None:
+        return None
     return Path(value).expanduser().resolve()
-
-
-def _handle_download(args: argparse.Namespace) -> int:
-    portfolio_dir = _with_default_path(args.portfolio_dir)
-    price_dir = _with_default_path(args.price_dir)
-    export_dir = _with_default_path(args.export_dir)
-
-    if args.log_dir:
-        data_collector.setup_logging(_with_default_path(args.log_dir))
-
-    target_portfolios: Sequence[str] | None = args.portfolios
-    period: str = args.period
-    interval: str = args.interval
-    start: str | None = args.start
-    end: str | None = args.end
-
-    processed = workflows.download_portfolios(
-        portfolio_names=target_portfolios,
-        portfolio_dir=portfolio_dir,
-        price_history_dir=price_dir,
-        export_dir=export_dir,
-        period=period,
-        interval=interval,
-        start=start,
-        end=end,
-    )
-    portfolio_names = sorted(processed.keys())
-
-    if not portfolio_names:
-        print("No portfolios processed")
-        return 1
-
-    for name in portfolio_names:
-        print(f"Collated prices exported for: {name}")
-
-    return 0
-
-
-def _handle_optimize(args: argparse.Namespace) -> int:
-    collated_dir = _with_default_path(args.collated_dir)
-    output_dir = _with_default_path(args.output_dir)
-    time_constraint: str | None = args.start
-    make_plot = not args.no_plot
-
-    results = workflows.optimise_portfolios(
-        portfolio_names=args.portfolios,
-        collated_dir=collated_dir,
-        output_dir=output_dir,
-        time_constraint=time_constraint,
-        make_plot=make_plot,
-    )
-
-    if not results:
-        print("No portfolios optimised")
-        return 1
-
-    _print_optimisation_results(results.values())
-    return 0
 
 
 def _print_optimisation_results(results: Iterable[OptimisationResult]) -> None:
@@ -96,97 +48,187 @@ def _print_optimisation_results(results: Iterable[OptimisationResult]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pysharpe", description="PySharpe command line interface")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    download = subparsers.add_parser(
-        "download",
-        help="Download price histories and collate portfolio data",
+    parser = argparse.ArgumentParser(
+        prog="pysharpe",
+        description="Download price history and optimise portfolios in one step.",
     )
-    download.add_argument(
-        "--portfolio-dir",
-        default=data_collector.PORTFOLIO_DIR,
-        help="Directory containing portfolio CSV definitions",
-    )
-    download.add_argument(
-        "--price-dir",
-        default=data_collector.PRICE_HISTORY_DIR,
-        help="Directory for individual price history CSV files",
-    )
-    download.add_argument(
-        "--export-dir",
-        default=data_collector.EXPORT_DIR,
-        help="Directory for collated price CSV files",
-    )
-    download.add_argument(
-        "--period",
-        default="max",
-        help="Time period passed to yfinance history()",
-    )
-    download.add_argument(
-        "--interval",
-        default="1d",
-        help="Sampling interval passed to yfinance history()",
-    )
-    download.add_argument(
-        "--start",
-        help="Optional ISO date to begin the download window",
-    )
-    download.add_argument(
-        "--end",
-        help="Optional ISO date to end the download window",
-    )
-    download.add_argument(
-        "--log-dir",
-        help="Optional directory for log files; enables file logging if provided",
-    )
-    download.add_argument(
-        "portfolios",
+    parser.add_argument(
+        "--portfolio",
+        dest="portfolios",
         nargs="*",
-        help="Optional portfolio names or CSV files to process (defaults to all)",
+        help="Optional portfolio names to target (defaults to all discovered portfolios).",
     )
-    download.set_defaults(func=_handle_download)
-
-    optimise = subparsers.add_parser(
-        "optimize",
-        help="Optimise collated portfolios to maximise Sharpe ratio",
+    parser.add_argument(
+        "--portfolio-dir",
+        help=(
+            "Directory containing portfolio CSVs (default:"
+            f" {data_collector.PORTFOLIO_DIR})"
+        ),
     )
-    optimise.add_argument(
-        "--collated-dir",
-        default=data_collector.EXPORT_DIR,
-        help="Directory containing collated price CSV files",
+    parser.add_argument(
+        "--price-dir",
+        help=(
+            "Directory for individual price history CSV files (default:"
+            f" {data_collector.PRICE_HISTORY_DIR})"
+        ),
     )
-    optimise.add_argument(
-        "--output-dir",
-        default=data_collector.EXPORT_DIR,
-        help="Directory where optimisation artefacts are written",
+    parser.add_argument(
+        "--export-dir",
+        help=(
+            "Directory for collated price files and optimisation artefacts (default:"
+            f" {data_collector.EXPORT_DIR})"
+        ),
     )
-    optimise.add_argument(
+    parser.add_argument(
+        "--log-dir",
+        help="Optional directory for log files; enables file logging if provided.",
+    )
+    parser.add_argument(
+        "--period",
+        default=DEFAULT_PERIOD,
+        help=f"yfinance period passed to history() when no explicit dates are supplied (default: {DEFAULT_PERIOD}).",
+    )
+    parser.add_argument(
+        "--interval",
+        default=DEFAULT_INTERVAL,
+        help=f"Sampling interval passed to yfinance history() (default: {DEFAULT_INTERVAL}).",
+    )
+    parser.add_argument(
         "--start",
-        "--time-constraint",
-        dest="start",
-        help="Filter collated data to rows on/after the provided ISO date",
+        help="Optional ISO date marking the beginning of the download window.",
     )
-    optimise.add_argument(
+    parser.add_argument(
+        "--end",
+        help="Optional ISO date marking the end of the download window.",
+    )
+    parser.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Assume price history has already been downloaded and collated.",
+    )
+    parser.add_argument(
+        "--skip-optimize",
+        action="store_true",
+        help="Skip the optimisation step and stop after downloading data.",
+    )
+    parser.add_argument(
         "--no-plot",
         action="store_true",
-        help="Skip generating the allocation pie chart",
+        help="Skip generating allocation pie charts during optimisation.",
     )
-    optimise.add_argument(
-        "portfolios",
-        nargs="*",
-        help="Optional portfolio names to optimise (defaults to all collated files)",
-    )
-    optimise.set_defaults(func=_handle_optimize)
-
     return parser
+
+
+def _select_portfolios(
+    repo: PortfolioRepository, names: Sequence[str] | None
+) -> List[PortfolioDefinition]:
+    available = {definition.name: definition for definition in repo.list_portfolios()}
+    if not available:
+        return []
+
+    if not names:
+        return list(available.values())
+
+    selections = []
+    missing: list[str] = []
+    for name in names:
+        definition = available.get(name)
+        if definition is None:
+            missing.append(name)
+        else:
+            selections.append(definition)
+
+    if missing:
+        print("The following portfolio names were not found:")
+        for name in missing:
+            print(f"  - {name}")
+
+    return selections
+
+
+def _ensure_directories(*paths: Path) -> None:
+    for path in paths:
+        path.mkdir(parents=True, exist_ok=True)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handler = getattr(args, "func")
-    return handler(args)
+
+    settings = get_settings()
+    settings.ensure_directories()
+
+    portfolio_dir = _resolve_path(args.portfolio_dir) or Path(data_collector.PORTFOLIO_DIR)
+    price_dir = _resolve_path(args.price_dir) or Path(data_collector.PRICE_HISTORY_DIR)
+    export_dir = _resolve_path(args.export_dir) or Path(data_collector.EXPORT_DIR)
+    log_dir = _resolve_path(args.log_dir)
+
+    _ensure_directories(portfolio_dir, price_dir, export_dir)
+
+    if log_dir is not None:
+        data_collector.setup_logging(log_dir)
+
+    repo = PortfolioRepository(settings, directory=portfolio_dir)
+    available = repo.list_portfolios()
+    print(f"Portfolio definitions directory: {portfolio_dir}")
+
+    if not available:
+        print("No portfolio CSV files found. Add one ticker per line to create a portfolio.")
+        return 1
+
+    print("Available portfolios:")
+    for definition in available:
+        print(f"  - {definition.name} ({len(definition.tickers)} tickers)")
+
+    selected = _select_portfolios(repo, args.portfolios)
+    if not selected:
+        print("No valid portfolios selected.")
+        return 1
+
+    target_names = [definition.name for definition in selected]
+
+    if args.skip_download:
+        print("Skipping download step (per --skip-download).")
+    else:
+        print(
+            f"Downloading and collating price history to {export_dir}"
+            f" (raw data in {price_dir})."
+        )
+        processed = workflows.download_portfolios(
+            portfolio_names=target_names,
+            portfolio_dir=portfolio_dir,
+            price_history_dir=price_dir,
+            export_dir=export_dir,
+            period=args.period,
+            interval=args.interval,
+            start=args.start,
+            end=args.end,
+        )
+        if not processed:
+            print("No portfolios processed during download.")
+        else:
+            for name in sorted(processed):
+                print(f"  Collated data written to {export_dir / f'{name}_collated.csv'}")
+
+    if args.skip_optimize:
+        print("Skipping optimisation step (per --skip-optimize).")
+        return 0
+
+    print(f"Optimising portfolios using data in {export_dir}.")
+    results = workflows.optimise_portfolios(
+        portfolio_names=target_names,
+        collated_dir=export_dir,
+        output_dir=export_dir,
+        time_constraint=None,
+        make_plot=not args.no_plot,
+    )
+    if not results:
+        print("No portfolios optimised.")
+        return 1
+
+    _print_optimisation_results(results.values())
+    print(f"Optimisation artefacts saved to {export_dir}.")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

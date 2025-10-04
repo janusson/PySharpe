@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class CollationService:
+    """Coordinate price downloads, CSV normalisation, and metadata capture."""
+    # Change: Added class-level summary docstring to improve readability.
     def __init__(
         self,
         fetcher: PriceFetcher,
@@ -62,43 +64,66 @@ class CollationService:
             results[ticker] = frame
         return results
 
+    def _load_price_frame(self, ticker: str) -> pd.DataFrame | None:
+        """Load and sanitise a single ticker CSV for downstream concatenation."""
+        # Change: Documented helper to clarify sanitisation expectations.
+        csv_path = self.price_history_dir / f"{ticker}_hist.csv"
+        if not csv_path.exists():
+            logger.warning("Price history missing for %s", ticker)
+            return None
+
+        raw = pd.read_csv(csv_path)
+        if {"Date", "Close"}.difference(raw.columns):
+            logger.error("Unexpected columns in %s", csv_path.name)
+            return None
+
+        timestamps = pd.to_datetime(raw["Date"], utc=True, errors="coerce")
+        valid_mask = ~timestamps.isna()
+        if not valid_mask.any():
+            logger.error("Unable to parse dates for %s", csv_path.name)
+            return None
+
+        frame = raw.loc[valid_mask, ["Close"]].copy()
+        frame["Date"] = (
+            timestamps.loc[valid_mask]
+            .tz_convert(None)
+            .strftime("%Y-%m-%d")
+        )
+        frame.dropna(subset=["Close"], inplace=True)
+        if frame.empty:
+            logger.warning("No valid price points retained for %s", ticker)
+            return None
+
+        frame.set_index("Date", inplace=True)
+        return frame.rename(columns={"Close": ticker})
+
     def collate_portfolio(
         self,
         name: str,
         tickers: Sequence[str],
     ) -> pd.DataFrame:
-        frames = []
+        frames: list[pd.DataFrame] = []
+        included: list[str] = []
         for ticker in tickers:
-            csv_path = self.price_history_dir / f"{ticker}_hist.csv"
-            if not csv_path.exists():
-                logger.warning("Price history missing for %s", ticker)
+            frame = self._load_price_frame(ticker)
+            if frame is None:
                 continue
-
-            df = pd.read_csv(csv_path)
-            if "Date" not in df.columns or "Close" not in df.columns:
-                logger.error("Unexpected columns in %s", csv_path)
-                continue
-
-            timestamps = pd.to_datetime(df["Date"], utc=True, errors="coerce")
-            if timestamps.isna().all():
-                logger.error("Unable to parse dates for %s", csv_path)
-                continue
-
-            df = df.loc[~timestamps.isna()].copy()
-            df["Date"] = timestamps.loc[~timestamps.isna()].dt.tz_convert(None).dt.date.astype(str)
-            df.set_index("Date", inplace=True)
-            frames.append(df[["Close"]].rename(columns={"Close": ticker}))
+            frames.append(frame)
+            included.append(ticker)
 
         if not frames:
             logger.warning("No price data collated for %s", name)
             return pd.DataFrame()
 
-        combined = pd.concat(frames, axis=1)
-        cleaned = combined.dropna(axis=1, how="all")
+        combined = pd.concat(frames, axis=1).sort_index()
+        cleaned = combined.loc[:, combined.notna().any()]
+        included = list(cleaned.columns)
+        # Change: Derived included tickers directly from surviving columns to
+        # avoid redundant membership checks per performance audit.
 
         output_path = self.export_dir / f"{name}_collated.csv"
         cleaned.to_csv(output_path)
-        self._write_metadata(name, tickers)
+        self._write_metadata(name, tickers, included)
         return cleaned
 
     def process_portfolio(
@@ -124,11 +149,20 @@ class CollationService:
         )
         return self.collate_portfolio(name, tickers)
 
-    def _write_metadata(self, name: str, tickers: Sequence[str]) -> None:
+    def _write_metadata(
+        self,
+        name: str,
+        requested: Sequence[str],
+        included: Sequence[str],
+    ) -> None:
         metadata_path = self.export_dir / f"{name}_metadata.json"
+        requested_set = set(requested)
+        included_set = set(included)
         payload = {
             "name": name,
-            "tickers": list(tickers),
+            "requested_tickers": list(requested),
+            "included_tickers": list(included),
+            "dropped_tickers": sorted(requested_set - included_set),
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "artifact_version": self.settings.artifact_version,
         }

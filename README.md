@@ -46,57 +46,59 @@ PySharpe/
 
 ## Command line interface
 
-PySharpe ships with a small CLI that wraps the two major workflows: collecting
-price histories and optimising the resulting portfolios. Once installed
-(for example via `pip install -e .[dev]` during development), the `pysharpe`
-command becomes available and exposes the following subcommands:
+PySharpe ships with a single `pysharpe` command that performs portfolio
+discovery, data collection, and optimisation in one pass. Run it from the
+project root (or after installing the package):
 
-```text
+```bash
 pysharpe
-├── download  # fetch ticker history and collate per-portfolio CSV files
-└── optimize  # run max-Sharpe optimisation against collated data
 ```
 
-### Downloading market data
+The CLI reports the directory that holds portfolio definitions, lists the
+available portfolios (one CSV per portfolio, with one ticker per line),
+downloads the necessary price history, and then optimises every portfolio it
+finds. All artefacts are written under the configured `data/` directory by
+default:
+
+- `data/portfolio/` – source CSV definitions.
+- `data/price_hist/` – raw per-ticker downloads from Yahoo Finance.
+- `data/exports/` – collated price history, optimisation weights, performance
+  summaries, and plots.
+
+Commonly used flags:
 
 ```bash
-# Pull price history for the default portfolios defined under data/portfolio/
-pysharpe download --interval 1d --period 1y
-
-# Constrain the window explicitly
-pysharpe download --start 2020-01-01 --end 2024-01-01
-
-# Target specific portfolio files (name or path) and enable logging
-pysharpe download growth.csv income --log-dir logs
+pysharpe --period 1y --interval 1d           # override download window
+pysharpe --portfolio core income             # limit to specific portfolios
+pysharpe --skip-download                     # reuse previously downloaded data
+pysharpe --skip-optimize                     # only refresh the price history
+pysharpe --no-plot                           # skip allocation pie charts
+pysharpe --portfolio-dir custom/portfolio    # change source directory
+pysharpe --export-dir results                # write artefacts elsewhere
 ```
 
-`--start` and `--end` accept ISO-8601 dates. When neither is supplied the CLI
-forwards `--period` as-is to `yfinance`, mirroring the original script
-behaviour. The downloaded ticker CSV files land in `data/price_hist/` (or the
-directory supplied via `--price-dir`), and collated portfolio CSVs are written
-to `data/exports/` unless overridden with `--export-dir`.
-
-### Optimising portfolios
-
-```bash
-# Optimise every collated CSV under data/exports/
-pysharpe optimize
-
-# Skip plots and only optimise assets from 1995 onwards
-pysharpe optimize --start 1995-01-01 --no-plot
-
-# Focus on specific portfolios and write artefacts elsewhere
-pysharpe optimize tech_dividend --collated-dir data/exports --output-dir results
-```
-
-The optimisation command always expects collated CSV files (produced by the
-download step). It generates weight allocations (`*_weights.txt`), performance
-summaries (`*_performance.txt`), and optional allocation plots for each
-portfolio.
+When neither `--start` nor `--end` is provided the downloader requests the
+longest history available (`period=max`), so optimisation always considers the
+full span of the collated data by default.
 
 > **Note:** Plot generation requires `matplotlib`. Install it via
 > `pip install matplotlib` or pass `--no-plot` to skip figure creation on
 > minimal environments.
+
+### Typical CLI session
+
+1. Create one CSV per portfolio under `data/portfolio/` (or point
+   `--portfolio-dir` at another folder). Use one ticker per line and prefix
+   comments with `#` to keep notes out of the imports.
+2. Run `pysharpe` to download fresh price history and collate it into
+   portfolio-level CSV files. Add `--start`/`--end` when you want a bounded
+   window, or `--skip-download` if you only need to re-optimise.
+3. Inspect artefacts under `data/price_hist/` and `data/exports/`. The exports
+   folder holds collated CSVs, optimisation weights, performance summaries, and
+   optional allocation plots.
+4. Review the generated metadata JSON files (one per portfolio) to confirm
+   which tickers were dropped due to missing data, then iterate on the CSVs or
+   rerun the command with adjusted parameters.
 
 ### Dollar-cost averaging projections
 
@@ -123,42 +125,49 @@ keeps the logic importable for notebooks or other analysis pipelines.
 
 ### Alternative invocation methods
 
-You can always inspect additional options with `pysharpe download --help` or
-`pysharpe optimize --help`.
-
-If you prefer not to install the package, invoke the CLI module directly:
+Run `pysharpe --help` to see every option. If you would rather call the module
+directly (for example before installing the package), execute:
 
 ```bash
-python -m pysharpe.cli download
-python -m pysharpe.cli optimize --no-plot
+python -m pysharpe.cli
 ```
 
-From a checked-out repository you can also target the file path explicitly:
-
-```bash
-python src/pysharpe/cli.py download --portfolio-dir data/portfolio
-```
-
-By default the commands mirror the original scripts by reading from
-`data/portfolio/`, writing per-ticker histories to `data/price_hist/`, and
-saving collated/optimisation artefacts in `data/exports/`. Pass
-`--portfolio-dir`, `--price-dir`, `--collated-dir`, or `--output` to work with
-custom locations, and add `--start`/`--end` to constrain the time window.
-Run `pysharpe --help` for the full set of options.
+You can always point the CLI at alternative directories with
+`--portfolio-dir`, `--price-dir`, and `--export-dir`. Supplying `--start` or
+`--end` narrows the download window; omitting both keeps Yahoo Finance's full
+history and therefore optimises across the longest possible span.
 
 ## Workflow overview
 
 1. Define portfolios as newline-delimited ticker lists under `data/portfolio/`.
-2. Run `pysharpe download` (or call
-   `pysharpe.workflows.download_portfolios`) to download individual
-   ticker histories and collate them per portfolio.
-3. Run `pysharpe optimize` (or call
-   `pysharpe.workflows.optimise_portfolios`) to compute
-   Sharpe-maximising weights and performance metrics.
+2. Use the CLI or the programmatic helpers below to download prices and collate
+   them into `data/exports/<portfolio>_collated.csv`.
+3. Optimise the collated data to produce allocation weights, performance
+   summaries, and optional plots. Reuse `--skip-download` when only the
+   optimisation needs updating.
 4. Review artefacts under `data/price_hist/`, `data/exports/`, and `logs/` as
    needed.
 
-## Usage example
+## Programmatic workflows
+
+These helpers mirror the CLI pipeline and are importable for notebooks or
+automation scripts:
+
+- `pysharpe.data_collector.download_portfolio_prices()` – fetch raw ticker
+  histories and write one CSV per symbol.
+- `pysharpe.data_collector.collate_prices()` /
+  `pysharpe.data_collector.process_portfolio()` – combine ticker CSVs into a
+  portfolio-level file while emitting metadata about dropped tickers.
+- `pysharpe.data_collector.process_all_portfolios()` – batch the above for every
+  portfolio file in a directory.
+- `pysharpe.workflows.download_portfolios()` and
+  `pysharpe.workflows.optimise_portfolios()` – higher-level orchestration used
+  by the CLI, returning in-memory data frames and optimisation results.
+- `pysharpe.data_collector.PortfolioTickerReader` and
+  `pysharpe.data_collector.SecurityDataCollector` – conveniences for inspecting
+  available tickers or looking up single-symbol fundamentals.
+
+Example end-to-end run from Python:
 
 ```python
 from datetime import date
@@ -172,10 +181,15 @@ download_portfolios(start=date(2020, 1, 1).isoformat())
 optimise_portfolios(make_plot=False)
 ```
 
-More documentation and notebook examples will be added as the project evolves.
-
 ## Contributing
 
-Please open an issue or submit a pull request with proposed changes. Make sure
-that any added code paths are covered by tests where possible and that linters
-(`ruff`, or any additional linters you rely on) has been run locally.
+Please open an issue or submit a pull request with proposed changes. Ensure
+new code paths include tests where practical, then run:
+
+```bash
+python3 -m pytest
+```
+
+before opening the PR. Finally, format and lint using your preferred tooling
+(`ruff`, `black`, etc.) to keep the codebase consistent.
+<!-- Change: Expanded contribution checklist during documentation sweep. -->

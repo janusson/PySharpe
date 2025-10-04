@@ -11,7 +11,7 @@ import pandas as pd
 from pysharpe.config import get_settings
 from pysharpe.data import PortfolioDownloadWorkflow
 from pysharpe.optimization.models import OptimisationResult
-from pysharpe.portfolio_optimization import optimise_all_portfolios, optimise_portfolio
+from pysharpe.portfolio_optimization import optimise_portfolio
 
 logger = logging.getLogger(__name__)
 

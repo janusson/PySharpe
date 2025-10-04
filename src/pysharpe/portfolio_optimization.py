@@ -58,15 +58,20 @@ def _require_matplotlib():  # pragma: no cover - optional dependency
     return plt
 
 
+def _prepare_output_dir(path: Path) -> Path:
+    target = Path(path).expanduser()
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
     weights = result.weights.non_zero()
     if not weights:
         raise ValueError("No positive weights to plot")
 
     plt = _require_matplotlib()
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{result.name}_allocation.png"
+    target_dir = _prepare_output_dir(output_dir)
+    output_path = target_dir / f"{result.name}_allocation.png"
 
     fig, ax = plt.subplots()
     ax.pie(weights.values(), labels=weights.keys(), autopct="%1.1f%%", startangle=90)
@@ -78,9 +83,8 @@ def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
 
 
 def _save_weights(result: OptimisationResult, output_dir: Path) -> Path:
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{result.name}_weights.txt"
+    target_dir = _prepare_output_dir(output_dir)
+    output_path = target_dir / f"{result.name}_weights.txt"
 
     lines = ["ticker,weight"]
     for ticker, weight in result.weights.allocations.items():
@@ -91,9 +95,8 @@ def _save_weights(result: OptimisationResult, output_dir: Path) -> Path:
 
 
 def _save_performance(result: OptimisationResult, output_dir: Path) -> Path:
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{result.name}_performance.txt"
+    target_dir = _prepare_output_dir(output_dir)
+    output_path = target_dir / f"{result.name}_performance.txt"
 
     perf = result.performance
     lines = [

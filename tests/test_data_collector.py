@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import types
 
 import pandas as pd
@@ -75,9 +76,15 @@ def test_download_and_collate_prices(monkeypatch, tmp_path):
     assert "AAA" in frame.columns
     assert (price_dir / "AAA_hist.csv").exists()
     assert (export_dir / "demo_collated.csv").exists()
-    assert (export_dir / "demo_metadata.json").exists()
+    metadata_path = export_dir / "demo_metadata.json"
+    assert metadata_path.exists()
     assert instances[0].calls[0]["period"] == "1y"
     assert instances[0].calls[0]["start"] is None
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["requested_tickers"] == ["AAA"]
+    assert metadata["included_tickers"] == ["AAA"]
+    assert metadata["dropped_tickers"] == []
 
     data_collector.process_portfolio(
         portfolio_file,

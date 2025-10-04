@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from functools import cached_property
 from pathlib import Path
 from typing import Iterable, Optional, Sequence, Set
 
@@ -14,6 +15,7 @@ from pysharpe.data import (
     CollationService,
     PortfolioDownloadWorkflow,
     PortfolioRepository,
+    PriceFetcher,
     YFinancePriceFetcher,
     read_tickers,
 )
@@ -26,7 +28,7 @@ except ImportError:  # pragma: no cover - surfaced via helper
 
 
 _SETTINGS = get_settings()
-DATA_DIR = _SETTINGS.data_dir
+# Change: Removed unused DATA_DIR constant during redundancy cleanup.
 PORTFOLIO_DIR = _SETTINGS.portfolio_dir
 PRICE_HISTORY_DIR = Path(_SETTINGS.price_history_dir)
 EXPORT_DIR = Path(_SETTINGS.export_dir)
@@ -34,6 +36,46 @@ INFO_DIR = _SETTINGS.info_dir
 LOG_DIR = _SETTINGS.log_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _as_path(value: Path | str) -> Path:
+    """Return a consistently expanded ``Path`` for filesystem arguments."""
+    # Change: Normalised helper now documented for clarity after style audit.
+    return Path(value).expanduser()
+
+
+def _build_collation_service(
+    *,
+    price_history_dir: Path | str,
+    export_dir: Path | str | None = None,
+    fetcher: PriceFetcher | None = None,
+) -> CollationService:
+    """Construct a :class:`CollationService` with shared settings defaults."""
+    # Change: Added docstring to explain helper responsibility per style pass.
+    return CollationService(
+        fetcher or YFinancePriceFetcher(),
+        _SETTINGS,
+        price_history_dir=_as_path(price_history_dir),
+        export_dir=_as_path(export_dir or EXPORT_DIR),
+    )
+
+
+def _build_download_workflow(
+    *,
+    portfolio_dir: Path | str,
+    price_history_dir: Path | str,
+    export_dir: Path | str,
+    fetcher: PriceFetcher | None = None,
+) -> PortfolioDownloadWorkflow:
+    """Initialise the workflow that orchestrates download + collation."""
+    # Change: Documented helper factory to aid readability.
+    return PortfolioDownloadWorkflow(
+        settings=_SETTINGS,
+        portfolio_dir=_as_path(portfolio_dir),
+        price_history_dir=_as_path(price_history_dir),
+        export_dir=_as_path(export_dir),
+        fetcher=fetcher,
+    )
 
 
 def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
@@ -45,7 +87,8 @@ def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
 def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
     """Return portfolio CSV files in *directory*. Defaults to configured dir."""
 
-    repo = PortfolioRepository(_SETTINGS, directory=directory)
+    root = _as_path(directory or PORTFOLIO_DIR)
+    repo = PortfolioRepository(_SETTINGS, directory=root)
     return [definition.path for definition in repo.list_portfolios()]
 
 
@@ -59,13 +102,13 @@ class PortfolioTickerReader:
     """Legacy-compatible wrapper around :class:`PortfolioRepository`."""
 
     def __init__(self, directory: Path = PORTFOLIO_DIR) -> None:
-        self.directory = Path(directory)
+        self.directory = _as_path(directory)
         self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
         self.portfolio_tickers: dict[str, Set[str]] = {}
         self.refresh()
 
     def refresh(self) -> None:
-        self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
+        self.repo.refresh()
         self.portfolio_tickers = {
             definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
         }
@@ -74,31 +117,24 @@ class PortfolioTickerReader:
         return self.portfolio_tickers.get(portfolio_name, set())
 
 
-def _collation_service(
-    *,
-    price_history_dir: Path,
-    export_dir: Optional[Path] = None,
-) -> CollationService:
-    return CollationService(
-        YFinancePriceFetcher(),
-        _SETTINGS,
-        price_history_dir=price_history_dir,
-        export_dir=export_dir or Path(_SETTINGS.export_dir),
-    )
-
-
 def download_portfolio_prices(
     tickers: Iterable[str],
     *,
-    price_history_dir: Path = PRICE_HISTORY_DIR,
+    price_history_dir: Path | str = PRICE_HISTORY_DIR,
+    export_dir: Path | str | None = None,
     period: str = "max",
     interval: str = "1d",
     start: Optional[str] = None,
     end: Optional[str] = None,
+    fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Download price histories for *tickers* and write each to CSV."""
 
-    service = _collation_service(price_history_dir=Path(price_history_dir))
+    service = _build_collation_service(
+        price_history_dir=price_history_dir,
+        export_dir=export_dir or EXPORT_DIR,
+        fetcher=fetcher,
+    )
     return service.download_portfolio_prices(
         tickers,
         period=period,
@@ -110,16 +146,16 @@ def download_portfolio_prices(
 
 def collate_prices(
     portfolio_name: str,
-    price_history_dir: Path,
+    price_history_dir: Path | str,
     tickers: Sequence[str],
     *,
-    export_dir: Path = EXPORT_DIR,
+    export_dir: Path | str = EXPORT_DIR,
 ) -> pd.DataFrame:
     """Combine downloaded price histories into a single CSV per portfolio."""
 
-    service = _collation_service(
-        price_history_dir=Path(price_history_dir),
-        export_dir=Path(export_dir),
+    service = _build_collation_service(
+        price_history_dir=price_history_dir,
+        export_dir=export_dir,
     )
     return service.collate_portfolio(portfolio_name, list(tickers))
 
@@ -127,12 +163,13 @@ def collate_prices(
 def process_portfolio(
     portfolio_file: Path,
     *,
-    price_history_dir: Path = PRICE_HISTORY_DIR,
-    export_dir: Path = EXPORT_DIR,
+    price_history_dir: Path | str = PRICE_HISTORY_DIR,
+    export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
     start: Optional[str] = None,
     end: Optional[str] = None,
+    fetcher: PriceFetcher | None = None,
 ) -> pd.DataFrame:
     """Download and collate prices for the portfolio described in *portfolio_file*."""
 
@@ -142,9 +179,10 @@ def process_portfolio(
         logger.warning("No tickers found for portfolio: %s", portfolio_file.stem)
         return pd.DataFrame()
 
-    service = _collation_service(
-        price_history_dir=Path(price_history_dir),
-        export_dir=Path(export_dir),
+    service = _build_collation_service(
+        price_history_dir=price_history_dir,
+        export_dir=export_dir,
+        fetcher=fetcher,
     )
     return service.process_portfolio(
         portfolio_file.stem,
@@ -157,22 +195,23 @@ def process_portfolio(
 
 
 def process_all_portfolios(
-    portfolio_dir: Path = PORTFOLIO_DIR,
+    portfolio_dir: Path | str = PORTFOLIO_DIR,
     *,
-    price_history_dir: Path = PRICE_HISTORY_DIR,
-    export_dir: Path = EXPORT_DIR,
+    price_history_dir: Path | str = PRICE_HISTORY_DIR,
+    export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
     start: Optional[str] = None,
     end: Optional[str] = None,
+    fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Run the download/collation workflow for every portfolio file."""
 
-    workflow = PortfolioDownloadWorkflow(
-        settings=_SETTINGS,
-        portfolio_dir=Path(portfolio_dir),
-        price_history_dir=Path(price_history_dir),
-        export_dir=Path(export_dir),
+    workflow = _build_download_workflow(
+        portfolio_dir=portfolio_dir,
+        price_history_dir=price_history_dir,
+        export_dir=export_dir,
+        fetcher=fetcher,
     )
 
     results = workflow.process_portfolios(
@@ -200,28 +239,33 @@ class SecurityDataCollector:
         self.ticker = ticker
         self._yf = _ensure_yfinance().Ticker(ticker)
 
+    @cached_property
+    def _info(self) -> dict:
+        payload = getattr(self._yf, "info", {}) or {}
+        return dict(payload)
+
     def get_company_name(self) -> str:
-        try:
-            return self._yf.info["shortName"]
-        except KeyError:
-            return self._yf.info.get("longName", self.ticker)
+        info = self._info
+        return info.get("shortName") or info.get("longName") or self.ticker
 
     def get_company_info(self) -> dict:
-        return dict(self._yf.info)
+        return dict(self._info)
 
     def download_info(self, destination: Path = INFO_DIR) -> Path:
         info = self.get_company_info()
-        destination = Path(destination)
+        destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         file_path = destination / f"{self.get_company_name().replace(' ', '_')}_summary.json"
         file_path.write_text(json.dumps(info, indent=4), encoding="utf-8")
         return file_path
 
     def get_news(self) -> list:
-        return list(self._yf.news or [])
+        payload = getattr(self._yf, "news", None) or []
+        return list(payload)
 
     def get_options(self) -> list:
-        return list(self._yf.options or [])
+        payload = getattr(self._yf, "options", None) or []
+        return list(payload)
 
     def get_earnings_dates(self) -> pd.DataFrame:
         data = getattr(self._yf, "earnings_dates", pd.DataFrame())
@@ -324,7 +368,7 @@ class SecurityDataCollector:
             start=start,
             end=end,
         )
-        destination = Path(destination)
+        destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         output = destination / f"{self.ticker}_hist.csv"
         frame.to_csv(output)
