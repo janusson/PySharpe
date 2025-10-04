@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PortfolioDefinition:
+    """Representation of a portfolio definition loaded from disk.
+
+    Attributes:
+        name: Portfolio identifier (usually the CSV stem).
+        tickers: Ordered tickers included in the portfolio.
+        path: Filesystem path to the source CSV file.
+
+    Example:
+        >>> from pathlib import Path
+        >>> from pysharpe.data.portfolio import PortfolioDefinition
+        >>> definition = PortfolioDefinition("growth", ("AAPL", "MSFT"), Path("growth.csv"))
+        >>> definition.ticker_set
+        {'AAPL', 'MSFT'}
+    """
+
     name: str
     tickers: Sequence[str]
     path: Path
@@ -24,10 +39,36 @@ class PortfolioDefinition:
 
     @property
     def ticker_set(self) -> Set[str]:
+        """Return the unique tickers in the portfolio.
+
+        Example:
+            >>> from pathlib import Path
+            >>> from pysharpe.data.portfolio import PortfolioDefinition
+            >>> PortfolioDefinition("demo", ("AAPL", "AAPL", "MSFT"), Path("demo.csv")).ticker_set
+            {'AAPL', 'MSFT'}
+        """
+
         return set(self.tickers)
 
 
 def read_tickers(path: Path) -> List[str]:
+    """Read tickers from a newline-delimited file.
+
+    Args:
+        path: File containing one ticker per line (``#`` lines are ignored).
+
+    Returns:
+        A list preserving the order of appearance while removing duplicates.
+
+    Example:
+        >>> from pathlib import Path
+        >>> path = Path('example.csv')
+        >>> _ = path.write_text('AAPL\n# comment\nMSFT\nAAPL\n', encoding='utf-8')
+        >>> read_tickers(path)
+        ['AAPL', 'MSFT']
+        >>> path.unlink()
+    """
+
     tickers: list[str] = []
     seen: set[str] = set()
 
@@ -43,7 +84,14 @@ def read_tickers(path: Path) -> List[str]:
 
 
 class PortfolioRepository:
-    """Load portfolio CSV files from a directory."""
+    """Load portfolio CSV files from a directory.
+
+    Example:
+        >>> from pysharpe.data.portfolio import PortfolioRepository
+        >>> repo = PortfolioRepository()
+        >>> isinstance(repo.list_portfolios(), list)
+        True
+    """
 
     def __init__(
         self,
@@ -58,9 +106,19 @@ class PortfolioRepository:
 
     @property
     def directory(self) -> Path:
+        """Directory currently scanned for portfolio CSV files."""
+
         return self._directory
 
     def refresh(self) -> None:
+        """Reload portfolio definitions from disk.
+
+        Example:
+            >>> from pysharpe.data.portfolio import PortfolioRepository
+            >>> repo = PortfolioRepository()
+            >>> repo.refresh()
+        """
+
         self._portfolios.clear()
         directory = self.directory
         if not directory.exists():
@@ -86,9 +144,41 @@ class PortfolioRepository:
             self._portfolios[definition.name] = definition
 
     def list_portfolios(self) -> List[PortfolioDefinition]:
+        """Return all discovered portfolio definitions sorted by name.
+
+        Example:
+            >>> from pysharpe.data.portfolio import PortfolioRepository
+            >>> repo = PortfolioRepository()
+            >>> isinstance(repo.list_portfolios(), list)
+            True
+        """
+
         return sorted(self._portfolios.values(), key=lambda item: item.name)
 
     def get_portfolio(self, name: str) -> PortfolioDefinition:
+        """Retrieve a portfolio definition by name or direct path.
+
+        Args:
+            name: Portfolio identifier or filesystem path to a CSV.
+
+        Returns:
+            Matching :class:`PortfolioDefinition` instance.
+
+        Raises:
+            FileNotFoundError: If no matching CSV could be located.
+            ValueError: If the resolved CSV is empty.
+
+        Example:
+            >>> from pathlib import Path
+            >>> from pysharpe.data.portfolio import PortfolioRepository
+            >>> repo = PortfolioRepository()
+            >>> portfolio_dir = repo.directory
+            >>> (portfolio_dir / 'demo.csv').write_text('AAPL', encoding='utf-8')
+            >>> repo.refresh()
+            >>> repo.get_portfolio('demo').name
+            'demo'
+        """
+
         if name in self._portfolios:
             return self._portfolios[name]
 
@@ -103,6 +193,22 @@ class PortfolioRepository:
         raise FileNotFoundError(f"Portfolio file not found: {name}")
 
     def iter_definitions(self, names: Iterable[str] | None = None) -> Iterable[PortfolioDefinition]:
+        """Yield portfolio definitions for the requested names.
+
+        Args:
+            names: Optional iterable of portfolio names. When omitted every
+                definition discovered on disk is yielded.
+
+        Yields:
+            :class:`PortfolioDefinition` objects.
+
+        Example:
+            >>> from pysharpe.data.portfolio import PortfolioRepository
+            >>> repo = PortfolioRepository()
+            >>> list(repo.iter_definitions([]))
+            []
+        """
+
         if names is None:
             yield from self.list_portfolios()
             return

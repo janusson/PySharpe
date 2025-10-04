@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from pysharpe.visualization import DCAProjection, plot_dca_projection, simulate_dca
 
@@ -87,26 +88,30 @@ def test_plot_dca_projection_returns_axes(monkeypatch):
 
 
 def test_simulate_dca_validates_input():
-    try:
+    with pytest.raises(ValueError):
         simulate_dca(
             months=0,
             initial_investment=100.0,
             monthly_contribution=10.0,
             annual_return_rate=0.05,
         )
-    except ValueError:
-        assert True
-    else:  # pragma: no cover - defensive guard
-        raise AssertionError("Expected ValueError for non-positive months")
 
-    try:
+    with pytest.raises(ValueError):
         simulate_dca(
             months=12,
             initial_investment=100.0,
             monthly_contribution=10.0,
             annual_return_rate=-1.5,
         )
-    except ValueError:
-        assert True
-    else:  # pragma: no cover - defensive guard
-        raise AssertionError("Expected ValueError for unrealistic annual return")
+
+
+def test_dca_projection_final_balance():
+    projection = simulate_dca(
+        months=6,
+        initial_investment=1000.0,
+        monthly_contribution=200.0,
+        annual_return_rate=0.06,
+    )
+
+    assert projection.final_contribution() == pytest.approx(1000 + 200 * 5)
+    assert projection.final_balance() > projection.final_contribution()

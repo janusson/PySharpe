@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
+
+pytest.importorskip("pypfopt")
 
 from pysharpe import portfolio_optimization
 from pysharpe.optimization.models import OptimisationResult
@@ -74,3 +77,58 @@ def test_missing_collated_file_raises(tmp_path):
         assert True
     else:  # pragma: no cover - defensive guard
         raise AssertionError("Expected FileNotFoundError for missing collated file")
+
+
+def test_optimise_portfolio_respects_constraints(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+
+    _write_collated(collated_dir, "constrained")
+
+    result = portfolio_optimization.optimise_portfolio(
+        "constrained",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        asset_constraints={"max_weight": 0.65},
+        make_plot=False,
+    )
+
+    weights = result.weights.allocations
+    assert all(weight <= 0.65 + 1e-6 for weight in weights.values())
+    assert pytest.approx(sum(weights.values()), rel=1e-6) == 1.0
+
+
+def test_optimise_portfolio_time_constraint_requires_data(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+    _write_collated(collated_dir, "timing")
+
+    with pytest.raises(ValueError):
+        portfolio_optimization.optimise_portfolio(
+            "timing",
+            collated_dir=collated_dir,
+            output_dir=output_dir,
+            time_constraint="2024-01-05",
+            make_plot=False,
+        )
+
+
+def test_optimise_portfolio_skips_plot_when_disabled(monkeypatch, tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+    _write_collated(collated_dir, "no_plot")
+
+    def _fail_plot(*_args, **_kwargs):
+        raise AssertionError("plotting should be skipped")
+
+    monkeypatch.setattr(portfolio_optimization, "_plot_allocation", _fail_plot)
+
+    portfolio_optimization.optimise_portfolio(
+        "no_plot",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        make_plot=False,
+    )

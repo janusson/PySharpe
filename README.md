@@ -1,195 +1,107 @@
 # PySharpe
 
-PySharpe is a Python toolkit for building, analyzing, and visualizing investment
-portfolios that maximize the Sharpe ratio. The project combines data pulled from
-Yahoo Finance (via [yfinance](https://pypi.org/project/yfinance/)) with the optimization tooling provided by
-[PyPortfolioOpt](https://pyportfolioopt.readthedocs.io/) to help investors and
-researchers evaluate asset allocations.
+PySharpe is a lightweight portfolio analytics and optimisation toolkit. It helps you download pricing data, collate custom portfolios, compute diagnostic metrics (returns, volatility, Sharpe ratios), and run maximum-Sharpe optimisations without leaving Python.
 
-## Project structure
-
-```text
-PySharpe/
-├── docs/                 # Design notes and supplementary documentation
-├── src/pysharpe/         # Library source code (packaged with the src-layout)
-│   ├── config.py         # Centralised settings and path management
-│   ├── data/             # Market data ingestion helpers
-│   ├── optimization/     # Dataclasses and optimisation primitives
-│   ├── portfolio_optimization.py  # Max-Sharpe engine built on PyPortfolioOpt
-│   ├── visualization/    # Plotting utilities (e.g. DCA projections) for analytics
-│   └── workflows.py      # High-level orchestration for CLI and notebooks
-├── tests/                # Automated tests
-├── pyproject.toml        # Packaging and tooling configuration
-└── README.md             # This file
-```
-
-## Getting started
-
-1. **Create a virtual environment** (recommended):
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-2. **Install the package in editable mode along with dev dependencies:**
-
-   ```bash
-   pip install -e .[dev]
-   ```
-
-3. **Run the test suite** to verify the environment:
-
-   ```bash
-   python3 -m pytest
-   ```
-
-## Command line interface
-
-PySharpe ships with a single `pysharpe` command that performs portfolio
-discovery, data collection, and optimisation in one pass. Run it from the
-project root (or after installing the package):
+## Installation
 
 ```bash
-pysharpe
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
 ```
 
-The CLI reports the directory that holds portfolio definitions, lists the
-available portfolios (one CSV per portfolio, with one ticker per line),
-downloads the necessary price history, and then optimises every portfolio it
-finds. All artefacts are written under the configured `data/` directory by
-default:
+The editable install keeps the library and CLI in sync while you develop. The `dev` extras pull in pytest, coverage, ruff, and the other tooling used in this repository.
 
-- `data/portfolio/` – source CSV definitions.
-- `data/price_hist/` – raw per-ticker downloads from Yahoo Finance.
-- `data/exports/` – collated price history, optimisation weights, performance
-  summaries, and plots.
-
-Commonly used flags:
-
-```bash
-pysharpe --period 1y --interval 1d           # override download window
-pysharpe --portfolio core income             # limit to specific portfolios
-pysharpe --skip-download                     # reuse previously downloaded data
-pysharpe --skip-optimize                     # only refresh the price history
-pysharpe --no-plot                           # skip allocation pie charts
-pysharpe --portfolio-dir custom/portfolio    # change source directory
-pysharpe --export-dir results                # write artefacts elsewhere
-```
-
-When neither `--start` nor `--end` is provided the downloader requests the
-longest history available (`period=max`), so optimisation always considers the
-full span of the collated data by default.
-
-> **Note:** Plot generation requires `matplotlib`. Install it via
-> `pip install matplotlib` or pass `--no-plot` to skip figure creation on
-> minimal environments.
-
-### Typical CLI session
-
-1. Create one CSV per portfolio under `data/portfolio/` (or point
-   `--portfolio-dir` at another folder). Use one ticker per line and prefix
-   comments with `#` to keep notes out of the imports.
-2. Run `pysharpe` to download fresh price history and collate it into
-   portfolio-level CSV files. Add `--start`/`--end` when you want a bounded
-   window, or `--skip-download` if you only need to re-optimise.
-3. Inspect artefacts under `data/price_hist/` and `data/exports/`. The exports
-   folder holds collated CSVs, optimisation weights, performance summaries, and
-   optional allocation plots.
-4. Review the generated metadata JSON files (one per portfolio) to confirm
-   which tickers were dropped due to missing data, then iterate on the CSVs or
-   rerun the command with adjusted parameters.
-
-### Dollar-cost averaging projections
-
-PySharpe also ships a reusable simulator for dollar-cost averaging scenarios
-under `pysharpe.visualization`. You can generate projections and optional plots
-directly from Python:
+## Quickstart (Python REPL or notebook)
 
 ```python
-from pysharpe.visualization import simulate_dca, plot_dca_projection
+import pysharpe
+
+# Load the tickers listed in tests/data/sample_portfolio.csv without hitting any APIs.
+prices = pysharpe.download_portfolio_prices(
+    ["AAPL", "MSFT", "GOOG"],
+    price_history_dir="tests/data",  # reuse local fixtures for a deterministic run
+    export_dir="tests/data",
+)
+returns = pysharpe.metrics.compute_returns(prices["AAPL"])
+compute_sharpe_ratio = pysharpe.metrics.sharpe_ratio
+sharpe = compute_sharpe_ratio(returns)
+print(f"Sample Sharpe ratio: {sharpe:.2f}")
+```
+
+The `pysharpe.metrics` module also exposes helpers for annualised returns, volatility, and mean estimates so you can extend the analysis in a single workflow.
+
+## Command-line usage
+
+PySharpe ships with a single entry point that is being refactored into clear subcommands. The examples below show the intended UX.
+
+```bash
+# Optimise the tickers from a CSV (writes weights, performance, and plots)
+pysharpe optimise --portfolio tests/data/sample_portfolio.csv --export-dir outputs/
+
+# Run an offline DCA projection and optionally emit a chart
+pysharpe simulate-dca --initial 1000 --monthly 200 --rate 0.08 --months 36 --plot
+
+# Plot any metric saved by the optimiser
+pysharpe plot --input outputs/demo_performance.txt --metric sharpe_ratio
+```
+
+Run `pysharpe --help`, `pysharpe optimise --help`, etc. for the canonical flag list once the subcommands are enabled.
+
+## Plotting examples
+
+### Dollar-cost averaging
+
+```python
+from pysharpe.visualization import plot_dca_projection, simulate_dca
 
 projection = simulate_dca(
-    months=24 * 12,
-    initial_investment=20_000,
-    monthly_contribution=1_750,
-    annual_return_rate=0.17,
+    months=36,
+    initial_investment=5_000,
+    monthly_contribution=500,
+    annual_return_rate=0.12,
 )
 
 ax = plot_dca_projection(projection)
 ax.figure.savefig("dca_projection.png")
 ```
 
-This mirrors the exploratory scripts that previously lived under `drafts/` and
-keeps the logic importable for notebooks or other analysis pipelines.
-
-### Alternative invocation methods
-
-Run `pysharpe --help` to see every option. If you would rather call the module
-directly (for example before installing the package), execute:
-
-```bash
-python -m pysharpe.cli
-```
-
-You can always point the CLI at alternative directories with
-`--portfolio-dir`, `--price-dir`, and `--export-dir`. Supplying `--start` or
-`--end` narrows the download window; omitting both keeps Yahoo Finance's full
-history and therefore optimises across the longest possible span.
-
-## Workflow overview
-
-1. Define portfolios as newline-delimited ticker lists under `data/portfolio/`.
-2. Use the CLI or the programmatic helpers below to download prices and collate
-   them into `data/exports/<portfolio>_collated.csv`.
-3. Optimise the collated data to produce allocation weights, performance
-   summaries, and optional plots. Reuse `--skip-download` when only the
-   optimisation needs updating.
-4. Review artefacts under `data/price_hist/`, `data/exports/`, and `logs/` as
-   needed.
-
-## Programmatic workflows
-
-These helpers mirror the CLI pipeline and are importable for notebooks or
-automation scripts:
-
-- `pysharpe.data_collector.download_portfolio_prices()` – fetch raw ticker
-  histories and write one CSV per symbol.
-- `pysharpe.data_collector.collate_prices()` /
-  `pysharpe.data_collector.process_portfolio()` – combine ticker CSVs into a
-  portfolio-level file while emitting metadata about dropped tickers.
-- `pysharpe.data_collector.process_all_portfolios()` – batch the above for every
-  portfolio file in a directory.
-- `pysharpe.workflows.download_portfolios()` and
-  `pysharpe.workflows.optimise_portfolios()` – higher-level orchestration used
-  by the CLI, returning in-memory data frames and optimisation results.
-- `pysharpe.data_collector.PortfolioTickerReader` and
-  `pysharpe.data_collector.SecurityDataCollector` – conveniences for inspecting
-  available tickers or looking up single-symbol fundamentals.
-
-Example end-to-end run from Python:
+### Portfolio performance diagnostics
 
 ```python
-from datetime import date
+from pysharpe import metrics
 
-from pysharpe.workflows import download_portfolios, optimise_portfolios
-
-# Collect price histories, collate them, and persist the CSV files
-download_portfolios(start=date(2020, 1, 1).isoformat())
-
-# Optimise the collated portfolios and export weights/performance summaries
-optimise_portfolios(make_plot=False)
+# Assume "collated" is a DataFrame with daily prices for your chosen tickers.
+returns = metrics.compute_returns(collated)
+expected = metrics.expected_return(returns)
+volatility = metrics.annualize_volatility(returns)
+sharpe = metrics.sharpe_ratio(returns)
 ```
 
-## Contributing
+## Metrics API highlights
 
-Please open an issue or submit a pull request with proposed changes. Ensure
-new code paths include tests where practical, then run:
+| Function | Description |
+| --- | --- |
+| `compute_returns` | Convert price levels to simple or log returns. |
+| `expected_return` | Compute annualised arithmetic returns. |
+| `annualize_return` | Produce a geometric annualised rate. |
+| `annualize_volatility` | Scale standard deviation to the desired frequency. |
+| `sharpe_ratio` | Evaluate risk-adjusted performance with an optional risk-free rate. |
 
-```bash
-python3 -m pytest
-```
+All helpers accept pandas Series/DataFrames, return matching shapes, and guard against infinities, NaNs, and zero-volatility cases with friendly errors.
 
-before opening the PR. Finally, format and lint using your preferred tooling
-(`ruff`, `black`, etc.) to keep the codebase consistent.
-<!-- Change: Expanded contribution checklist during documentation sweep. -->
+## Contributing & Testing
+
+1. Install the development extras: `pip install -e .[dev]`.
+2. Run the automated tests with coverage: `python -m pytest`.
+3. Lint and format before opening a PR: `ruff check .` and `ruff format .`.
+4. If you add functionality, include a brief example or doctest in the corresponding docstring.
+
+The test suite aims for 80% line coverage across the core modules.
+
+## Changelog & Roadmap
+
+- **0.1.0** – Initial packaging with data ingestion, optimisation, and DCA tools.
+- **Upcoming** – CLI subcommands (`optimise`, `simulate-dca`, `plot`), richer documentation (tutorial notebooks, API reference), and performance benchmarks.
+
+See `CHANGELOG.md` for detailed release notes as they land.

@@ -27,6 +27,27 @@ def download_portfolios(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> Dict[str, pd.DataFrame]:
+    """Download and collate portfolios leveraging the data workflow.
+
+    Args:
+        portfolio_names: Optional iterable of portfolio names to process.
+        portfolio_dir: Override for the portfolio CSV directory.
+        price_history_dir: Override for raw price data directory.
+        export_dir: Override for collated export directory.
+        period: Rolling window used when explicit dates are missing.
+        interval: Sampling interval for downloads.
+        start: Optional ISO start date.
+        end: Optional ISO end date.
+
+    Returns:
+        Mapping of portfolio name to collated DataFrame.
+
+    Example:
+        >>> from pysharpe.workflows import download_portfolios
+        >>> download_portfolios(period='1y', interval='1d')  # doctest: +SKIP
+        {'demo': ...}
+    """
+
     settings = get_settings()
     workflow = PortfolioDownloadWorkflow(
         settings=settings,
@@ -55,6 +76,25 @@ def optimise_portfolios(
     time_constraint: Optional[str] = None,
     make_plot: bool = True,
 ) -> Dict[str, OptimisationResult]:
+    """Optimise one or more portfolios and persist artefacts.
+
+    Args:
+        portfolio_names: Optional iterable of portfolio names. When ``None`` all
+            collated CSVs under ``collated_dir`` are processed.
+        collated_dir: Directory containing collated price histories.
+        output_dir: Directory for optimisation artefacts.
+        time_constraint: Optional ISO date slice for the collated histories.
+        make_plot: When ``True`` generate allocation pie charts.
+
+    Returns:
+        Mapping of portfolio name to :class:`OptimisationResult` objects.
+
+    Example:
+        >>> from pysharpe.workflows import optimise_portfolios
+        >>> optimise_portfolios(make_plot=False)  # doctest: +SKIP
+        {'demo': OptimisationResult(...)}
+    """
+
     settings = get_settings()
     collated_root = Path(collated_dir or settings.export_dir)
     output_root = Path(output_dir or settings.export_dir)

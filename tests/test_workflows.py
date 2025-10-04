@@ -86,3 +86,22 @@ def test_optimise_portfolios_with_names(monkeypatch, tmp_path):
 
     assert set(result.keys()) == {"demo"}
     assert isinstance(result["demo"], OptimisationResult)
+
+
+def test_download_portfolios_handles_empty(monkeypatch, tmp_path):
+    class _StubWorkflow:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def process_portfolios(self, **_kwargs):  # noqa: D401
+            return {}
+
+    monkeypatch.setattr(workflows, "PortfolioDownloadWorkflow", _StubWorkflow)
+
+    result = workflows.download_portfolios(
+        portfolio_dir=tmp_path / "portfolio",
+        price_history_dir=tmp_path / "price_hist",
+        export_dir=tmp_path / "exports",
+    )
+
+    assert result == {}

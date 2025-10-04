@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
+from functools import lru_cache
+
 import pandas as pd
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
@@ -24,11 +26,11 @@ EXPORT_DIR = Path(_SETTINGS.export_dir)
 logger = logging.getLogger(__name__)
 
 
-def _load_collated_prices(
+@lru_cache(maxsize=32)
+def _cached_collated_prices(
     portfolio_name: str,
-    collated_dir: Path,
-    *,
-    time_constraint: Optional[str] = None,
+    collated_dir: str,
+    time_constraint: Optional[str],
 ) -> pd.DataFrame:
     csv_path = Path(collated_dir) / f"{portfolio_name}_collated.csv"
     if not csv_path.exists():
@@ -46,6 +48,20 @@ def _load_collated_prices(
         frame = frame.ffill()
 
     return frame
+
+
+def _load_collated_prices(
+    portfolio_name: str,
+    collated_dir: Path,
+    *,
+    time_constraint: Optional[str] = None,
+) -> pd.DataFrame:
+    cached = _cached_collated_prices(
+        portfolio_name,
+        str(Path(collated_dir).resolve()),
+        time_constraint,
+    )
+    return cached.copy(deep=True)
 
 
 def _require_matplotlib():  # pragma: no cover - optional dependency
@@ -118,7 +134,30 @@ def optimise_portfolio(
     geo_exposure: Optional[Iterable] = None,  # placeholder for future logic
     make_plot: bool = True,
 ) -> OptimisationResult:
-    """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow."""
+    """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow.
+
+    Args:
+        portfolio_name: Name of the portfolio (also the collated CSV stem).
+        collated_dir: Directory containing ``*_collated.csv`` files.
+        output_dir: Directory where optimisation artefacts are written.
+        time_constraint: Optional ISO date to filter the collated history.
+        asset_constraints: Optional dict with ``min_weight``/``max_weight`` keys
+            applied as linear constraints.
+        geo_exposure: Placeholder for future constraints; currently ignored.
+        make_plot: When ``True`` generate a pie chart of positive weights.
+
+    Returns:
+        :class:`OptimisationResult` containing weights and performance stats.
+
+    Raises:
+        FileNotFoundError: If the collated CSV is missing.
+        ValueError: If the constraint removes all usable data.
+
+    Example:
+        >>> from pysharpe.portfolio_optimization import optimise_portfolio
+        >>> optimise_portfolio('demo', make_plot=False)  # doctest: +SKIP
+        OptimisationResult(...)
+    """
 
     prices = _load_collated_prices(portfolio_name, collated_dir, time_constraint=time_constraint)
 
@@ -167,7 +206,21 @@ def optimise_all_portfolios(
     output_dir: Path = EXPORT_DIR,
     time_constraint: Optional[str] = None,
 ) -> Dict[str, OptimisationResult]:
-    """Optimise every collated portfolio in *collated_dir*."""
+    """Optimise every collated portfolio located in ``collated_dir``.
+
+    Args:
+        collated_dir: Directory containing collated CSV files.
+        output_dir: Directory for optimisation artefacts.
+        time_constraint: Optional ISO date slice applied to every portfolio.
+
+    Returns:
+        Mapping of portfolio name to :class:`OptimisationResult`.
+
+    Example:
+        >>> from pysharpe.portfolio_optimization import optimise_all_portfolios
+        >>> optimise_all_portfolios(make_plot=False)  # doctest: +SKIP
+        {'demo': OptimisationResult(...)}
+    """
 
     results: Dict[str, OptimisationResult] = {}
 

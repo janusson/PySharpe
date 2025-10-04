@@ -4,20 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysharpe"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python tools for portfolio optimization and analysis."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{name = "PySharpe Developers"}]
 license = {file = "LICENSE"}
 dependencies = [
-    "numpy>=1.23",
-    "pandas>=1.5",
-    "scipy>=1.10",
+    "numpy>=2.1",
+    "pandas>=2.2",
+    "scipy>=1.11",
     "yfinance>=0.2",
     "PyPortfolioOpt>=1.5",
-    "matplotlib>=3.7",
-    "seaborn>=0.12",
+    "matplotlib>=3.9",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +25,7 @@ dev = [
     "pytest>=7.3",
     "pytest-cov>=4.1",
     "coverage>=7.5",
+    "black>=24.0",
 ]
 
 [project.scripts]
@@ -37,6 +37,9 @@ Issues = "https://github.com/janusson/PySharpe/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.exclude-package-data]
+"pysharpe" = ["*.ipynb", "docs/*", "examples/*"]
 
 [tool.ruff]
 line-length = 88
@@ -62,4 +65,5 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "--quiet --disable-warnings --cov=pysharpe --cov-report=term-missing --cov-fail-under=80"
+norecursedirs = [".git", "examples", "docs"]

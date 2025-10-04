@@ -18,7 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 class PortfolioDownloadWorkflow:
-    """Orchestrate fetching and collating portfolios."""
+    """Orchestrate fetching and collating portfolios.
+
+    Example:
+        >>> from pysharpe.data.workflows import PortfolioDownloadWorkflow
+        >>> workflow = PortfolioDownloadWorkflow()
+        >>> isinstance(workflow, PortfolioDownloadWorkflow)
+        True
+    """
 
     def __init__(
         self,
@@ -50,6 +57,28 @@ class PortfolioDownloadWorkflow:
         start: str | None,
         end: str | None,
     ) -> pd.DataFrame:
+        """Download and collate a single portfolio definition.
+
+        Args:
+            portfolio: Portfolio metadata describing tickers and path.
+            period: Rolling window requested when explicit dates are absent.
+            interval: Sampling interval for historical data.
+            start: Optional start date in ISO format.
+            end: Optional end date in ISO format.
+
+        Returns:
+            Collated price history (empty DataFrame when no data is available).
+
+        Example:
+            >>> from pysharpe.data.portfolio import PortfolioDefinition
+            >>> from pathlib import Path
+            >>> workflow = PortfolioDownloadWorkflow(fetcher=None)  # doctest: +SKIP
+            >>> workflow.process_portfolio(  # doctest: +SKIP
+            ...     PortfolioDefinition('demo', ('AAPL',), Path('demo.csv')),
+            ...     period='1y', interval='1d', start=None, end=None,
+            ... )
+        """
+
         logger.info("Processing portfolio %s", portfolio.name)
         return self.collation.process_portfolio(
             portfolio.name,
@@ -69,6 +98,25 @@ class PortfolioDownloadWorkflow:
         start: str | None,
         end: str | None,
     ) -> Dict[str, pd.DataFrame]:
+        """Batch process one or more portfolio definitions.
+
+        Args:
+            names: Optional iterable of portfolio names. When ``None`` every
+                tracked portfolio is processed.
+            period: Rolling window requested when explicit dates are absent.
+            interval: Sampling interval for historical data.
+            start: Optional ISO start date.
+            end: Optional ISO end date.
+
+        Returns:
+            Mapping of portfolio name to collated DataFrame for each successful run.
+
+        Example:
+            >>> workflow = PortfolioDownloadWorkflow()
+            >>> workflow.process_portfolios([], period='1y', interval='1d', start=None, end=None)
+            {}
+        """
+
         results: dict[str, pd.DataFrame] = {}
         definitions = list(self.repository.iter_definitions(names))
         for definition in definitions:

@@ -16,6 +16,7 @@ from pysharpe.data import (
     PortfolioDownloadWorkflow,
     PortfolioRepository,
     PriceFetcher,
+    PriceHistoryError,
     YFinancePriceFetcher,
     read_tickers,
 )
@@ -79,13 +80,38 @@ def _build_download_workflow(
 
 
 def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
-    """Configure basic file logging under *log_dir*."""
+    """Configure basic file logging under ``log_dir``.
+
+    Args:
+        log_dir: Directory where the log file should be written.
+        level: Optional logging level string.
+
+    Returns:
+        Path to the created log file.
+
+    Example:
+        >>> from pysharpe.data_collector import setup_logging
+        >>> setup_logging(level="INFO").suffix
+        '.log'
+    """
 
     return configure_logging(log_dir=log_dir, level=level)
 
 
 def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
-    """Return portfolio CSV files in *directory*. Defaults to configured dir."""
+    """Return portfolio CSV files in ``directory`` (defaults to configured dir).
+
+    Args:
+        directory: Optional override for the portfolio directory.
+
+    Returns:
+        Sorted list of CSV paths discovered.
+
+    Example:
+        >>> from pysharpe.data_collector import get_csv_file_paths
+        >>> isinstance(get_csv_file_paths(), list)
+        True
+    """
 
     root = _as_path(directory or PORTFOLIO_DIR)
     repo = PortfolioRepository(_SETTINGS, directory=root)
@@ -93,13 +119,36 @@ def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
 
 
 def read_tickers_from_file(path: Path) -> Set[str]:
-    """Read tickers from a CSV-style file containing one symbol per line."""
+    """Read tickers from a CSV-style file containing one symbol per line.
+
+    Args:
+        path: File to parse.
+
+    Returns:
+        Set of unique tickers located in the file.
+
+    Example:
+        >>> from pathlib import Path
+        >>> from pysharpe.data_collector import read_tickers_from_file
+        >>> file_path = Path('portfolio.csv')
+        >>> _ = file_path.write_text('AAPL\nMSFT\n', encoding='utf-8')
+        >>> read_tickers_from_file(file_path)
+        {'AAPL', 'MSFT'}
+        >>> file_path.unlink()
+    """
 
     return set(read_tickers(Path(path)))
 
 
 class PortfolioTickerReader:
-    """Legacy-compatible wrapper around :class:`PortfolioRepository`."""
+    """Legacy-compatible wrapper around :class:`PortfolioRepository`.
+
+    Example:
+        >>> from pysharpe.data_collector import PortfolioTickerReader
+        >>> reader = PortfolioTickerReader()
+        >>> isinstance(reader.portfolio_tickers, dict)
+        True
+    """
 
     def __init__(self, directory: Path = PORTFOLIO_DIR) -> None:
         self.directory = _as_path(directory)
@@ -108,12 +157,28 @@ class PortfolioTickerReader:
         self.refresh()
 
     def refresh(self) -> None:
+        """Reload the in-memory mapping of portfolio tickers."""
+
         self.repo.refresh()
         self.portfolio_tickers = {
             definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
         }
 
     def get_portfolio_tickers(self, portfolio_name: str) -> Set[str]:
+        """Return the tickers tracked for ``portfolio_name``.
+
+        Args:
+            portfolio_name: Portfolio identifier.
+
+        Returns:
+            Set of tickers for the portfolio, or an empty set if unknown.
+
+        Example:
+            >>> reader = PortfolioTickerReader()
+            >>> reader.get_portfolio_tickers('nonexistent')
+            set()
+        """
+
         return self.portfolio_tickers.get(portfolio_name, set())
 
 
@@ -128,7 +193,26 @@ def download_portfolio_prices(
     end: Optional[str] = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Download price histories for *tickers* and write each to CSV."""
+    """Download price histories for ``tickers`` and write each to CSV.
+
+    Args:
+        tickers: Iterable of tickers (duplicates are ignored).
+        price_history_dir: Directory for raw per-ticker CSVs.
+        export_dir: Directory for collated artefacts (defaults to configured export directory).
+        period: Rolling window used when explicit dates are not provided.
+        interval: Sampling frequency for the download.
+        start: Optional ISO start date.
+        end: Optional ISO end date.
+        fetcher: Optional custom :class:`PriceFetcher` implementation.
+
+    Returns:
+        Mapping of ticker symbol to the downloaded DataFrame.
+
+    Example:
+        >>> from pysharpe.data_collector import download_portfolio_prices
+        >>> download_portfolio_prices(['AAPL'], period='1y', interval='1d', start=None, end=None)  # doctest: +SKIP
+        {'AAPL': ...}
+    """
 
     service = _build_collation_service(
         price_history_dir=price_history_dir,
@@ -151,7 +235,22 @@ def collate_prices(
     *,
     export_dir: Path | str = EXPORT_DIR,
 ) -> pd.DataFrame:
-    """Combine downloaded price histories into a single CSV per portfolio."""
+    """Combine downloaded price histories into a single CSV per portfolio.
+
+    Args:
+        portfolio_name: Name used for artefact filenames.
+        price_history_dir: Directory containing per-ticker CSVs.
+        tickers: Tickers to include in the portfolio.
+        export_dir: Directory where the collated CSV should be saved.
+
+    Returns:
+        Collated price history as a DataFrame.
+
+    Example:
+        >>> from pysharpe.data_collector import collate_prices
+        >>> collate_prices('demo', 'tests/data', ['AAPL'])  # doctest: +SKIP
+        ...
+    """
 
     service = _build_collation_service(
         price_history_dir=price_history_dir,
@@ -171,7 +270,30 @@ def process_portfolio(
     end: Optional[str] = None,
     fetcher: PriceFetcher | None = None,
 ) -> pd.DataFrame:
-    """Download and collate prices for the portfolio described in *portfolio_file*."""
+    """Download and collate prices for the portfolio described in ``portfolio_file``.
+
+    Args:
+        portfolio_file: Path to a newline-delimited ticker list.
+        price_history_dir: Directory for raw price CSVs.
+        export_dir: Directory for collated artefacts.
+        period: Rolling window used when explicit dates are not provided.
+        interval: Sampling frequency for the download.
+        start: Optional ISO start date.
+        end: Optional ISO end date.
+        fetcher: Optional custom :class:`PriceFetcher` implementation.
+
+    Returns:
+        Collated price DataFrame (empty when no tickers are found).
+
+    Example:
+        >>> from pysharpe.data_collector import process_portfolio
+        >>> from pathlib import Path
+        >>> csv_path = Path('demo.csv')
+        >>> _ = csv_path.write_text('AAPL', encoding='utf-8')
+        >>> process_portfolio(csv_path, period='1y', interval='1d')  # doctest: +SKIP
+        ...
+        >>> csv_path.unlink()
+    """
 
     portfolio_file = Path(portfolio_file)
     tickers = sorted(read_tickers_from_file(portfolio_file))
@@ -205,7 +327,26 @@ def process_all_portfolios(
     end: Optional[str] = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Run the download/collation workflow for every portfolio file."""
+    """Run the download/collation workflow for every portfolio file in ``portfolio_dir``.
+
+    Args:
+        portfolio_dir: Directory containing portfolio CSV definitions.
+        price_history_dir: Directory for raw price CSVs.
+        export_dir: Directory for collated artefacts.
+        period: Rolling window used when explicit dates are absent.
+        interval: Sampling frequency for the download.
+        start: Optional ISO start date.
+        end: Optional ISO end date.
+        fetcher: Optional custom :class:`PriceFetcher` implementation.
+
+    Returns:
+        Mapping of portfolio name to the collated DataFrame for successful runs.
+
+    Example:
+        >>> from pysharpe.data_collector import process_all_portfolios
+        >>> process_all_portfolios(portfolio_dir='tests/data')  # doctest: +SKIP
+        ...
+    """
 
     workflow = _build_download_workflow(
         portfolio_dir=portfolio_dir,
@@ -231,7 +372,14 @@ def _ensure_yfinance():  # pragma: no cover - compatibility shim
 
 
 class SecurityDataCollector:
-    """Wrapper around yfinance helpers for single-ticker information."""
+    """Wrapper around yfinance helpers for single-ticker information.
+
+    Example:
+        >>> from pysharpe.data_collector import SecurityDataCollector
+        >>> collector = SecurityDataCollector('AAPL')  # doctest: +SKIP
+        >>> collector.get_company_name()  # doctest: +SKIP
+        'Apple Inc.'
+    """
 
     def __init__(self, ticker: str):
         if not ticker:
@@ -245,13 +393,34 @@ class SecurityDataCollector:
         return dict(payload)
 
     def get_company_name(self) -> str:
+        """Return the preferred company display name.
+
+        Example:
+            >>> SecurityDataCollector('AAPL').get_company_name()  # doctest: +SKIP
+            'Apple Inc.'
+        """
+
         info = self._info
         return info.get("shortName") or info.get("longName") or self.ticker
 
     def get_company_info(self) -> dict:
+        """Return the raw info payload from yfinance.
+
+        Example:
+            >>> SecurityDataCollector('AAPL').get_company_info()  # doctest: +SKIP
+            {...}
+        """
+
         return dict(self._info)
 
     def download_info(self, destination: Path = INFO_DIR) -> Path:
+        """Persist the info payload to ``destination`` as JSON.
+
+        Example:
+            >>> SecurityDataCollector('AAPL').download_info()  # doctest: +SKIP
+            PosixPath('...')
+        """
+
         info = self.get_company_info()
         destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
@@ -260,18 +429,26 @@ class SecurityDataCollector:
         return file_path
 
     def get_news(self) -> list:
+        """Return the news entries attached to the ticker."""
+
         payload = getattr(self._yf, "news", None) or []
         return list(payload)
 
     def get_options(self) -> list:
+        """Return the available option expiration dates."""
+
         payload = getattr(self._yf, "options", None) or []
         return list(payload)
 
     def get_earnings_dates(self) -> pd.DataFrame:
+        """Return the earnings date DataFrame (empty if unavailable)."""
+
         data = getattr(self._yf, "earnings_dates", pd.DataFrame())
         return data.copy() if isinstance(data, pd.DataFrame) else pd.DataFrame()
 
     def get_recommendations(self) -> dict:
+        """Return analyst recommendation data grouped by source."""
+
         return {
             "recommendations": getattr(self._yf, "recommendations", None),
             "summary": getattr(self._yf, "recommendations_summary", None),
@@ -279,6 +456,8 @@ class SecurityDataCollector:
         }
 
     def get_holders(self) -> dict:
+        """Return major, institutional, mutual fund, and insider holdings."""
+
         return {
             "major_holders": getattr(self._yf, "major_holders", None),
             "institutional_holders": getattr(self._yf, "institutional_holders", None),
@@ -288,6 +467,8 @@ class SecurityDataCollector:
         }
 
     def get_financials(self) -> pd.DataFrame:
+        """Return concatenated financial statements when available."""
+
         sections = {
             "Income Statement": "financials",
             "Quarterly Income Statement": "quarterly_financials",
@@ -306,6 +487,8 @@ class SecurityDataCollector:
         return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
     def get_actions(self) -> dict:
+        """Return corporate action history (splits, dividends, etc.)."""
+
         return {
             "actions": getattr(self._yf, "actions", None),
             "dividends": getattr(self._yf, "dividends", None),
@@ -315,6 +498,8 @@ class SecurityDataCollector:
         }
 
     def get_summary(self) -> dict:
+        """Return a curated subset of company fundamentals."""
+
         info = self.get_company_info()
         keys = [
             "longName",
@@ -360,6 +545,13 @@ class SecurityDataCollector:
         start: Optional[str] = None,
         end: Optional[str] = None,
     ) -> pd.DataFrame:
+        """Download historical prices for the security and persist them.
+
+        Example:
+            >>> SecurityDataCollector('AAPL').download_price_history()  # doctest: +SKIP
+            ...
+        """
+
         fetcher = YFinancePriceFetcher()
         frame = fetcher.fetch_history(
             self.ticker,

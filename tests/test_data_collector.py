@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import types
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from pysharpe import data_collector
 
@@ -153,3 +155,64 @@ def test_portfolio_ticker_reader_refresh_handles_empty_files(tmp_path):
 
     # ensure previously loaded portfolios remain intact after refresh
     assert reader.get_portfolio_tickers("growth") == {"AAPL", "MSFT"}
+
+
+def test_security_data_collector_requires_symbol():
+    with pytest.raises(ValueError):
+        data_collector.SecurityDataCollector("")
+
+
+def test_download_portfolio_prices_skips_failures_and_deduplicates(tmp_path):
+    history = pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "Close": [10.0, 11.0]})
+
+    class _Fetcher:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def fetch_history(self, ticker: str, **_kwargs):
+            self.calls.append(ticker)
+            if ticker == "FAIL":
+                raise data_collector.PriceHistoryError("no data")
+            return history
+
+    fetcher = _Fetcher()
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+
+    result = data_collector.download_portfolio_prices(
+        ["AAA", "AAA", "FAIL"],
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+        fetcher=fetcher,
+    )
+
+    assert set(result.keys()) == {"AAA"}
+    assert fetcher.calls.count("AAA") == 1
+    assert (price_dir / "AAA_hist.csv").exists()
+
+
+def test_process_all_portfolios_uses_repository(monkeypatch, tmp_path):
+    portfolio_dir = tmp_path / "portfolio"
+    portfolio_dir.mkdir()
+    sample_csv = Path(__file__).parent / "data" / "sample_portfolio.csv"
+    target_csv = portfolio_dir / "sample.csv"
+    target_csv.write_text(sample_csv.read_text(encoding="utf-8"), encoding="utf-8")
+
+    history = pd.DataFrame({
+        "Date": ["2024-01-01", "2024-01-02"],
+        "Close": [50.0, 51.0],
+    })
+
+    class _Fetcher:
+        def fetch_history(self, *_args, **_kwargs):
+            return history
+
+    results = data_collector.process_all_portfolios(
+        portfolio_dir=portfolio_dir,
+        price_history_dir=tmp_path / "price_hist",
+        export_dir=tmp_path / "exports",
+        fetcher=_Fetcher(),
+    )
+
+    assert "sample" in results
+    assert not results["sample"].empty

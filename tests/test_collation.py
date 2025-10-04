@@ -58,3 +58,35 @@ def test_collate_portfolio_filters_invalid_columns(tmp_path):
     assert metadata["included_tickers"] == ["AAA"]
     assert metadata["dropped_tickers"] == ["BBB"]
     # Change: Added regression test ensuring performance tweak keeps metadata consistent.
+
+
+def test_collate_portfolio_returns_empty_when_no_data(tmp_path):
+    service = CollationService(
+        _NoopFetcher(),
+        price_history_dir=tmp_path / "price_hist",
+        export_dir=tmp_path / "exports",
+    )
+
+    frame = service.collate_portfolio("missing", ("AAA",))
+    assert frame.empty
+
+
+def test_download_portfolio_prices_writes_csv(tmp_path):
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+
+    history = pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "Close": [1.0, 1.1]})
+
+    class _Fetcher(PriceFetcher):
+        def fetch_history(self, *_args, **_kwargs):  # type: ignore[override]
+            return history
+
+    service = CollationService(
+        _Fetcher(),
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+    )
+
+    result = service.download_portfolio_prices(["AAA"], period="1mo", interval="1d", start=None, end=None)
+    assert "AAA" in result
+    assert (price_dir / "AAA_hist.csv").exists()

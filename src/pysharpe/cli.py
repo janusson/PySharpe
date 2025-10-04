@@ -1,200 +1,77 @@
-"""Simplified command line interface for PySharpe."""
+"""Command line interface for PySharpe."""
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, Sequence
 
-try:
-    from pysharpe import data_collector, workflows
-    from pysharpe.config import get_settings
-    from pysharpe.data import PortfolioDefinition, PortfolioRepository
-    from pysharpe.optimization.models import OptimisationResult
-except ImportError:  # pragma: no cover - support running as a script
-    import sys
+import pandas as pd
 
-    package_root = Path(__file__).resolve().parent
-    sys.path.insert(0, str(package_root.parent))
-    from pysharpe import data_collector, workflows  # type: ignore
-    from pysharpe.config import get_settings  # type: ignore
-    from pysharpe.data import PortfolioDefinition, PortfolioRepository  # type: ignore
-    from pysharpe.optimization.models import OptimisationResult  # type: ignore
+from pysharpe import data_collector, workflows
+from pysharpe.config import get_settings
+from pysharpe.data import PortfolioRepository
+from pysharpe.optimization.models import OptimisationResult
+from pysharpe.visualization import plot_dca_projection, simulate_dca
 
 
-DEFAULT_PERIOD = "max"
-DEFAULT_INTERVAL = "1d"
+def _resolve(path: Path | str | None, default: Path) -> Path:
+    """Expand user paths and fall back to a default when *path* is ``None``."""
+
+    if path is None:
+        return default
+    return Path(path).expanduser().resolve()
 
 
-def _resolve_path(value: str | Path | None) -> Path | None:
-    if value is None:
-        return None
-    return Path(value).expanduser().resolve()
+def _summarise_results(results: Iterable[OptimisationResult]) -> None:
+    """Print optimisation summaries in a stable order."""
 
-
-def _print_optimisation_results(results: Iterable[OptimisationResult]) -> None:
-    for result in sorted(results, key=lambda item: item.name):
-        perf = result.performance
+    for outcome in sorted(results, key=lambda item: item.name):
+        perf = outcome.performance
         print(
-            f"Optimised {result.name}: expected return {perf.expected_return:.2%}, "
+            f"{outcome.name}: return {perf.expected_return:.2%}, "
             f"volatility {perf.volatility:.2%}, sharpe {perf.sharpe_ratio:.2f}"
         )
-        weights = result.weights.non_zero()
-        if weights:
-            allocations = ", ".join(
-                f"{ticker}={weight:.2%}" for ticker, weight in sorted(weights.items())
-            )
-            print(f"  Weights: {allocations}")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="pysharpe",
-        description="Download price history and optimise portfolios in one step.",
-    )
-    parser.add_argument(
-        "--portfolio",
-        dest="portfolios",
-        nargs="*",
-        help="Optional portfolio names to target (defaults to all discovered portfolios).",
-    )
-    parser.add_argument(
-        "--portfolio-dir",
-        help=(
-            "Directory containing portfolio CSVs (default:"
-            f" {data_collector.PORTFOLIO_DIR})"
-        ),
-    )
-    parser.add_argument(
-        "--price-dir",
-        help=(
-            "Directory for individual price history CSV files (default:"
-            f" {data_collector.PRICE_HISTORY_DIR})"
-        ),
-    )
-    parser.add_argument(
-        "--export-dir",
-        help=(
-            "Directory for collated price files and optimisation artefacts (default:"
-            f" {data_collector.EXPORT_DIR})"
-        ),
-    )
-    parser.add_argument(
-        "--log-dir",
-        help="Optional directory for log files; enables file logging if provided.",
-    )
-    parser.add_argument(
-        "--period",
-        default=DEFAULT_PERIOD,
-        help=f"yfinance period passed to history() when no explicit dates are supplied (default: {DEFAULT_PERIOD}).",
-    )
-    parser.add_argument(
-        "--interval",
-        default=DEFAULT_INTERVAL,
-        help=f"Sampling interval passed to yfinance history() (default: {DEFAULT_INTERVAL}).",
-    )
-    parser.add_argument(
-        "--start",
-        help="Optional ISO date marking the beginning of the download window.",
-    )
-    parser.add_argument(
-        "--end",
-        help="Optional ISO date marking the end of the download window.",
-    )
-    parser.add_argument(
-        "--skip-download",
-        action="store_true",
-        help="Assume price history has already been downloaded and collated.",
-    )
-    parser.add_argument(
-        "--skip-optimize",
-        action="store_true",
-        help="Skip the optimisation step and stop after downloading data.",
-    )
-    parser.add_argument(
-        "--no-plot",
-        action="store_true",
-        help="Skip generating allocation pie charts during optimisation.",
-    )
-    return parser
-
-
-def _select_portfolios(
-    repo: PortfolioRepository, names: Sequence[str] | None
-) -> List[PortfolioDefinition]:
-    available = {definition.name: definition for definition in repo.list_portfolios()}
-    if not available:
-        return []
-
-    if not names:
-        return list(available.values())
-
-    selections = []
-    missing: list[str] = []
-    for name in names:
-        definition = available.get(name)
-        if definition is None:
-            missing.append(name)
-        else:
-            selections.append(definition)
-
-    if missing:
-        print("The following portfolio names were not found:")
-        for name in missing:
-            print(f"  - {name}")
-
-    return selections
-
-
-def _ensure_directories(*paths: Path) -> None:
-    for path in paths:
-        path.mkdir(parents=True, exist_ok=True)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
+def _handle_optimise(args: argparse.Namespace) -> int:
     settings = get_settings()
-    settings.ensure_directories()
+    portfolio_dir = _resolve(args.portfolio_dir, settings.portfolio_dir)
+    price_dir = _resolve(args.price_dir, settings.price_history_dir)
+    export_dir = _resolve(args.export_dir, settings.export_dir)
 
-    portfolio_dir = _resolve_path(args.portfolio_dir) or Path(data_collector.PORTFOLIO_DIR)
-    price_dir = _resolve_path(args.price_dir) or Path(data_collector.PRICE_HISTORY_DIR)
-    export_dir = _resolve_path(args.export_dir) or Path(data_collector.EXPORT_DIR)
-    log_dir = _resolve_path(args.log_dir)
+    portfolio_dir.mkdir(parents=True, exist_ok=True)
+    price_dir.mkdir(parents=True, exist_ok=True)
+    export_dir.mkdir(parents=True, exist_ok=True)
 
-    _ensure_directories(portfolio_dir, price_dir, export_dir)
-
-    if log_dir is not None:
-        data_collector.setup_logging(log_dir)
+    if args.log_dir:
+        data_collector.setup_logging(Path(args.log_dir))
 
     repo = PortfolioRepository(settings, directory=portfolio_dir)
-    available = repo.list_portfolios()
-    print(f"Portfolio definitions directory: {portfolio_dir}")
-
+    available = {definition.name: definition for definition in repo.list_portfolios()}
     if not available:
-        print("No portfolio CSV files found. Add one ticker per line to create a portfolio.")
+        print("No portfolios discovered. Add CSV files to the portfolio directory.")
         return 1
 
-    print("Available portfolios:")
-    for definition in available:
-        print(f"  - {definition.name} ({len(definition.tickers)} tickers)")
+    if args.portfolios:
+        missing = [name for name in args.portfolios if name not in available]
+        if missing:
+            print("Unknown portfolio names:")
+            for item in missing:
+                print(f"  - {item}")
+        targets = [available[name] for name in args.portfolios if name in available]
+    else:
+        targets = list(available.values())
 
-    selected = _select_portfolios(repo, args.portfolios)
-    if not selected:
+    if not targets:
         print("No valid portfolios selected.")
         return 1
 
-    target_names = [definition.name for definition in selected]
+    target_names = [definition.name for definition in targets]
 
-    if args.skip_download:
-        print("Skipping download step (per --skip-download).")
-    else:
-        print(
-            f"Downloading and collating price history to {export_dir}"
-            f" (raw data in {price_dir})."
-        )
-        processed = workflows.download_portfolios(
+    if not args.skip_download:
+        workflows.download_portfolios(
             portfolio_names=target_names,
             portfolio_dir=portfolio_dir,
             price_history_dir=price_dir,
@@ -204,32 +81,161 @@ def main(argv: Sequence[str] | None = None) -> int:
             start=args.start,
             end=args.end,
         )
-        if not processed:
-            print("No portfolios processed during download.")
-        else:
-            for name in sorted(processed):
-                print(f"  Collated data written to {export_dir / f'{name}_collated.csv'}")
 
-    if args.skip_optimize:
-        print("Skipping optimisation step (per --skip-optimize).")
-        return 0
-
-    print(f"Optimising portfolios using data in {export_dir}.")
     results = workflows.optimise_portfolios(
         portfolio_names=target_names,
         collated_dir=export_dir,
         output_dir=export_dir,
-        time_constraint=None,
+        time_constraint=args.time_constraint,
         make_plot=not args.no_plot,
     )
+
     if not results:
-        print("No portfolios optimised.")
+        print("No optimisation results produced. Ensure collated data exists.")
         return 1
 
-    _print_optimisation_results(results.values())
-    print(f"Optimisation artefacts saved to {export_dir}.")
+    _summarise_results(results.values())
+    print(f"Artefacts written to {export_dir}")
     return 0
 
 
+def _handle_simulate_dca(args: argparse.Namespace) -> int:
+    projection = simulate_dca(
+        months=args.months,
+        initial_investment=args.initial,
+        monthly_contribution=args.monthly,
+        annual_return_rate=args.rate,
+    )
+
+    total_contribution = projection.final_contribution()
+    final_balance = projection.final_balance()
+    print(f"Final contribution: ${total_contribution:,.2f}")
+    print(f"Final balance:      ${final_balance:,.2f}")
+
+    if args.plot or args.output:
+        ax = plot_dca_projection(projection)
+        if args.output:
+            output_path = Path(args.output).expanduser()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            ax.figure.savefig(output_path)
+            print(f"Plot saved to {output_path}")
+        if args.plot:
+            from pysharpe.visualization.dca import _require_matplotlib
+
+            _require_matplotlib().show()
+        else:
+            ax.figure.clf()
+
+    return 0
+
+
+def _handle_plot(args: argparse.Namespace) -> int:
+    path = Path(args.input).expanduser()
+    if not path.exists():
+        print(f"Input file not found: {path}")
+        return 1
+
+    frame = pd.read_csv(path)
+    if args.date_column and args.date_column in frame.columns:
+        frame[args.date_column] = pd.to_datetime(frame[args.date_column], errors="coerce")
+        frame.set_index(args.date_column, inplace=True)
+
+    columns = args.columns or frame.select_dtypes("number").columns.tolist()
+    if not columns:
+        print("No numeric columns available to plot.")
+        return 1
+
+    ax = frame[columns].plot(figsize=(8, 4))
+    ax.set_title(args.title or path.stem)
+    ax.set_ylabel(args.ylabel)
+    ax.grid(True)
+
+    if args.output:
+        output = Path(args.output).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        ax.figure.savefig(output)
+        print(f"Plot saved to {output}")
+
+    if args.show:
+        from pysharpe.visualization.dca import _require_matplotlib
+
+        _require_matplotlib().show()
+    else:
+        ax.figure.clf()
+
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pysharpe",
+        description="Portfolio analytics helpers for optimisation and simulations.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # optimise
+    optimise = subparsers.add_parser(
+        "optimise",
+        help="Download (optional) data and run the optimisation pipeline.",
+    )
+    optimise.add_argument("--portfolio", dest="portfolios", nargs="*", help="Portfolio names to target.")
+    optimise.add_argument("--portfolio-dir", type=Path, help="Directory containing portfolio CSV files.")
+    optimise.add_argument("--price-dir", type=Path, help="Directory for price history CSVs.")
+    optimise.add_argument("--export-dir", type=Path, help="Directory for collated data and outputs.")
+    optimise.add_argument("--log-dir", type=Path, help="Optional logging directory.")
+    optimise.add_argument("--period", default="max", help="History period requested when start/end are omitted.")
+    optimise.add_argument("--interval", default="1d", help="Sampling interval for downloads (default: 1d).")
+    optimise.add_argument("--start", help="ISO start date for downloads.")
+    optimise.add_argument("--end", help="ISO end date for downloads.")
+    optimise.add_argument("--time-constraint", dest="time_constraint", help="ISO start date applied to collated data.")
+    optimise.add_argument("--skip-download", action="store_true", help="Reuse previously downloaded data.")
+    optimise.add_argument("--no-plot", action="store_true", help="Skip allocation pie charts.")
+
+    # simulate-dca
+    simulate = subparsers.add_parser(
+        "simulate-dca",
+        help="Generate a dollar-cost averaging projection.",
+    )
+    simulate.add_argument("--months", type=int, default=36, help="Number of months to simulate (default: 36).")
+    simulate.add_argument("--initial", type=float, default=1000.0, help="Initial lump sum investment.")
+    simulate.add_argument("--monthly", type=float, default=250.0, help="Recurring contribution amount.")
+    simulate.add_argument("--rate", type=float, default=0.08, help="Annual return rate as a decimal (default: 0.08).")
+    simulate.add_argument("--output", help="Optional path to save the generated plot.")
+    simulate.add_argument("--plot", action="store_true", help="Display the plot interactively.")
+
+    # plot
+    plot = subparsers.add_parser(
+        "plot",
+        help="Plot numeric series from a CSV file (collated data or performance logs).",
+    )
+    plot.add_argument("--input", required=True, help="Path to the CSV file to visualise.")
+    plot.add_argument("--columns", nargs="*", help="Specific column names to plot (defaults to numeric columns).")
+    plot.add_argument("--date-column", help="Name of a column to use as the datetime index.")
+    plot.add_argument("--title", help="Custom plot title.")
+    plot.add_argument("--ylabel", default="Value", help="Y axis label (default: Value).")
+    plot.add_argument("--output", help="Optional file path for saving the plot.")
+    plot.add_argument("--show", action="store_true", help="Display the plot interactively.")
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point used by ``python -m pysharpe.cli`` and console scripts."""
+
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "optimise":
+        return _handle_optimise(args)
+    if args.command == "simulate-dca":
+        return _handle_simulate_dca(args)
+    if args.command == "plot":
+        return _handle_plot(args)
+
+    parser.print_help()
+    return 1
+
+
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    sys.exit(main())
+

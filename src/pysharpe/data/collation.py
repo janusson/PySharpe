@@ -18,8 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 class CollationService:
-    """Coordinate price downloads, CSV normalisation, and metadata capture."""
-    # Change: Added class-level summary docstring to improve readability.
+    """Coordinate price downloads, CSV normalisation, and metadata capture.
+
+    Example:
+        >>> from pysharpe.data.fetcher import PriceFetcher
+        >>> class _InMemoryFetcher(PriceFetcher):
+        ...     def fetch_history(self, ticker, *, period, interval, start, end):
+        ...         import pandas as pd
+        ...         return pd.DataFrame({"Close": [1.0, 1.1]}, index=[0, 1])
+        >>> service = CollationService(_InMemoryFetcher())
+        >>> isinstance(service, CollationService)
+        True
+    """
+
     def __init__(
         self,
         fetcher: PriceFetcher,
@@ -45,6 +56,29 @@ class CollationService:
         start: str | None,
         end: str | None,
     ) -> dict[str, pd.DataFrame]:
+        """Download and cache price histories for ``tickers``.
+
+        Args:
+            tickers: Iterable of ticker symbols (deduplicated internally).
+            period: Rolling window requested when dates are absent.
+            interval: Sampling interval passed to the fetcher.
+            start: Optional ISO start date.
+            end: Optional ISO end date.
+
+        Returns:
+            Mapping of ticker to the downloaded DataFrame.
+
+        Example:
+            >>> from pysharpe.data.fetcher import PriceFetcher
+            >>> class _Fetcher(PriceFetcher):
+            ...     def fetch_history(self, ticker, **kwargs):
+            ...         import pandas as pd
+            ...         return pd.DataFrame({"Close": [1.0]}, index=[0])
+            >>> service = CollationService(_Fetcher())
+            >>> service.download_portfolio_prices(["AAA"], period="1y", interval="1d", start=None, end=None).keys()
+            dict_keys(['AAA'])
+        """
+
         results: dict[str, pd.DataFrame] = {}
         for ticker in sorted(set(tickers)):
             try:
@@ -101,6 +135,26 @@ class CollationService:
         name: str,
         tickers: Sequence[str],
     ) -> pd.DataFrame:
+        """Collate individual ticker CSVs into a portfolio-wide DataFrame.
+
+        Args:
+            name: Portfolio name used for artefact filenames.
+            tickers: Ordered tickers to collate.
+
+        Returns:
+            DataFrame indexed by date containing one column per included ticker.
+
+        Example:
+            >>> from pysharpe.data.fetcher import PriceFetcher
+            >>> class _Fetcher(PriceFetcher):
+            ...     def fetch_history(self, ticker, **kwargs):
+            ...         import pandas as pd
+            ...         return pd.DataFrame({"Date": ["2024-01-01"], "Close": [1.0]})
+            >>> service = CollationService(_Fetcher())
+            >>> service.download_portfolio_prices(["AAA"], period="1y", interval="1d", start=None, end=None)
+            {'AAA': ...}
+        """
+
         frames: list[pd.DataFrame] = []
         included: list[str] = []
         for ticker in tickers:
@@ -135,6 +189,30 @@ class CollationService:
         start: str | None,
         end: str | None,
     ) -> pd.DataFrame:
+        """Download, collate, and persist artefacts for a single portfolio.
+
+        Args:
+            name: Portfolio name.
+            tickers: Iterable of tickers to fetch.
+            period: Rolling window requested when dates are absent.
+            interval: Sampling interval for price data.
+            start: Optional ISO date limiting the window.
+            end: Optional ISO end date.
+
+        Returns:
+            Collated price history. Empty if no valid tickers were available.
+
+        Example:
+            >>> from pysharpe.data.fetcher import PriceFetcher
+            >>> class _Fetcher(PriceFetcher):
+            ...     def fetch_history(self, ticker, **kwargs):
+            ...         import pandas as pd
+            ...         return pd.DataFrame({"Date": ["2024-01-01"], "Close": [1.0]})
+            >>> service = CollationService(_Fetcher())
+            >>> service.process_portfolio("demo", ("AAA",), period="1y", interval="1d", start=None, end=None).empty
+            False
+        """
+
         if not tickers:
             logger.warning("No tickers found for portfolio: %s", name)
             return pd.DataFrame()

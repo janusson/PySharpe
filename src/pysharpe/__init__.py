@@ -28,6 +28,14 @@ _DIRECTORY_EXPORTS: tuple[str, ...] = (
     "LOG_DIR",
 )
 
+_METRIC_EXPORTS: dict[str, tuple[str, str]] = {
+    "compute_returns": ("pysharpe.metrics", "compute_returns"),
+    "annualize_return": ("pysharpe.metrics", "annualize_return"),
+    "annualize_volatility": ("pysharpe.metrics", "annualize_volatility"),
+    "expected_return": ("pysharpe.metrics", "expected_return"),
+    "sharpe_ratio": ("pysharpe.metrics", "sharpe_ratio"),
+}
+
 _SETTINGS = get_settings()
 DATA_DIR: Final[str] = _SETTINGS.data_dir
 PORTFOLIO_DIR: Final[str] = _SETTINGS.portfolio_dir
@@ -83,6 +91,8 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     ),
 }
 
+_EXPORT_MAP.update(_METRIC_EXPORTS)
+
 __all__ = (*_CONFIG_EXPORTS, *_DIRECTORY_EXPORTS, *_EXPORT_MAP)
 
 
@@ -137,4 +147,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         DCAProjection,
         plot_dca_projection,
         simulate_dca,
+    )
+    from pysharpe.metrics import (  # noqa: F401
+        annualize_return,
+        annualize_volatility,
+        compute_returns,
+        expected_return,
+        sharpe_ratio,
     )
