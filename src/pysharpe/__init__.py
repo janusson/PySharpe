@@ -9,50 +9,34 @@ imports between top-level modules.
 from __future__ import annotations
 
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from .config import PySharpeSettings, build_settings, get_settings
 
-__all__ = [
+_CONFIG_EXPORTS: tuple[str, ...] = (
     "PySharpeSettings",
     "build_settings",
     "get_settings",
+)
+
+_DIRECTORY_EXPORTS: tuple[str, ...] = (
     "DATA_DIR",
     "PORTFOLIO_DIR",
     "PRICE_HISTORY_DIR",
     "EXPORT_DIR",
     "INFO_DIR",
     "LOG_DIR",
-    "PortfolioTickerReader",
-    "SecurityDataCollector",
-    "download_portfolio_prices",
-    "collate_prices",
-    "process_portfolio",
-    "process_all_portfolios",
-    "get_csv_file_paths",
-    "read_tickers_from_file",
-    "setup_logging",
-    "download_portfolios",
-    "optimise_portfolios",
-    "optimise_portfolio",
-    "optimise_all_portfolios",
-    "PortfolioWeights",
-    "OptimisationPerformance",
-    "OptimisationResult",
-    "DCAProjection",
-    "simulate_dca",
-    "plot_dca_projection",
-]
+)
 
 _SETTINGS = get_settings()
-DATA_DIR = _SETTINGS.data_dir
-PORTFOLIO_DIR = _SETTINGS.portfolio_dir
-PRICE_HISTORY_DIR = _SETTINGS.price_history_dir
-EXPORT_DIR = _SETTINGS.export_dir
-INFO_DIR = _SETTINGS.info_dir
-LOG_DIR = _SETTINGS.log_dir
+DATA_DIR: Final[str] = _SETTINGS.data_dir
+PORTFOLIO_DIR: Final[str] = _SETTINGS.portfolio_dir
+PRICE_HISTORY_DIR: Final[str] = _SETTINGS.price_history_dir
+EXPORT_DIR: Final[str] = _SETTINGS.export_dir
+INFO_DIR: Final[str] = _SETTINGS.info_dir
+LOG_DIR: Final[str] = _SETTINGS.log_dir
 
-_EXPORT_MAP = {
+_EXPORT_MAP: dict[str, tuple[str, str]] = {
     # Data collection helpers
     "PortfolioTickerReader": ("pysharpe.data_collector", "PortfolioTickerReader"),
     "SecurityDataCollector": ("pysharpe.data_collector", "SecurityDataCollector"),
@@ -99,15 +83,32 @@ _EXPORT_MAP = {
     ),
 }
 
+__all__ = (*_CONFIG_EXPORTS, *_DIRECTORY_EXPORTS, *_EXPORT_MAP)
+
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - thin dynamic dispatch
-    if name in _EXPORT_MAP:
+    """Resolve lazily exported attributes on first access and cache them."""
+
+    try:
         module_name, attr_name = _EXPORT_MAP[name]
-        module = import_module(module_name)
-        value = getattr(module, attr_name)
-        globals()[name] = value
-        return value
-    raise AttributeError(f"module 'pysharpe' has no attribute {name!r}")
+    except KeyError as error:
+        available = ", ".join(sorted(__all__))
+        message = (
+            f"module 'pysharpe' has no attribute {name!r}. "
+            f"Available exports: {available}"
+        )
+        raise AttributeError(message) from error
+
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value  # Cache to avoid repeated imports.
+    return value
+
+
+def __dir__() -> list[str]:  # pragma: no cover - proxy to improve discoverability
+    """Surface lazily loaded attributes during interactive exploration tools."""
+
+    return sorted({*globals(), *__all__})
 
 
 if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
@@ -122,18 +123,18 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         read_tickers_from_file,
         setup_logging,
     )
+    from pysharpe.workflows import download_portfolios, optimise_portfolios  # noqa: F401
     from pysharpe.portfolio_optimization import (  # noqa: F401
         optimise_all_portfolios,
         optimise_portfolio,
+    )
+    from pysharpe.optimization import (  # noqa: F401
+        OptimisationPerformance,
+        OptimisationResult,
+        PortfolioWeights,
     )
     from pysharpe.visualization import (  # noqa: F401
         DCAProjection,
         plot_dca_projection,
         simulate_dca,
-    )
-    from pysharpe.workflows import download_portfolios, optimise_portfolios  # noqa: F401
-    from pysharpe.optimization import (  # noqa: F401
-        OptimisationPerformance,
-        OptimisationResult,
-        PortfolioWeights,
     )
