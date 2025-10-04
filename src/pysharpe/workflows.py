@@ -11,7 +11,7 @@ import pandas as pd
 from pysharpe.config import get_settings
 from pysharpe.data import PortfolioDownloadWorkflow
 from pysharpe.optimization.models import OptimisationResult
-from pysharpe.portfolio_optimization import optimise_portfolio
+from pysharpe.portfolio_optimization import optimise_portfolio, optimise_all_portfolios
 
 logger = logging.getLogger(__name__)
 
@@ -90,4 +90,4 @@ def optimise_portfolios(
     return results
 
 
-__all__ = ["download_portfolios", "optimise_portfolios"]
+__all__ = ["download_portfolios", "optimise_portfolios", "optimise_all_portfolios"]

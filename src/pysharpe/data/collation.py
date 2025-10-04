@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -84,11 +84,10 @@ class CollationService:
             return None
 
         frame = raw.loc[valid_mask, ["Close"]].copy()
-        frame["Date"] = (
-            timestamps.loc[valid_mask]
-            .tz_convert(None)
-            .strftime("%Y-%m-%d")
-        )
+        tz_aware = timestamps.loc[valid_mask]
+        if tz_aware.dt.tz is not None:
+            tz_aware = tz_aware.dt.tz_convert(None)
+        frame["Date"] = tz_aware.dt.strftime("%Y-%m-%d")
         frame.dropna(subset=["Close"], inplace=True)
         if frame.empty:
             logger.warning("No valid price points retained for %s", ticker)
@@ -158,12 +157,14 @@ class CollationService:
         metadata_path = self.export_dir / f"{name}_metadata.json"
         requested_set = set(requested)
         included_set = set(included)
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
         payload = {
             "name": name,
             "requested_tickers": list(requested),
             "included_tickers": list(included),
             "dropped_tickers": sorted(requested_set - included_set),
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": timestamp,
             "artifact_version": self.settings.artifact_version,
         }
         metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
