@@ -151,6 +151,16 @@ def _normalize_datetime_index(obj: pd.DataFrame | pd.Series) -> None:
     """Ensure datetime indices are timezone-naive for consistent slicing."""
 
     index = obj.index
+    if not isinstance(index, pd.DatetimeIndex):
+        converted = pd.to_datetime(index, errors="coerce")
+        if converted.isna().all():
+            return
+        mask = ~converted.isna()
+        if not mask.all():
+            obj.drop(index[~mask], inplace=True)
+            converted = converted[mask]
+        obj.index = converted
+        index = obj.index
     if isinstance(index, pd.DatetimeIndex) and index.tz is not None:
         obj.index = index.tz_localize(None)
 
