@@ -1,107 +1,78 @@
 # PySharpe
 
-PySharpe is a lightweight portfolio analytics and optimisation toolkit. It helps you download pricing data, collate custom portfolios, compute diagnostic metrics (returns, volatility, Sharpe ratios), and run maximum-Sharpe optimisations without leaving Python.
+PySharpe is a portfolio research toolkit that wraps data collection, return analytics, optimisation, and simulation workflows into a single Python package. The repository ships a Streamlit dashboard for exploratory analysis, a CLI for scripted runs, and a modular library for notebooks or downstream automation.
+
+## Features
+
+- Download and clean market data from Yahoo Finance or local CSV files.
+- Compute annualised return, volatility, and Sharpe ratio statistics.
+- Optimise weights with `pypfopt` using an Efficient Frontier model.
+- Run dollar-cost averaging (DCA) projections and export the results.
+- Interact through an opinionated Streamlit UI or the command-line utilities.
 
 ## Installation
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-The editable install keeps the library and CLI in sync while you develop. The `dev` extras pull in pytest, coverage, ruff, and the other tooling used in this repository.
+The editable install keeps the CLI, dashboard, and library in sync. The `dev` extras bring in pytest, coverage, and linting tools that match the CI configuration.
 
-## Quickstart (Python REPL or notebook)
+## Usage
 
-```python
-import pysharpe
-
-# Load the tickers listed in tests/data/sample_portfolio.csv without hitting any APIs.
-prices = pysharpe.download_portfolio_prices(
-    ["AAPL", "MSFT", "GOOG"],
-    price_history_dir="tests/data",  # reuse local fixtures for a deterministic run
-    export_dir="tests/data",
-)
-returns = pysharpe.metrics.compute_returns(prices["AAPL"])
-compute_sharpe_ratio = pysharpe.metrics.sharpe_ratio
-sharpe = compute_sharpe_ratio(returns)
-print(f"Sample Sharpe ratio: {sharpe:.2f}")
-```
-
-The `pysharpe.metrics` module also exposes helpers for annualised returns, volatility, and mean estimates so you can extend the analysis in a single workflow.
-
-## Command-line usage
-
-PySharpe ships with a single entry point that is being refactored into clear subcommands. The examples below show the intended UX.
+### Streamlit Dashboard
 
 ```bash
-# Optimise the tickers from a CSV (writes weights, performance, and plots)
-pysharpe optimise --portfolio tests/data/sample_portfolio.csv --export-dir outputs/
-
-# Run an offline DCA projection and optionally emit a chart
-pysharpe simulate-dca --initial 1000 --monthly 200 --rate 0.08 --months 36 --plot
-
-# Plot any metric saved by the optimiser
-pysharpe plot --input outputs/demo_performance.txt --metric sharpe_ratio
+streamlit run app.py
 ```
 
-Run `pysharpe --help`, `pysharpe optimise --help`, etc. for the canonical flag list once the subcommands are enabled.
+Upload your own CSV or enter a comma-separated list of tickers. The dashboard will download prices, compute metrics, optimise weights, and plot DCA projections with downloadable CSV exports.
 
-## Plotting examples
+### CLI Example
 
-### Dollar-cost averaging
-
-```python
-from pysharpe.visualization import plot_dca_projection, simulate_dca
-
-projection = simulate_dca(
-    months=36,
-    initial_investment=5_000,
-    monthly_contribution=500,
-    annual_return_rate=0.12,
-)
-
-ax = plot_dca_projection(projection)
-ax.figure.savefig("dca_projection.png")
+```bash
+pysharpe optimise \
+  --portfolio tests/data/sample_portfolio.csv \
+  --export-dir outputs/ \
+  --risk-free-rate 0.02
 ```
 
-### Portfolio performance diagnostics
+The command writes optimised weights, summary metrics, and diagnostic plots to the specified export directory. Run `pysharpe --help` for the full list of subcommands and options.
+
+### Library Example
 
 ```python
+import pandas as pd
 from pysharpe import metrics
+from pysharpe.optimization import estimate_max_sharpe_weights
 
-# Assume "collated" is a DataFrame with daily prices for your chosen tickers.
-returns = metrics.compute_returns(collated)
-expected = metrics.expected_return(returns)
-volatility = metrics.annualize_volatility(returns)
-sharpe = metrics.sharpe_ratio(returns)
+prices = pd.read_csv("tests/data/sample_prices.csv", index_col=0, parse_dates=True)
+returns = prices.pct_change().dropna()
+mu = metrics.expected_return(returns)
+cov = returns.cov() * 252
+weights = estimate_max_sharpe_weights(mu=mu, cov_matrix=cov)
+print("Optimised allocations:", weights.clean_weights())
 ```
 
-## Metrics API highlights
+All analytics functions accept pandas Series/DataFrames and return aligned structures so they compose naturally with your existing research workflow.
 
-| Function | Description |
-| --- | --- |
-| `compute_returns` | Convert price levels to simple or log returns. |
-| `expected_return` | Compute annualised arithmetic returns. |
-| `annualize_return` | Produce a geometric annualised rate. |
-| `annualize_volatility` | Scale standard deviation to the desired frequency. |
-| `sharpe_ratio` | Evaluate risk-adjusted performance with an optional risk-free rate. |
+## Contributing
 
-All helpers accept pandas Series/DataFrames, return matching shapes, and guard against infinities, NaNs, and zero-volatility cases with friendly errors.
+1. Create an isolated environment and install the project with dev extras: `pip install -e .[dev]`.
+2. Format and lint prior to committing: `ruff format . && ruff check .`.
+3. Write or update tests alongside any behavioural change.
+4. Document new public APIs or workflows in docstrings and, when appropriate, in the README.
 
-## Contributing & Testing
+## Testing
 
-1. Install the development extras: `pip install -e .[dev]`.
-2. Run the automated tests with coverage: `python -m pytest`.
-3. Lint and format before opening a PR: `ruff check .` and `ruff format .`.
-4. If you add functionality, include a brief example or doctest in the corresponding docstring.
+```bash
+pytest
+```
 
-The test suite aims for 80% line coverage across the core modules.
+The suite includes unit tests for metrics, optimisation, data collation, and workflow helpers. Add regression tests whenever you touch analytics code, and prefer fixtures over network requests.
 
-## Changelog & Roadmap
+## License
 
-- **0.1.0** – Initial packaging with data ingestion, optimisation, and DCA tools.
-- **Upcoming** – CLI subcommands (`optimise`, `simulate-dca`, `plot`), richer documentation (tutorial notebooks, API reference), and performance benchmarks.
-
-See `CHANGELOG.md` for detailed release notes as they land.
+PySharpe is distributed under the MIT License. See `LICENSE` for details.

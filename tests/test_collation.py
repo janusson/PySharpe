@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from pysharpe.data import CollationService, PriceFetcher
+from pysharpe.data.fetcher import PriceHistoryError
 
 
 class _NoopFetcher(PriceFetcher):
@@ -90,3 +91,105 @@ def test_download_portfolio_prices_writes_csv(tmp_path):
     result = service.download_portfolio_prices(["AAA"], period="1mo", interval="1d", start=None, end=None)
     assert "AAA" in result
     assert (price_dir / "AAA_hist.csv").exists()
+
+
+def test_download_portfolio_prices_skips_errors(tmp_path):
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+
+    class _Fetcher(PriceFetcher):
+        def fetch_history(self, ticker, *_args, **_kwargs):  # type: ignore[override]
+            if ticker == "BAD":
+                raise PriceHistoryError("failed")
+            return pd.DataFrame({"Date": ["2024-01-01"], "Close": [1.0]})
+
+    service = CollationService(
+        _Fetcher(),
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+    )
+
+    result = service.download_portfolio_prices(["BAD", "GOOD"], period="1mo", interval="1d", start=None, end=None)
+    assert "GOOD" in result and "BAD" not in result
+    assert (price_dir / "GOOD_hist.csv").exists()
+
+
+def test_load_price_frame_missing_file_logs_warning(tmp_path, caplog):
+    service = CollationService(
+        _NoopFetcher(),
+        price_history_dir=tmp_path / "price_hist",
+        export_dir=tmp_path / "exports",
+    )
+
+    with caplog.at_level("WARNING"):
+        result = service._load_price_frame("AAA")
+
+    assert result is None
+    assert "Price history missing" in caplog.text
+
+
+def test_load_price_frame_invalid_columns(tmp_path, caplog):
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+    price_dir.mkdir()
+    export_dir.mkdir()
+
+    pd.DataFrame({"Date": ["2024-01-01"], "Value": [1.0]}).to_csv(price_dir / "AAA_hist.csv", index=False)
+
+    service = CollationService(
+        _NoopFetcher(),
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+    )
+
+    with caplog.at_level("ERROR"):
+        result = service._load_price_frame("AAA")
+
+    assert result is None
+    assert "Unexpected columns" in caplog.text
+
+
+def test_load_price_frame_invalid_dates(tmp_path, caplog):
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+    price_dir.mkdir()
+    export_dir.mkdir()
+
+    pd.DataFrame({"Date": ["not-a-date"], "Close": [1.0]}).to_csv(price_dir / "AAA_hist.csv", index=False)
+
+    service = CollationService(
+        _NoopFetcher(),
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+    )
+
+    with caplog.at_level("ERROR"):
+        result = service._load_price_frame("AAA")
+
+    assert result is None
+    assert "Unable to parse dates" in caplog.text
+
+
+def test_load_price_frame_handles_timezone_and_empty(tmp_path, caplog):
+    price_dir = tmp_path / "price_hist"
+    export_dir = tmp_path / "exports"
+    price_dir.mkdir()
+    export_dir.mkdir()
+
+    pd.DataFrame(
+        {
+            "Date": ["2024-01-01T00:00:00+00:00", "2024-01-02T00:00:00+00:00"],
+            "Close": [1.0, None],
+        }
+    ).to_csv(price_dir / "AAA_hist.csv", index=False)
+
+    service = CollationService(
+        _NoopFetcher(),
+        price_history_dir=price_dir,
+        export_dir=export_dir,
+    )
+
+    frame = service._load_price_frame("AAA")
+
+    assert list(frame.columns) == ["AAA"]
+    assert list(frame.index) == ["2024-01-01"]
