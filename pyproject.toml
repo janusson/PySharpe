@@ -67,3 +67,6 @@ line-ending = "auto"
 testpaths = ["tests"]
 addopts = "--quiet --disable-warnings --cov=pysharpe --cov-report=term-missing --cov-fail-under=80"
 norecursedirs = [".git", "examples", "docs"]
+markers = [
+    "benchmark: Micro-benchmark coverage for performance-sensitive helpers.",
+]
