@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pandas.testing as tm
 
 from pysharpe.data import CollationService, PriceFetcher
+from pysharpe.data.collation import load_raw, parse_records
 from pysharpe.data.fetcher import PriceHistoryError
 
 
@@ -21,6 +23,26 @@ class _NoopFetcher(PriceFetcher):
 def _write_price_history(path: Path, rows: list[tuple[str, float | None]]) -> None:
     frame = pd.DataFrame({"Date": [row[0] for row in rows], "Close": [row[1] for row in rows]})
     frame.to_csv(path, index=False)
+
+
+def _golden_path(name: str) -> Path:
+    return Path(__file__).parent / "golden" / name
+
+
+def test_load_raw_matches_golden_fixture():
+    path = _golden_path("aaa_history_raw.csv")
+    frame = load_raw(path)
+    expected = pd.read_csv(path)
+    tm.assert_frame_equal(frame, expected)
+
+
+def test_parse_records_matches_golden_fixture():
+    raw = load_raw(_golden_path("aaa_history_raw.csv"))
+    parsed = parse_records(raw, "AAA")
+    expected = pd.read_csv(_golden_path("aaa_history_parsed.csv")).set_index("Date")
+    expected.index = expected.index.astype(str)
+    expected.index.name = "Date"
+    tm.assert_frame_equal(parsed, expected)
 
 
 def test_collate_portfolio_filters_invalid_columns(tmp_path):

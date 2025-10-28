@@ -2,7 +2,7 @@
 
 from .portfolio import PortfolioDefinition, PortfolioRepository, read_tickers
 from .fetcher import PriceFetcher, PriceHistoryError, YFinancePriceFetcher
-from .collation import CollationService
+from .collation import CollationService, load_raw, parse_records
 from .workflows import PortfolioDownloadWorkflow
 
 __all__ = [
@@ -13,5 +13,7 @@ __all__ = [
     "PriceHistoryError",
     "YFinancePriceFetcher",
     "CollationService",
+    "load_raw",
+    "parse_records",
     "PortfolioDownloadWorkflow",
 ]

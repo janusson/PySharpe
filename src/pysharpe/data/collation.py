@@ -9,12 +9,55 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 from pysharpe.config import PySharpeSettings, get_settings
 
 from .fetcher import PriceFetcher, PriceHistoryError
 
 logger = logging.getLogger(__name__)
+
+
+def load_raw(csv_path: Path) -> pd.DataFrame:
+    """Read a CSV file containing price history records."""
+
+    try:
+        frame = pd.read_csv(csv_path)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Price history file not found: {csv_path}") from exc
+    except EmptyDataError as exc:
+        raise ValueError(f"Price history file is empty: {csv_path}") from exc
+    return frame
+
+
+def parse_records(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """Normalise raw price history into a single-ticker dataframe."""
+
+    if raw.empty:
+        return pd.DataFrame(columns=[ticker])
+
+    required = {"Date", "Close"}
+    missing = required.difference(raw.columns)
+    if missing:
+        raise ValueError(f"Unexpected columns for {ticker}: missing {sorted(missing)}")
+
+    timestamps = pd.to_datetime(raw["Date"], utc=True, errors="coerce")
+    closes = pd.to_numeric(raw["Close"], errors="coerce")
+    mask = (~timestamps.isna()) & (~closes.isna())
+
+    if not mask.any():
+        raise ValueError(f"Unable to parse dates for {ticker}")
+
+    valid_dates = timestamps.loc[mask]
+    if valid_dates.dt.tz is not None:
+        valid_dates = valid_dates.dt.tz_convert(None)
+
+    index = valid_dates.dt.strftime("%Y-%m-%d")
+    series = pd.Series(closes.loc[mask].to_numpy(copy=False), index=index, name=ticker)
+    series.index.name = "Date"
+    frame = series.to_frame()
+    frame = frame[~frame.index.duplicated(keep="first")]
+    return frame.sort_index()
 
 
 class CollationService:
@@ -106,29 +149,23 @@ class CollationService:
             logger.warning("Price history missing for %s", ticker)
             return None
 
-        raw = pd.read_csv(csv_path)
-        if {"Date", "Close"}.difference(raw.columns):
-            logger.error("Unexpected columns in %s", csv_path.name)
+        try:
+            raw = load_raw(csv_path)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.error("Failed to load price history for %s: %s", ticker, exc)
             return None
 
-        timestamps = pd.to_datetime(raw["Date"], utc=True, errors="coerce")
-        valid_mask = ~timestamps.isna()
-        if not valid_mask.any():
-            logger.error("Unable to parse dates for %s", csv_path.name)
+        try:
+            frame = parse_records(raw, ticker)
+        except ValueError as exc:
+            logger.error("Invalid price history for %s: %s", ticker, exc)
             return None
 
-        frame = raw.loc[valid_mask, ["Close"]].copy()
-        tz_aware = timestamps.loc[valid_mask]
-        if tz_aware.dt.tz is not None:
-            tz_aware = tz_aware.dt.tz_convert(None)
-        frame["Date"] = tz_aware.dt.strftime("%Y-%m-%d")
-        frame.dropna(subset=["Close"], inplace=True)
         if frame.empty:
             logger.warning("No valid price points retained for %s", ticker)
             return None
 
-        frame.set_index("Date", inplace=True)
-        return frame.rename(columns={"Close": ticker})
+        return frame
 
     def collate_portfolio(
         self,
