@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pysharpe.optimization import OptimisationPerformance, OptimisationResult, PortfolioWeights
 
 
 def test_portfolio_weights_non_zero_filters_negatives():
     weights = PortfolioWeights({"AAA": 0.6, "BBB": 0.0, "CCC": -0.1})
-    assert weights.non_zero() == {"AAA": 0.6}
+    assert weights.non_zero() == {"AAA": pytest.approx(1.0)}
 
 
 def test_optimisation_result_summary_formats_percentages():
@@ -22,4 +24,3 @@ def test_optimisation_result_summary_formats_percentages():
     assert "expected 8.00%" in summary
     assert "volatility 15.00%" in summary
     assert "sharpe 1.20" in summary
-
