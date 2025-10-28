@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Mapping, Optional, Protocol
 
 from functools import lru_cache
 
@@ -13,6 +13,7 @@ from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 
+from pysharpe.analysis import apply_category_mapping
 from pysharpe.config import get_settings
 from pysharpe.optimization.models import (
     OptimisationPerformance,
@@ -24,6 +25,39 @@ _SETTINGS = get_settings()
 EXPORT_DIR = Path(_SETTINGS.export_dir)
 
 logger = logging.getLogger(__name__)
+
+
+class AllocationPlotStrategy(Protocol):
+    """Callable responsible for handling allocation plot side-effects."""
+
+    def __call__(self, result: OptimisationResult, output_dir: Path) -> None:
+        """Execute the plotting side-effect."""
+
+
+class _GenerateAllocationPlot:
+    def __call__(self, result: OptimisationResult, output_dir: Path) -> None:
+        try:
+            _plot_allocation(result, output_dir)
+        except RuntimeError as exc:
+            logger.warning("Skipping allocation plot for %s: %s", result.name, exc)
+
+
+class _SkipAllocationPlot:
+    def __call__(self, result: OptimisationResult, output_dir: Path) -> None:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Allocation plot disabled for %s", result.name)
+
+
+_PLOT_STRATEGIES: dict[bool, AllocationPlotStrategy] = {
+    True: _GenerateAllocationPlot(),
+    False: _SkipAllocationPlot(),
+}
+
+
+def _resolve_plot_strategy(make_plot: bool) -> AllocationPlotStrategy:
+    """Return an allocation plotting strategy derived from *make_plot*."""
+
+    return _PLOT_STRATEGIES[bool(make_plot)]
 
 
 @lru_cache(maxsize=32)
@@ -133,6 +167,8 @@ def optimise_portfolio(
     asset_constraints: Optional[Dict[str, float]] = None,
     geo_exposure: Optional[Iterable] = None,  # placeholder for future logic
     make_plot: bool = True,
+    category_map: Mapping[str, str] | None = None,
+    include_unmapped_categories: bool = True,
 ) -> OptimisationResult:
     """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow.
 
@@ -145,6 +181,10 @@ def optimise_portfolio(
             applied as linear constraints.
         geo_exposure: Placeholder for future constraints; currently ignored.
         make_plot: When ``True`` generate a pie chart of positive weights.
+        category_map: Optional mapping of ticker -> category label used to
+            collapse highly correlated exposures before optimisation.
+        include_unmapped_categories: When ``True`` retain tickers that do not
+            appear in ``category_map`` as standalone categories.
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -159,7 +199,65 @@ def optimise_portfolio(
         OptimisationResult(...)
     """
 
+    plot_strategy = _resolve_plot_strategy(make_plot)
+
+    return _optimise_portfolio_impl(
+        portfolio_name=portfolio_name,
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        time_constraint=time_constraint,
+        asset_constraints=asset_constraints,
+        geo_exposure=geo_exposure,
+        category_map=category_map,
+        include_unmapped_categories=include_unmapped_categories,
+        plot_strategy=plot_strategy,
+    )
+
+
+def _optimise_portfolio_impl(
+    *,
+    portfolio_name: str,
+    collated_dir: Path,
+    output_dir: Path,
+    time_constraint: Optional[str],
+    asset_constraints: Optional[Dict[str, float]],
+    geo_exposure: Optional[Iterable],
+    category_map: Mapping[str, str] | None,
+    include_unmapped_categories: bool,
+    plot_strategy: AllocationPlotStrategy,
+) -> OptimisationResult:
+    """Implementation detail powering :func:`optimise_portfolio`."""
+
     prices = _load_collated_prices(portfolio_name, collated_dir, time_constraint=time_constraint)
+
+    if category_map:
+        try:
+            aggregation = apply_category_mapping(
+                prices,
+                category_map,
+                include_unmapped=include_unmapped_categories,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"No data available for {portfolio_name} after applying category mapping."
+            ) from exc
+
+        if aggregation.dropped:
+            logger.warning(
+                "Dropping tickers for %s without category assignment: %s",
+                portfolio_name,
+                ", ".join(sorted(aggregation.dropped)),
+            )
+
+        for category, members in aggregation.groups.items():
+            if len(members) > 1 and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Grouped %s into category %s for optimisation",
+                    ", ".join(members),
+                    category,
+                )
+
+        prices = aggregation.prices
 
     mu = mean_historical_return(prices)
     try:
@@ -190,12 +288,7 @@ def optimise_portfolio(
 
     _save_weights(result, output_dir)
     _save_performance(result, output_dir)
-
-    if make_plot:
-        try:
-            _plot_allocation(result, output_dir)
-        except RuntimeError as exc:
-            logger.warning("Skipping allocation plot for %s: %s", portfolio_name, exc)
+    plot_strategy(result, output_dir)
 
     return result
 
@@ -205,6 +298,8 @@ def optimise_all_portfolios(
     *,
     output_dir: Path = EXPORT_DIR,
     time_constraint: Optional[str] = None,
+    category_map: Mapping[str, str] | None = None,
+    include_unmapped_categories: bool = True,
 ) -> Dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -212,6 +307,10 @@ def optimise_all_portfolios(
         collated_dir: Directory containing collated CSV files.
         output_dir: Directory for optimisation artefacts.
         time_constraint: Optional ISO date slice applied to every portfolio.
+        category_map: Optional mapping of ticker -> category label applied to
+            each portfolio prior to optimisation.
+        include_unmapped_categories: Toggle for retaining unmapped tickers as
+            standalone categories.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -231,6 +330,8 @@ def optimise_all_portfolios(
             collated_dir=collated_dir,
             output_dir=output_dir,
             time_constraint=time_constraint,
+            category_map=category_map,
+            include_unmapped_categories=include_unmapped_categories,
         )
 
     return results
