@@ -10,7 +10,7 @@ from .weights import normalize_weights
 
 @dataclass(frozen=True)
 class PortfolioWeights:
-    """Container for normalised portfolio allocations keyed by ticker.
+    """Container for portfolio allocations keyed by ticker.
 
     Attributes:
         allocations: Mapping of ticker symbol to weight (fractions sum to ~1).
@@ -24,14 +24,15 @@ class PortfolioWeights:
 
     allocations: Dict[str, float]
 
-    def __post_init__(self) -> None:
-        normalised = normalize_weights(self.allocations)
-        object.__setattr__(self, "allocations", normalised)
-
     def non_zero(self) -> Dict[str, float]:
         """Return strictly positive allocations."""
 
         return {ticker: weight for ticker, weight in self.allocations.items() if weight > 0}
+
+    def normalized(self) -> Dict[str, float]:
+        """Return a normalized copy of the allocations."""
+
+        return normalize_weights(self.allocations)
 
 
 @dataclass(frozen=True)
