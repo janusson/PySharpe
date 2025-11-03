@@ -10,6 +10,7 @@ from typing import Iterable, Sequence
 import pandas as pd
 
 from pysharpe import data_collector, workflows
+from pysharpe.analysis import load_category_map
 from pysharpe.config import get_settings
 from pysharpe.data import PortfolioRepository
 from pysharpe.optimization.models import OptimisationResult
@@ -82,12 +83,25 @@ def _handle_optimise(args: argparse.Namespace) -> int:
             end=args.end,
         )
 
+    include_unmapped = not args.drop_unmapped_categories
+    category_map: dict[str, str] | None = None
+    if args.category_map:
+        try:
+            category_map = load_category_map(args.category_map)
+        except ValueError as exc:
+            print(f"Unable to load category map: {exc}")
+            return 1
+    elif args.use_default_categories:
+        category_map = load_category_map()
+
     results = workflows.optimise_portfolios(
         portfolio_names=target_names,
         collated_dir=export_dir,
         output_dir=export_dir,
         time_constraint=args.time_constraint,
         make_plot=not args.no_plot,
+        category_map=category_map,
+        include_unmapped_categories=include_unmapped,
     )
 
     if not results:
@@ -190,6 +204,21 @@ def _build_parser() -> argparse.ArgumentParser:
     optimise.add_argument("--time-constraint", dest="time_constraint", help="ISO start date applied to collated data.")
     optimise.add_argument("--skip-download", action="store_true", help="Reuse previously downloaded data.")
     optimise.add_argument("--no-plot", action="store_true", help="Skip allocation pie charts.")
+    optimise.add_argument(
+        "--category-map",
+        type=Path,
+        help="Optional path to a JSON mapping of ticker -> category.",
+    )
+    optimise.add_argument(
+        "--use-default-categories",
+        action="store_true",
+        help="Load the default category mapping from the PySharpe info directory.",
+    )
+    optimise.add_argument(
+        "--drop-unmapped-categories",
+        action="store_true",
+        help="Discard tickers missing a category instead of treating them as standalone categories.",
+    )
 
     # simulate-dca
     simulate = subparsers.add_parser(
@@ -238,4 +267,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
-

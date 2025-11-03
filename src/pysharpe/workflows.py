@@ -75,6 +75,8 @@ def optimise_portfolios(
     output_dir: Path | None = None,
     time_constraint: Optional[str] = None,
     make_plot: bool = True,
+    category_map: Dict[str, str] | None = None,
+    include_unmapped_categories: bool = True,
 ) -> Dict[str, OptimisationResult]:
     """Optimise one or more portfolios and persist artefacts.
 
@@ -85,6 +87,10 @@ def optimise_portfolios(
         output_dir: Directory for optimisation artefacts.
         time_constraint: Optional ISO date slice for the collated histories.
         make_plot: When ``True`` generate allocation pie charts.
+        category_map: Optional mapping of ticker -> category label used to group
+            exposures before optimisation.
+        include_unmapped_categories: When ``True`` keep tickers that are not
+            present in ``category_map`` as standalone categories.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult` objects.
@@ -119,6 +125,8 @@ def optimise_portfolios(
                 output_dir=output_root,
                 time_constraint=time_constraint,
                 make_plot=make_plot,
+                category_map=category_map,
+                include_unmapped_categories=include_unmapped_categories,
             )
         except FileNotFoundError as exc:
             logger.warning("Skipping %s: %s", name, exc)

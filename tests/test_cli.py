@@ -30,13 +30,24 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
         }
         return {name: pd.DataFrame({"AAA": [1.0]}) for name in portfolio_names}
 
-    def fake_optimise(*, portfolio_names, collated_dir, output_dir, time_constraint, make_plot):
+    def fake_optimise(
+        *,
+        portfolio_names,
+        collated_dir,
+        output_dir,
+        time_constraint,
+        make_plot,
+        category_map,
+        include_unmapped_categories,
+    ):
         captured["optimise"] = {
             "portfolio_names": tuple(portfolio_names),
             "collated_dir": collated_dir,
             "output_dir": output_dir,
             "time_constraint": time_constraint,
             "make_plot": make_plot,
+            "category_map": category_map,
+            "include_unmapped": include_unmapped_categories,
         }
         return {
             "demo": OptimisationResult(
@@ -65,6 +76,8 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     assert captured["download"]["portfolio_names"] == ("demo",)
     assert captured["optimise"]["portfolio_names"] == ("demo",)
     assert Path(captured["optimise"]["collated_dir"]).resolve() == export_dir.resolve()
+    assert captured["optimise"]["category_map"] is None
+    assert captured["optimise"]["include_unmapped"] is True
     output = capsys.readouterr().out
     assert "Artefacts written" in output
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ import yfinance as yf
 from pypfopt import EfficientFrontier
 
 from pysharpe import metrics
+from pysharpe.analysis import CategoryAggregation, apply_category_mapping, load_category_map
 from pysharpe.config import get_settings
 from pysharpe.data.collation import CollationService
 from pysharpe.data.fetcher import YFinancePriceFetcher
@@ -185,6 +187,30 @@ def _load_collated_from_disk(path: str) -> pd.DataFrame | None:
     frame = pd.read_csv(csv_path, parse_dates=True, index_col="Date")
     _normalize_datetime_index(frame)
     return frame
+
+
+def _load_uploaded_category_map(uploaded_file) -> dict[str, str]:
+    """Parse a user-supplied JSON mapping into ticker categories."""
+
+    try:
+        raw_bytes = uploaded_file.getvalue()
+    except AttributeError:  # pragma: no cover - fallback for file-like objects
+        raw_bytes = uploaded_file.read()
+
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("Uploaded category mapping must be valid UTF-8 JSON.") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Category mapping JSON must be an object with ticker keys.")
+
+    mapping: dict[str, str] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("Category mapping keys and values must be strings.")
+        mapping[key] = value
+    return mapping
 
 
 SETTINGS = get_settings()
@@ -672,6 +698,63 @@ def sidebar_controls() -> dict[str, object]:
     numeric_df = price_frame.select_dtypes("number") if not price_frame.empty else pd.DataFrame()
     price_data = _select_price_data(numeric_df)
 
+    category_summary: CategoryAggregation | None = None
+    category_settings = {
+        "enabled": False,
+        "include_unmapped": True,
+        "map_source": None,
+    }
+
+    st.sidebar.header("Category Grouping")
+    use_categories = st.sidebar.checkbox("Group correlated tickers", value=False)
+    category_map: dict[str, str] = {}
+    include_unmapped_categories = True
+
+    if use_categories:
+        include_unmapped_categories = st.sidebar.checkbox("Keep unmapped tickers", value=True)
+        uploaded_map = st.sidebar.file_uploader(
+            "Upload category map (JSON)",
+            type="json",
+            help="Mapping should look like {'VOO': 'US Large Cap', 'IEF': 'Bonds'}. Leave empty to use the default file in data/info.",
+        )
+        if uploaded_map is not None:
+            try:
+                category_map = _load_uploaded_category_map(uploaded_map)
+                category_settings["map_source"] = uploaded_map.name or "uploaded mapping"
+            except ValueError as exc:
+                st.sidebar.error(str(exc))
+                category_map = {}
+        else:
+            category_map = load_category_map()
+            if category_map:
+                category_settings["map_source"] = "asset_categories.json"
+            else:
+                st.sidebar.info(
+                    "No default asset_categories.json found in the info directory. Provide an upload to enable grouping."
+                )
+
+        if not price_data.empty:
+            try:
+                category_summary = apply_category_mapping(
+                    price_data,
+                    category_map,
+                    include_unmapped=include_unmapped_categories,
+                )
+                price_data = category_summary.prices
+            except ValueError as exc:
+                st.sidebar.warning(f"Category grouping skipped: {exc}")
+        else:
+            st.sidebar.warning("No price series available to apply category grouping.")
+
+        category_settings.update(
+            {
+                "enabled": True,
+                "include_unmapped": include_unmapped_categories,
+            }
+        )
+    else:
+        category_settings["include_unmapped"] = True
+
     st.sidebar.header("DCA Settings")
     dca_initial = st.sidebar.number_input("Initial Investment", min_value=0.0, value=1000.0, step=100.0)
     dca_monthly = st.sidebar.number_input("Monthly Contribution", min_value=0.0, value=250.0, step=25.0)
@@ -712,6 +795,8 @@ def sidebar_controls() -> dict[str, object]:
         "dca_months": dca_months,
         "dca_rate": float(st.session_state["dca_rate_value"]),
         "download_summary": download_summary,
+        "category_settings": category_settings,
+        "category_aggregation": category_summary,
     }
 
 
@@ -759,6 +844,29 @@ def main() -> None:
         if portfolio_data and not portfolio_data.collated.empty:
             st.subheader("Collated Portfolio Preview")
             st.dataframe(portfolio_data.collated.head().style.format("{:.2f}"))
+
+    category_settings = controls.get("category_settings", {})
+    category_summary: CategoryAggregation | None = controls.get("category_aggregation")
+    if category_settings.get("enabled") and category_summary:
+        multi_group = any(len(members) > 1 for members in category_summary.groups.values())
+        if multi_group or category_summary.dropped or category_settings.get("map_source"):
+            st.subheader("Category Grouping Overview")
+            summary_rows = [
+                {"Category": category, "Tickers": ", ".join(members)}
+                for category, members in category_summary.groups.items()
+            ]
+            st.dataframe(pd.DataFrame(summary_rows))
+            source_label = category_settings.get("map_source")
+            if source_label:
+                st.caption(f"Category mapping source: `{source_label}`")
+            st.info(
+                f"Optimisation and metrics operate on {len(category_summary.prices.columns)} category exposures."
+            )
+            if category_summary.dropped:
+                st.warning(
+                    "Dropped tickers without category assignment: "
+                    + ", ".join(category_summary.dropped)
+                )
 
     st.subheader("Price Preview")
     preview = controls.get("preview", pd.DataFrame())

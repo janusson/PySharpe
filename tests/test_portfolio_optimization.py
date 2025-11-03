@@ -132,3 +132,34 @@ def test_optimise_portfolio_skips_plot_when_disabled(monkeypatch, tmp_path):
         output_dir=output_dir,
         make_plot=False,
     )
+
+
+def test_optimise_portfolio_with_category_map(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+
+    frame = pd.DataFrame(
+        {
+            "Date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+            "SPY": [400.0, 402.0, 401.0, 405.0],
+            "VOO": [400.0, 401.0, 403.0, 404.0],
+            "IEF": [100.0, 100.5, 101.0, 101.5],
+        }
+    )
+    csv_path = collated_dir / "balanced_collated.csv"
+    frame.to_csv(csv_path, index=False)
+
+    category_map = {"SPY": "US Equity", "VOO": "US Equity"}
+
+    result = portfolio_optimization.optimise_portfolio(
+        "balanced",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        category_map=category_map,
+        make_plot=False,
+    )
+
+    weights = result.weights.allocations
+    assert "US Equity" in weights
+    assert set(weights.keys()).issubset({"US Equity", "IEF"})

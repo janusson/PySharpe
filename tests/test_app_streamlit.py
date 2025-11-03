@@ -54,6 +54,7 @@ class SidebarAPI:
             "Months": 240,
             "Annual Return Rate": 0.08,
         }
+        self.checkbox_values = {}
 
     def header(self, *_args, **_kwargs) -> None:
         return None
@@ -72,6 +73,18 @@ class SidebarAPI:
 
     def slider(self, label: str, **kwargs):
         return self.slider_values.get(label, kwargs.get("value"))
+
+    def checkbox(self, label: str, value: bool = False, **_kwargs) -> bool:
+        return self.checkbox_values.get(label, value)
+
+    def info(self, message: str) -> None:
+        self.owner.info(message)
+
+    def warning(self, message: str) -> None:
+        self.owner.warning(message)
+
+    def error(self, message: str) -> None:
+        self.owner.warning(message)
 
 
 class StreamlitStub:

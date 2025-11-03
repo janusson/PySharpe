@@ -1,16 +1,28 @@
-"""
-Backtesting module for scoring-based portfolio strategies.
-"""
+"""Backtesting module for scoring-based portfolio strategies."""
+
+from __future__ import annotations
+
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
-from pypfopt import EfficientFrontier, risk_models, expected_returns
+from pypfopt import EfficientFrontier
+
+
+def _coerce_rng(
+    random_state: np.random.Generator | int | None = None,
+) -> np.random.Generator:
+    """Return a numpy Generator for deterministic sampling."""
+    if isinstance(random_state, np.random.Generator):
+        return random_state
+    return np.random.default_rng(random_state)
+
 
 def prepare_backtest_data(
     df: pd.DataFrame,
-    score_col: str = 'CompositeScore',
-    scaling_factor: float = 0.05
+    score_col: str = "CompositeScore",
+    scaling_factor: float = 0.05,
+    random_state: np.random.Generator | int | None = None,
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """
     Prepare data for backtesting by converting scores to expected returns.
@@ -23,33 +35,38 @@ def prepare_backtest_data(
         Name of the score column to use
     scaling_factor : float
         Factor to scale scores into expected returns
+    random_state : np.random.Generator | int | None
+        Optional random state used to make the synthetic covariance reproducible.
 
     Returns
     -------
     tuple
         (expected returns Series, covariance matrix DataFrame)
     """
-    tickers = df['Ticker'].tolist()
-    
+    tickers = df["Ticker"].tolist()
+
     # Convert scores to expected returns
     mu = pd.Series(df[score_col] * scaling_factor, index=tickers)
-    
+
+    rng = _coerce_rng(random_state)
+
     # Create a simple covariance matrix (can be replaced with historical data)
     n = len(tickers)
-    random_matrix = np.random.rand(n, n)
+    random_matrix = rng.random((n, n))
     cov_matrix = pd.DataFrame(
         (random_matrix + random_matrix.T) / 2,
         index=tickers,
-        columns=tickers
+        columns=tickers,
     )
     # Ensure positive definiteness
     cov_matrix += n * np.eye(n)
-    
+
     return mu, cov_matrix
+
 
 def optimize_portfolio(
     expected_returns: pd.Series,
-    cov_matrix: pd.DataFrame
+    cov_matrix: pd.DataFrame,
 ) -> Dict[str, float]:
     """
     Optimize portfolio weights using the efficient frontier.
@@ -70,13 +87,15 @@ def optimize_portfolio(
     ef.max_sharpe()
     return ef.clean_weights()
 
+
 def simulate_returns(
     df: pd.DataFrame,
     weights: Dict[str, float],
     cov_matrix: pd.DataFrame,
     periods: int = 12,
     initial_value: float = 100000,
-    scaling_factor: float = 0.05
+    scaling_factor: float = 0.05,
+    random_state: np.random.Generator | int | None = None,
 ) -> List[float]:
     """
     Simulate portfolio returns using a multivariate normal distribution.
@@ -95,33 +114,37 @@ def simulate_returns(
         Initial portfolio value
     scaling_factor : float
         Factor to scale scores into expected returns
+    random_state : np.random.Generator | int | None
+        Optional random state used to make the simulation reproducible.
 
     Returns
     -------
     list
         Simulated portfolio values over time
     """
-    tickers = df['Ticker'].tolist()
-    
+    rng = _coerce_rng(random_state)
+
+    tickers = df["Ticker"].tolist()
+
     # Create expected returns from composite scores
-    mu = df['CompositeScore'] * scaling_factor
-    
+    mu = df["CompositeScore"] * scaling_factor
+
     # Convert weights dict to array
     weights_arr = np.array([weights[ticker] for ticker in tickers])
-    
+
     # Simulate returns
-    simulated_returns = np.random.multivariate_normal(
+    simulated_returns = rng.multivariate_normal(
         mu,
         cov_matrix.values,
-        periods
+        periods,
     )
-    
+
     # Calculate portfolio returns
     port_returns = simulated_returns.dot(weights_arr)
-    
+
     # Calculate portfolio values
     portfolio_values = [initial_value]
     for r in port_returns:
         portfolio_values.append(portfolio_values[-1] * (1 + r))
-    
+
     return portfolio_values

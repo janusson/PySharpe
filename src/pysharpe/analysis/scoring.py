@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Optional, List
 
-from pysharpe.config import ANALYSIS_CONFIG
-
 # Default weights for scoring functions
 DEFAULT_TECH_WEIGHTS = {
     'P_YL': 0.3,

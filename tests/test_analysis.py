@@ -122,3 +122,47 @@ def test_portfolio_optimization():
     assert isinstance(weights, dict)
     assert np.isclose(sum(weights.values()), 1.0)
     assert all(w >= 0 for w in weights.values())
+
+
+def test_prepare_backtest_data_is_reproducible():
+    df = pd.DataFrame({
+        'Ticker': ['A', 'B'],
+        'CompositeScore': [0.5, 0.7],
+    })
+
+    _, cov_a = prepare_backtest_data(df, random_state=123)
+    _, cov_b = prepare_backtest_data(df, random_state=123)
+    pd.testing.assert_frame_equal(cov_a, cov_b)
+
+
+def test_simulate_returns_is_reproducible():
+    df = pd.DataFrame({
+        'Ticker': ['A', 'B'],
+        'CompositeScore': [0.05, 0.07],
+    })
+    weights = {'A': 0.6, 'B': 0.4}
+    cov = pd.DataFrame(
+        [[0.1, 0.02], [0.02, 0.2]],
+        index=['A', 'B'],
+        columns=['A', 'B'],
+    )
+
+    results_a = simulate_returns(
+        df,
+        weights,
+        cov,
+        periods=4,
+        initial_value=1_000,
+        random_state=123,
+    )
+    results_b = simulate_returns(
+        df,
+        weights,
+        cov,
+        periods=4,
+        initial_value=1_000,
+        random_state=123,
+    )
+
+    assert results_a == results_b
+    assert len(results_a) == 5

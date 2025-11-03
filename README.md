@@ -41,6 +41,10 @@ pysharpe optimise \
 
 The command writes optimised weights, summary metrics, and diagnostic plots to the specified export directory. Run `pysharpe --help` for the full list of subcommands and options.
 
+### Category Grouping
+
+Highly correlated tickers can be collapsed into broader economic exposures before optimisation. Create a JSON mapping of ticker to category (for example `{"VOO": "US Large Cap", "IEF": "Bonds"}`) and store it at `data/info/asset_categories.json` or pass it to the CLI via `--category-map`. The Streamlit dashboard exposes the same feature under **Category Grouping** in the sidebar. Tickers without an explicit category can either be kept as standalone exposures or dropped entirely.
+
 ### Library Example
 
 ```python

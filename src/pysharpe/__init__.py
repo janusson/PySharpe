@@ -82,6 +82,12 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "OptimisationPerformance",
     ),
     "OptimisationResult": ("pysharpe.optimization", "OptimisationResult"),
+    # Analysis helpers
+    "apply_category_mapping": (
+        "pysharpe.analysis",
+        "apply_category_mapping",
+    ),
+    "load_category_map": ("pysharpe.analysis", "load_category_map"),
     # Visualisation helpers
     "DCAProjection": ("pysharpe.visualization", "DCAProjection"),
     "simulate_dca": ("pysharpe.visualization", "simulate_dca"),
@@ -122,6 +128,7 @@ def __dir__() -> list[str]:  # pragma: no cover - proxy to improve discoverabili
 
 
 if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
+    from pysharpe.analysis import apply_category_mapping, load_category_map  # noqa: F401
     from pysharpe.data_collector import (  # noqa: F401
         PortfolioTickerReader,
         SecurityDataCollector,
