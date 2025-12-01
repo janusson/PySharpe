@@ -9,7 +9,7 @@ cvxpy==1.5.2
 cycler==0.12.1
 ecos==2.0.14
 et-xmlfile==1.1.0
-fonttools==4.53.0
+fonttools==4.61.0
 frozendict==2.4.4
 html5lib==1.1
 idna==3.7
