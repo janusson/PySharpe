@@ -50,14 +50,22 @@ Highly correlated tickers can be collapsed into broader economic exposures befor
 ```python
 import pandas as pd
 from pysharpe import metrics
-from pysharpe.optimization import estimate_max_sharpe_weights
+from pysharpe.optimization.weights import normalize_weights
 
-prices = pd.read_csv("tests/data/sample_prices.csv", index_col=0, parse_dates=True)
-returns = prices.pct_change().dropna()
-mu = metrics.expected_return(returns)
-cov = returns.cov() * 252
-weights = estimate_max_sharpe_weights(mu=mu, cov_matrix=cov)
-print("Optimised allocations:", weights.clean_weights())
+prices = pd.read_csv("my_prices.csv", index_col=0, parse_dates=True)
+returns = metrics.compute_returns(prices)
+
+summary = pd.DataFrame(
+    {
+        "expected_return": metrics.expected_return(returns),
+        "annual_volatility": metrics.annualize_volatility(returns),
+        "sharpe_ratio": metrics.sharpe_ratio(returns),
+    }
+)
+
+weights = normalize_weights({"AAPL": 0.55, "MSFT": 0.45})
+print(summary.round(4))
+print("Normalised weights:", weights)
 ```
 
 All analytics functions accept pandas Series/DataFrames and return aligned structures so they compose naturally with your existing research workflow.

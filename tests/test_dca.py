@@ -72,7 +72,7 @@ def test_plot_dca_projection_returns_axes(monkeypatch):
             pass
 
     stub = _StubMatplotlib()
-    monkeypatch.setattr("pysharpe.visualization.dca._require_matplotlib", lambda: stub)
+    monkeypatch.setattr("pysharpe.visualization.utils.require_matplotlib", lambda: stub)
 
     projection = simulate_dca(
         months=2,

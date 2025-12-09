@@ -41,7 +41,19 @@ def parse_records(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Unexpected columns for {ticker}: missing {sorted(missing)}")
 
-    timestamps = pd.to_datetime(raw["Date"], utc=True, errors="coerce")
+    parsed_dates: list[pd.Timestamp | pd.NaT] = []
+    for value in raw["Date"]:
+        ts = pd.to_datetime(value, errors="coerce")
+        if pd.isna(ts):
+            ts = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(ts):
+            parsed_dates.append(pd.NaT)
+            continue
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.tz_convert(None)
+        parsed_dates.append(ts)
+
+    timestamps = pd.Series(parsed_dates, index=raw.index, dtype="datetime64[ns]")
     closes = pd.to_numeric(raw["Close"], errors="coerce")
     mask = (~timestamps.isna()) & (~closes.isna())
 

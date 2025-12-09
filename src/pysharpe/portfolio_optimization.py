@@ -20,6 +20,7 @@ from pysharpe.optimization.models import (
     OptimisationResult,
     PortfolioWeights,
 )
+from pysharpe.visualization.utils import require_matplotlib
 
 _SETTINGS = get_settings()
 EXPORT_DIR = Path(_SETTINGS.export_dir)
@@ -98,16 +99,6 @@ def _load_collated_prices(
     return cached.copy(deep=True)
 
 
-def _require_matplotlib():  # pragma: no cover - optional dependency
-    try:
-        import matplotlib.pyplot as plt  # type: ignore
-    except ImportError as exc:  # pragma: no cover - raised when missing
-        raise RuntimeError(
-            "matplotlib must be installed to generate allocation plots."
-        ) from exc
-    return plt
-
-
 def _prepare_output_dir(path: Path) -> Path:
     target = Path(path).expanduser()
     target.mkdir(parents=True, exist_ok=True)
@@ -119,7 +110,7 @@ def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
     if not weights:
         raise ValueError("No positive weights to plot")
 
-    plt = _require_matplotlib()
+    plt = require_matplotlib()
     target_dir = _prepare_output_dir(output_dir)
     output_path = target_dir / f"{result.name}_allocation.png"
 

@@ -15,6 +15,7 @@ from pysharpe.config import get_settings
 from pysharpe.data import PortfolioRepository
 from pysharpe.optimization.models import OptimisationResult
 from pysharpe.visualization import plot_dca_projection, simulate_dca
+from pysharpe.visualization import utils as viz_utils
 
 
 def _resolve(path: Path | str | None, default: Path) -> Path:
@@ -134,9 +135,7 @@ def _handle_simulate_dca(args: argparse.Namespace) -> int:
             ax.figure.savefig(output_path)
             print(f"Plot saved to {output_path}")
         if args.plot:
-            from pysharpe.visualization.dca import _require_matplotlib
-
-            _require_matplotlib().show()
+            viz_utils.require_matplotlib().show()
         else:
             ax.figure.clf()
 
@@ -171,9 +170,7 @@ def _handle_plot(args: argparse.Namespace) -> int:
         print(f"Plot saved to {output}")
 
     if args.show:
-        from pysharpe.visualization.dca import _require_matplotlib
-
-        _require_matplotlib().show()
+        viz_utils.require_matplotlib().show()
     else:
         ax.figure.clf()
 

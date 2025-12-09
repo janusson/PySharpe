@@ -552,14 +552,22 @@ class SecurityDataCollector:
             ...
         """
 
-        fetcher = YFinancePriceFetcher()
-        frame = fetcher.fetch_history(
-            self.ticker,
-            period=period,
-            interval=interval,
-            start=start,
-            end=end,
-        )
+        payload: dict[str, object] = {"interval": interval}
+        if start:
+            payload["start"] = start
+        if end:
+            payload["end"] = end
+        if not start and not end:
+            payload["period"] = period
+
+        try:
+            frame = self._yf.history(**payload)
+        except Exception as exc:  # pragma: no cover - network/HTTP failures
+            raise PriceHistoryError(f"Failed to download history for {self.ticker}: {exc}") from exc
+
+        if frame.empty:
+            raise PriceHistoryError(f"No price data returned for {self.ticker}.")
+
         destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         output = destination / f"{self.ticker}_hist.csv"

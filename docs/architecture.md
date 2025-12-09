@@ -19,6 +19,7 @@ decisions before implementation work begins.
 - `pysharpe.optimization`: Dataclasses describing optimisation outcomes.
 - `pysharpe.portfolio_optimization`: Max-Sharpe optimiser built on PyPortfolioOpt.
 - `pysharpe.visualization`: Plotting helpers (including DCA projections) and reusable chart styles.
+- `pysharpe.visualization.utils`: Lightweight wrappers for optional visualisation dependencies such as Matplotlib.
 - `pysharpe.workflows`: High-level orchestration for CLI, notebooks, or future UIs.
 
 ## Next steps

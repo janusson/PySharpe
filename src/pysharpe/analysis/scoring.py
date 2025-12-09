@@ -168,6 +168,13 @@ def composite_score(
     """
     if not np.isclose(alpha + beta, 1.0):
         raise ValueError("Weights alpha and beta must sum to 1.0")
+
+    if not (0.0 <= tech_score <= 1.0):
+        raise ValueError("tech_score must be between 0 and 1.")
+    if not (0.0 <= div_score <= 1.0):
+        raise ValueError("div_score must be between 0 and 1.")
+    if tech_score + div_score > 1.0:
+        raise ValueError("Combined scores must not exceed 1.0 to preserve the weighted scale.")
     
     return float(alpha * tech_score + beta * div_score)
 

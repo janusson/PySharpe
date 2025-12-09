@@ -296,7 +296,7 @@ def test_simulate_dca_subcommand_shows_plot(monkeypatch, capsys):
 
         return _Matplotlib()
 
-    monkeypatch.setattr("pysharpe.visualization.dca._require_matplotlib", fake_require)
+    monkeypatch.setattr("pysharpe.visualization.utils.require_matplotlib", fake_require)
 
     exit_code = cli.main(["simulate-dca", "--months", "2", "--plot"])
 
@@ -402,7 +402,7 @@ def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
 
         return _Matplotlib()
 
-    monkeypatch.setattr("pysharpe.visualization.dca._require_matplotlib", fake_require)
+    monkeypatch.setattr("pysharpe.visualization.utils.require_matplotlib", fake_require)
 
     exit_code = cli.main(
         [

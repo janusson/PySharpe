@@ -7,16 +7,14 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
+from . import utils as viz_utils
+
 if TYPE_CHECKING:  # pragma: no cover - type checking aide
     import matplotlib.pyplot as plt
 
 
-def _require_matplotlib():  # pragma: no cover - optional dependency
-    try:
-        import matplotlib.pyplot as plt  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("matplotlib must be installed to plot DCA projections.") from exc
-    return plt
+def _require_matplotlib():  # pragma: no cover - backward compatibility helper
+    return viz_utils.require_matplotlib()
 
 
 @dataclass(frozen=True)
@@ -118,10 +116,10 @@ def plot_dca_projection(
     """
 
     if ax is None:
-        plt = _require_matplotlib()
+        plt = viz_utils.require_matplotlib()
         _, ax = plt.subplots()
     else:
-        plt = _require_matplotlib()
+        plt = viz_utils.require_matplotlib()
 
     ax.plot(
         projection.months,
