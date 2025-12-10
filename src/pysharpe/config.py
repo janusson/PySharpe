@@ -6,7 +6,27 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+
+# Default configuration for analysis/scoring helpers
+ANALYSIS_CONFIG = {
+    "technical_weights": {
+        "P_YL": 0.3,
+        "P_SMA200": 0.2,
+        "P_ML3": 0.2,
+        "PER": 0.3,
+    },
+    "dividend_weights": {
+        "yield": 0.3,
+        "payout": 0.2,
+        "consec": 0.2,
+        "growth": 0.2,
+        "coverage": 0.1,
+    },
+    "composite": {
+        "technical": 0.5,
+        "dividend": 0.5,
+    },
+}
 
 _DEFAULT_DATA_DIR = Path("data")
 
@@ -80,7 +100,7 @@ def _path_from_env(var_name: str, default: Path) -> Path:
     return Path(override).expanduser()
 
 
-def build_settings(base_dir: Optional[Path] = None) -> PySharpeSettings:
+def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
     """Construct settings, honouring environment overrides when present.
 
     Args:
@@ -140,4 +160,9 @@ def get_settings() -> PySharpeSettings:
     return build_settings()
 
 
-__all__ = ["PySharpeSettings", "build_settings", "get_settings"]
+__all__ = [
+    "ANALYSIS_CONFIG",
+    "PySharpeSettings",
+    "build_settings",
+    "get_settings",
+]

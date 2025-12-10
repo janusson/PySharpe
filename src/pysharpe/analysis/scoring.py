@@ -3,29 +3,20 @@ Scoring module for technical and fundamental analysis of securities.
 Combines technical indicators and dividend metrics for comprehensive scoring.
 """
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, List
 
 from pysharpe.config import ANALYSIS_CONFIG
 
-# Default weights for scoring functions
-DEFAULT_TECH_WEIGHTS = {
-    'P_YL': 0.3,
-    'P_SMA200': 0.2,
-    'P_ML3': 0.2,
-    'PER': 0.3
-}
+# Default weights for scoring functions sourced from configuration
+DEFAULT_TECH_WEIGHTS = dict(ANALYSIS_CONFIG["technical_weights"])
 
-DEFAULT_DIV_WEIGHTS = {
-    'yield': 0.3,
-    'payout': 0.2,
-    'consec': 0.2,
-    'growth': 0.2,
-    'coverage': 0.1
-}
+DEFAULT_DIV_WEIGHTS = dict(ANALYSIS_CONFIG["dividend_weights"])
 
-def validate_weights(weights: Dict[str, float], expected_keys: List[str]) -> None:
+
+def validate_weights(weights: dict[str, float], expected_keys: list[str]) -> None:
     """Validate weight dictionary structure and values."""
     if not isinstance(weights, dict):
         raise TypeError("Weights must be provided as a dictionary")
@@ -43,7 +34,7 @@ def technical_score(
     SMA200: float,
     ML3: float,
     PER: float,
-    weights: Optional[Dict[str, float]] = None
+    weights: Optional[dict[str, float]] = None,
 ) -> float:
     """
     Calculate technical score based on price metrics.
@@ -77,8 +68,12 @@ def technical_score(
 
     # Score calculations
     P_YL_score = min(P / YL, 2.0) / 2.0  # Normalize to [0, 1]
-    P_SMA200_score = max(0, min(1, 1 - (P / SMA200 - 0.8)))  # Score higher when price is 20% below SMA200
-    P_ML3_score = max(0, min(1, 1 - (P / ML3 - 0.9)))  # Score higher when price is 10% below 3-month low
+    P_SMA200_score = max(
+        0, min(1, 1 - (P / SMA200 - 0.8))
+    )  # Score higher when price is 20% below SMA200
+    P_ML3_score = max(
+        0, min(1, 1 - (P / ML3 - 0.9))
+    )  # Score higher when price is 10% below 3-month low
     PER_score = 1 / (1 + max(0, PER) / 20)  # Normalize P/E ratio with decay
 
     total = (weights['P_YL'] * P_YL_score +
@@ -94,7 +89,7 @@ def dividend_score(
     consecutive_increases: int,
     div_growth: float,
     coverage: Optional[float] = None,
-    weights: Optional[Dict[str, float]] = None
+    weights: Optional[dict[str, float]] = None,
 ) -> float:
     """
     Calculate dividend score based on various dividend metrics.
@@ -168,6 +163,9 @@ def composite_score(
     float
         Composite score between 0 and 1
     """
+    if tech_score + div_score > 1:
+        raise ValueError("Component scores should sum to 1.0 or less")
+
     if not np.isclose(alpha + beta, 1.0):
         raise ValueError("Weights alpha and beta must sum to 1.0")
     
