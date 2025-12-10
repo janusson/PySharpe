@@ -43,3 +43,4 @@ tzdata==2024.1
 urllib3==2.5.0
 webencodings==0.5.1
 yfinance==0.2.40
+streamlit==1.52.1

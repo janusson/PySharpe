@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Set
 
 import pandas as pd
 
@@ -16,7 +16,7 @@ from pysharpe.data import (
     PortfolioDownloadWorkflow,
     PortfolioRepository,
     PriceFetcher,
-    PriceHistoryError,
+    PriceHistoryError,  # noqa: F401 - exposed for test fakes
     YFinancePriceFetcher,
     read_tickers,
 )
@@ -79,7 +79,7 @@ def _build_download_workflow(
     )
 
 
-def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
+def setup_logging(log_dir: Path = LOG_DIR, level: str | None = None) -> Path:
     """Configure basic file logging under ``log_dir``.
 
     Args:
@@ -118,7 +118,7 @@ def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
     return [definition.path for definition in repo.list_portfolios()]
 
 
-def read_tickers_from_file(path: Path) -> Set[str]:
+def read_tickers_from_file(path: Path) -> set[str]:
     """Read tickers from a CSV-style file containing one symbol per line.
 
     Args:
@@ -153,7 +153,7 @@ class PortfolioTickerReader:
     def __init__(self, directory: Path = PORTFOLIO_DIR) -> None:
         self.directory = _as_path(directory)
         self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
-        self.portfolio_tickers: dict[str, Set[str]] = {}
+        self.portfolio_tickers: dict[str, set[str]] = {}
         self.refresh()
 
     def refresh(self) -> None:
@@ -161,10 +161,11 @@ class PortfolioTickerReader:
 
         self.repo.refresh()
         self.portfolio_tickers = {
-            definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
+            definition.name: set(definition.tickers)
+            for definition in self.repo.list_portfolios()
         }
 
-    def get_portfolio_tickers(self, portfolio_name: str) -> Set[str]:
+    def get_portfolio_tickers(self, portfolio_name: str) -> set[str]:
         """Return the tickers tracked for ``portfolio_name``.
 
         Args:
@@ -189,8 +190,8 @@ def download_portfolio_prices(
     export_dir: Path | str | None = None,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Download price histories for ``tickers`` and write each to CSV.
@@ -198,7 +199,8 @@ def download_portfolio_prices(
     Args:
         tickers: Iterable of tickers (duplicates are ignored).
         price_history_dir: Directory for raw per-ticker CSVs.
-        export_dir: Directory for collated artefacts (defaults to configured export directory).
+        export_dir: Directory for collated artefacts (defaults to configured
+            export directory).
         period: Rolling window used when explicit dates are not provided.
         interval: Sampling frequency for the download.
         start: Optional ISO start date.
@@ -210,7 +212,9 @@ def download_portfolio_prices(
 
     Example:
         >>> from pysharpe.data_collector import download_portfolio_prices
-        >>> download_portfolio_prices(['AAPL'], period='1y', interval='1d', start=None, end=None)  # doctest: +SKIP
+        >>> download_portfolio_prices(
+        ...     ['AAPL'], period='1y', interval='1d', start=None, end=None
+        ... )  # doctest: +SKIP
         {'AAPL': ...}
     """
 
@@ -266,8 +270,8 @@ def process_portfolio(
     export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> pd.DataFrame:
     """Download and collate prices for the portfolio described in ``portfolio_file``.
@@ -323,11 +327,11 @@ def process_all_portfolios(
     export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Run the download/collation workflow for every portfolio file in ``portfolio_dir``.
+    """Run download and collation for every portfolio file in ``portfolio_dir``.
 
     Args:
         portfolio_dir: Directory containing portfolio CSV definitions.
@@ -424,7 +428,9 @@ class SecurityDataCollector:
         info = self.get_company_info()
         destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
-        file_path = destination / f"{self.get_company_name().replace(' ', '_')}_summary.json"
+        file_path = destination / (
+            f"{self.get_company_name().replace(' ', '_')}_summary.json"
+        )
         file_path.write_text(json.dumps(info, indent=4), encoding="utf-8")
         return file_path
 
@@ -494,7 +500,9 @@ class SecurityDataCollector:
             "dividends": getattr(self._yf, "dividends", None),
             "splits": getattr(self._yf, "splits", None),
             "capital_gains": getattr(self._yf, "capital_gains", None),
-            "shares_history": self._yf.get_shares_full() if hasattr(self._yf, "get_shares_full") else None,
+            "shares_history": self._yf.get_shares_full()
+            if hasattr(self._yf, "get_shares_full")
+            else None,
         }
 
     def get_summary(self) -> dict:
@@ -542,8 +550,8 @@ class SecurityDataCollector:
         *,
         period: str = "max",
         interval: str = "1d",
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """Download historical prices for the security and persist them.
 
@@ -552,14 +560,15 @@ class SecurityDataCollector:
             ...
         """
 
-        fetcher = YFinancePriceFetcher()
-        frame = fetcher.fetch_history(
-            self.ticker,
-            period=period,
-            interval=interval,
-            start=start,
-            end=end,
-        )
+        history_kwargs: dict[str, object] = {"interval": interval}
+        if start:
+            history_kwargs["start"] = start
+        if end:
+            history_kwargs["end"] = end
+        if not start and not end:
+            history_kwargs["period"] = period
+
+        frame = self._yf.history(**history_kwargs)
         destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
         output = destination / f"{self.ticker}_hist.csv"
@@ -572,7 +581,9 @@ def main() -> None:  # pragma: no cover - script entry point
     csv_files = get_csv_file_paths(PORTFOLIO_DIR)
     for portfolio_path in csv_files:
         tickers = read_tickers_from_file(portfolio_path)
-        logger.info("Tickers for %s: %s", portfolio_path.stem, ", ".join(sorted(tickers)))
+        logger.info(
+            "Tickers for %s: %s", portfolio_path.stem, ", ".join(sorted(tickers))
+        )
         process_portfolio(portfolio_path)
 
 
