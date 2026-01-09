@@ -5,3 +5,4 @@ yfinance>=0.2
 PyPortfolioOpt>=1.5
 matplotlib>=3.7
 seaborn>=0.12
+urllib3>=2.6.3

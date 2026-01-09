@@ -8,15 +8,13 @@ ity so they slot naturally into notebook or production workflows.
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import numpy as np
 import pandas as pd
 
 PandasLike = pd.Series | pd.DataFrame
 
 
-def _coerce_to_dataframe(data: PandasLike) -> Tuple[pd.DataFrame, bool]:
+def _coerce_to_dataframe(data: PandasLike) -> tuple[pd.DataFrame, bool]:
     """Normalise inputs to a DataFrame while tracking the original shape."""
 
     if not isinstance(data, (pd.Series, pd.DataFrame)):

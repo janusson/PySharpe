@@ -6,7 +6,6 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 _DEFAULT_DATA_DIR = Path("data")
 
@@ -80,7 +79,7 @@ def _path_from_env(var_name: str, default: Path) -> Path:
     return Path(override).expanduser()
 
 
-def build_settings(base_dir: Optional[Path] = None) -> PySharpeSettings:
+def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
     """Construct settings, honouring environment overrides when present.
 
     Args:

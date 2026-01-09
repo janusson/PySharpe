@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Set
 
 import pandas as pd
 
@@ -79,7 +79,7 @@ def _build_download_workflow(
     )
 
 
-def setup_logging(log_dir: Path = LOG_DIR, level: Optional[str] = None) -> Path:
+def setup_logging(log_dir: Path = LOG_DIR, level: str | None = None) -> Path:
     """Configure basic file logging under ``log_dir``.
 
     Args:
@@ -118,7 +118,7 @@ def get_csv_file_paths(directory: Path | None = None) -> list[Path]:
     return [definition.path for definition in repo.list_portfolios()]
 
 
-def read_tickers_from_file(path: Path) -> Set[str]:
+def read_tickers_from_file(path: Path) -> set[str]:
     """Read tickers from a CSV-style file containing one symbol per line.
 
     Args:
@@ -153,7 +153,7 @@ class PortfolioTickerReader:
     def __init__(self, directory: Path = PORTFOLIO_DIR) -> None:
         self.directory = _as_path(directory)
         self.repo = PortfolioRepository(_SETTINGS, directory=self.directory)
-        self.portfolio_tickers: dict[str, Set[str]] = {}
+        self.portfolio_tickers: dict[str, set[str]] = {}
         self.refresh()
 
     def refresh(self) -> None:
@@ -164,7 +164,7 @@ class PortfolioTickerReader:
             definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
         }
 
-    def get_portfolio_tickers(self, portfolio_name: str) -> Set[str]:
+    def get_portfolio_tickers(self, portfolio_name: str) -> set[str]:
         """Return the tickers tracked for ``portfolio_name``.
 
         Args:
@@ -189,8 +189,8 @@ def download_portfolio_prices(
     export_dir: Path | str | None = None,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Download price histories for ``tickers`` and write each to CSV.
@@ -266,8 +266,8 @@ def process_portfolio(
     export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> pd.DataFrame:
     """Download and collate prices for the portfolio described in ``portfolio_file``.
@@ -323,8 +323,8 @@ def process_all_portfolios(
     export_dir: Path | str = EXPORT_DIR,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     fetcher: PriceFetcher | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Run the download/collation workflow for every portfolio file in ``portfolio_dir``.
@@ -542,8 +542,8 @@ class SecurityDataCollector:
         *,
         period: str = "max",
         interval: str = "1d",
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """Download historical prices for the security and persist them.
 

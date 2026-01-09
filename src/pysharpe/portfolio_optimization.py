@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Protocol
+from collections.abc import Iterable, Mapping
+from typing import Protocol
 
 from functools import lru_cache
 
@@ -65,7 +66,7 @@ def _resolve_plot_strategy(make_plot: bool) -> AllocationPlotStrategy:
 def _cached_collated_prices(
     portfolio_name: str,
     collated_dir: str,
-    time_constraint: Optional[str],
+    time_constraint: str | None,
 ) -> pd.DataFrame:
     csv_path = Path(collated_dir) / f"{portfolio_name}_collated.csv"
     if not csv_path.exists():
@@ -89,7 +90,7 @@ def _load_collated_prices(
     portfolio_name: str,
     collated_dir: Path,
     *,
-    time_constraint: Optional[str] = None,
+    time_constraint: str | None = None,
 ) -> pd.DataFrame:
     cached = _cached_collated_prices(
         portfolio_name,
@@ -154,9 +155,9 @@ def optimise_portfolio(
     *,
     collated_dir: Path = EXPORT_DIR,
     output_dir: Path = EXPORT_DIR,
-    time_constraint: Optional[str] = None,
-    asset_constraints: Optional[Dict[str, float]] = None,
-    geo_exposure: Optional[Iterable] = None,  # placeholder for future logic
+    time_constraint: str | None = None,
+    asset_constraints: dict[str, float] | None = None,
+    geo_exposure: Iterable | None = None,  # placeholder for future logic
     make_plot: bool = True,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
@@ -210,9 +211,9 @@ def _optimise_portfolio_impl(
     portfolio_name: str,
     collated_dir: Path,
     output_dir: Path,
-    time_constraint: Optional[str],
-    asset_constraints: Optional[Dict[str, float]],
-    geo_exposure: Optional[Iterable],
+    time_constraint: str | None,
+    asset_constraints: dict[str, float] | None,
+    geo_exposure: Iterable | None,
     category_map: Mapping[str, str] | None,
     include_unmapped_categories: bool,
     plot_strategy: AllocationPlotStrategy,
@@ -288,10 +289,10 @@ def optimise_all_portfolios(
     collated_dir: Path = EXPORT_DIR,
     *,
     output_dir: Path = EXPORT_DIR,
-    time_constraint: Optional[str] = None,
+    time_constraint: str | None = None,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
-) -> Dict[str, OptimisationResult]:
+) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
     Args:

@@ -8,7 +8,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd

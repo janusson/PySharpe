@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
+from typing import Optional
 
 import pandas as pd
 
@@ -18,15 +19,15 @@ logger = logging.getLogger(__name__)
 
 def download_portfolios(
     *,
-    portfolio_names: Optional[Iterable[str]] = None,
+    portfolio_names: Iterable[str] | None = None,
     portfolio_dir: Path | None = None,
     price_history_dir: Path | None = None,
     export_dir: Path | None = None,
     period: str = "max",
     interval: str = "1d",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-) -> Dict[str, pd.DataFrame]:
+    start: str | None = None,
+    end: str | None = None,
+) -> dict[str, pd.DataFrame]:
     """Download and collate portfolios leveraging the data workflow.
 
     Args:
@@ -70,14 +71,14 @@ def download_portfolios(
 
 def optimise_portfolios(
     *,
-    portfolio_names: Optional[Iterable[str]] = None,
+    portfolio_names: Iterable[str] | None = None,
     collated_dir: Path | None = None,
     output_dir: Path | None = None,
-    time_constraint: Optional[str] = None,
+    time_constraint: str | None = None,
     make_plot: bool = True,
-    category_map: Dict[str, str] | None = None,
+    category_map: dict[str, str] | None = None,
     include_unmapped_categories: bool = True,
-) -> Dict[str, OptimisationResult]:
+) -> dict[str, OptimisationResult]:
     """Optimise one or more portfolios and persist artefacts.
 
     Args:
@@ -116,7 +117,7 @@ def optimise_portfolios(
             logger.warning("No collated portfolios discovered for optimisation")
             return {}
 
-    results: Dict[str, OptimisationResult] = {}
+    results: dict[str, OptimisationResult] = {}
     for name in targets:
         try:
             results[name] = optimise_portfolio(

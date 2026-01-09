@@ -17,6 +17,7 @@ dependencies = [
     "yfinance>=0.2",
     "PyPortfolioOpt>=1.5",
     "matplotlib>=3.9",
+    "urllib3>=2.6.3",
 ]
 
 [project.optional-dependencies]
