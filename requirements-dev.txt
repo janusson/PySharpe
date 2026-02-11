@@ -24,7 +24,7 @@ osqp==0.6.7.post0
 packaging==24.1
 pandas==2.2.2
 peewee==3.17.5
-pillow==10.3.0
+pillow==12.1.1
 platformdirs==4.2.2
 pyparsing==3.1.2
 pyportfolioopt==1.6.2
