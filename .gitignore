@@ -33,3 +33,7 @@ dist/
 # macOS
 .DS_Store
 .coverage
+
+# Development
+repomix-output.xml
+docs/

@@ -7,7 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 from pysharpe import cli
-from pysharpe.optimization.models import OptimisationPerformance, OptimisationResult, PortfolioWeights
+from pysharpe.optimization.models import (
+    OptimisationPerformance,
+    OptimisationResult,
+    PortfolioWeights,
+)
 
 
 def _write_portfolio(directory: Path, name: str, tickers: str) -> None:
@@ -36,9 +40,15 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
         collated_dir,
         output_dir,
         time_constraint,
+        mer_mapping,
+        max_portfolio_mer,
+        geo_mapping,
+        geo_lower_bounds,
+        geo_upper_bounds,
         make_plot,
         category_map,
         include_unmapped_categories,
+        return_model,
     ):
         captured["optimise"] = {
             "portfolio_names": tuple(portfolio_names),
@@ -48,12 +58,15 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
             "make_plot": make_plot,
             "category_map": category_map,
             "include_unmapped": include_unmapped_categories,
+            "return_model": return_model,
         }
         return {
             "demo": OptimisationResult(
                 name="demo",
                 weights=PortfolioWeights({"AAA": 1.0}),
-                performance=OptimisationPerformance(0.1, 0.2, 1.2),
+                performance=OptimisationPerformance(
+                    0.1, 0.2, 1.2, "2020-01-01", "2021-01-01"
+                ),
             )
         }
 
@@ -141,7 +154,10 @@ def test_optimise_subcommand_reports_unknown_names(monkeypatch, tmp_path, capsys
             pass
 
         def list_portfolios(self):
-            return [type("Def", (), {"name": "demo"})(), type("Def", (), {"name": "alt"})()]
+            return [
+                type("Def", (), {"name": "demo"})(),
+                type("Def", (), {"name": "alt"})(),
+            ]
 
     monkeypatch.setattr(cli, "PortfolioRepository", _Repo)
 
@@ -158,11 +174,12 @@ def test_optimise_subcommand_reports_unknown_names(monkeypatch, tmp_path, capsys
             "demo": OptimisationResult(
                 name="demo",
                 weights=PortfolioWeights({"AAPL": 1.0}),
-                performance=OptimisationPerformance(0.1, 0.2, 0.5),
+                performance=OptimisationPerformance(
+                    0.1, 0.2, 0.5, "2020-01-01", "2021-01-01"
+                ),
             )
         },
     )
-
     exit_code = cli.main(
         [
             "optimise",
@@ -260,6 +277,44 @@ def test_simulate_dca_subcommand_uses_projection(monkeypatch, capsys):
     assert "Final balance" in out
 
 
+def test_rebalance_subcommand_builds_buy_plan(tmp_path, capsys):
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "demo_weights.txt").write_text(
+        "ticker,weight\nAAPL,0.60\nMSFT,0.40\n",
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        {
+            "Date": ["2024-01-01", "2024-01-02"],
+            "AAPL": [100.0, 110.0],
+            "MSFT": [200.0, 210.0],
+        }
+    ).to_csv(export_dir / "demo_collated.csv", index=False)
+
+    exit_code = cli.main(
+        [
+            "rebalance",
+            "--portfolio",
+            "demo",
+            "--holdings-json",
+            '{"AAPL": 2}',
+            "--holdings-kind",
+            "shares",
+            "--new-cash",
+            "100",
+            "--export-dir",
+            str(export_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Rebalance plan for demo" in output
+    assert "MSFT" in output
+    assert "Buy Shares" in output
+
+
 def test_simulate_dca_subcommand_shows_plot(monkeypatch, capsys):
     class DummyProjection:
         def __init__(self) -> None:
@@ -307,7 +362,9 @@ def test_simulate_dca_subcommand_shows_plot(monkeypatch, capsys):
 
 def test_plot_subcommand_reads_csv(monkeypatch, tmp_path):
     csv_path = tmp_path / "metrics.csv"
-    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "value": [1.0, 1.2]}).to_csv(csv_path, index=False)
+    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "value": [1.0, 1.2]}).to_csv(
+        csv_path, index=False
+    )
 
     saved: dict[str, Path] = {}
 
@@ -354,7 +411,9 @@ def test_plot_subcommand_reads_csv(monkeypatch, tmp_path):
 
 def test_plot_subcommand_without_numeric_columns(tmp_path, capsys):
     csv_path = tmp_path / "metrics.csv"
-    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "label": ["A", "B"]}).to_csv(csv_path, index=False)
+    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "label": ["A", "B"]}).to_csv(
+        csv_path, index=False
+    )
 
     exit_code = cli.main(
         [
@@ -372,7 +431,9 @@ def test_plot_subcommand_without_numeric_columns(tmp_path, capsys):
 
 def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
     csv_path = tmp_path / "metrics.csv"
-    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "value": [1.0, 1.2]}).to_csv(csv_path, index=False)
+    pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "value": [1.0, 1.2]}).to_csv(
+        csv_path, index=False
+    )
 
     class _Figure:
         def clf(self):
@@ -391,7 +452,9 @@ def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
         def grid(self, *_args, **_kwargs):
             pass
 
-    monkeypatch.setattr(pd.DataFrame, "plot", lambda self, *_, **__: _Axes(), raising=False)
+    monkeypatch.setattr(
+        pd.DataFrame, "plot", lambda self, *_, **__: _Axes(), raising=False
+    )
 
     showed: list[str] = []
 

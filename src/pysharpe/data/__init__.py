@@ -1,8 +1,9 @@
 """Data ingestion utilities."""
 
-from .portfolio import PortfolioDefinition, PortfolioRepository, read_tickers
-from .fetcher import PriceFetcher, PriceHistoryError, YFinancePriceFetcher
 from .collation import CollationService, load_raw, parse_records
+from .fetcher import PriceFetcher, PriceHistoryError, YFinancePriceFetcher
+from .linkage import DataLinker
+from .portfolio import PortfolioDefinition, PortfolioRepository, read_tickers
 from .workflows import PortfolioDownloadWorkflow
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "load_raw",
     "parse_records",
     "PortfolioDownloadWorkflow",
+    "DataLinker",
 ]

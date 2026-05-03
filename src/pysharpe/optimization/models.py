@@ -27,7 +27,9 @@ class PortfolioWeights:
     def non_zero(self) -> Dict[str, float]:
         """Return strictly positive allocations."""
 
-        return {ticker: weight for ticker, weight in self.allocations.items() if weight > 0}
+        return {
+            ticker: weight for ticker, weight in self.allocations.items() if weight > 0
+        }
 
     def normalized(self) -> Dict[str, float]:
         """Return a normalized copy of the allocations."""
@@ -41,7 +43,7 @@ class OptimisationPerformance:
 
     Example:
         >>> from pysharpe.optimization.models import OptimisationPerformance
-        >>> perf = OptimisationPerformance(0.1, 0.15, 0.9)
+        >>> perf = OptimisationPerformance(0.1, 0.15, 0.9, "2020-01-01", "2021-01-01")
         >>> perf.sharpe_ratio
         0.9
     """
@@ -49,6 +51,10 @@ class OptimisationPerformance:
     expected_return: float
     volatility: float
     sharpe_ratio: float
+    start_date: str
+    end_date: str
+    limiting_ticker: str | None = None
+    portfolio_mer: float | None = None
 
 
 @dataclass(frozen=True)
@@ -57,7 +63,7 @@ class OptimisationResult:
 
     Example:
         >>> from pysharpe.optimization.models import OptimisationPerformance, OptimisationResult, PortfolioWeights
-        >>> result = OptimisationResult('demo', PortfolioWeights({'AAPL': 0.6}), OptimisationPerformance(0.1, 0.15, 0.9))
+        >>> result = OptimisationResult('demo', PortfolioWeights({'AAPL': 0.6}), OptimisationPerformance(0.1, 0.15, 0.9, "2020-01-01", "2021-01-01"))
         >>> 'demo' in result.summary
         True
     """

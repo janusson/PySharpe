@@ -141,7 +141,7 @@ def apply_category_mapping(
 
     ordered_categories = list(dict.fromkeys(category_labels))
     category_index = pd.Index(category_labels, name="Category")
-    grouped = normalised.groupby(category_index, axis=1).mean()
+    grouped = normalised.T.groupby(category_index).mean().T
     grouped = grouped.reindex(columns=ordered_categories)
 
     groups_readonly = {key: tuple(value) for key, value in groups.items()}

@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
+from pathlib import Path
 from typing import Protocol
 
-from functools import lru_cache
-
+import cvxpy as cp
+import numpy as np
 import pandas as pd
 from pypfopt.efficient_frontier import EfficientFrontier
-from pypfopt.expected_returns import mean_historical_return
+from pypfopt.expected_returns import ema_historical_return, mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 
 from pysharpe.analysis import apply_category_mapping
@@ -70,7 +71,9 @@ def _cached_collated_prices(
 ) -> pd.DataFrame:
     csv_path = Path(collated_dir) / f"{portfolio_name}_collated.csv"
     if not csv_path.exists():
-        raise FileNotFoundError(f"Collated prices not found for {portfolio_name}: {csv_path}")
+        raise FileNotFoundError(
+            f"Collated prices not found for {portfolio_name}: {csv_path}"
+        )
 
     frame = pd.read_csv(csv_path, parse_dates=True, index_col="Date")
     if time_constraint:
@@ -78,7 +81,9 @@ def _cached_collated_prices(
         frame = frame.loc[time_constraint:]
 
     if frame.empty:
-        raise ValueError(f"No data available for {portfolio_name} after applying constraint")
+        raise ValueError(
+            f"No data available for {portfolio_name} after applying constraint"
+        )
 
     if frame.isnull().values.any():
         frame = frame.ffill()
@@ -146,6 +151,13 @@ def _save_performance(result: OptimisationResult, output_dir: Path) -> Path:
         f"Annual volatility: {perf.volatility * 100:.2f}%",
         f"Sharpe Ratio: {perf.sharpe_ratio:.2f}",
     ]
+    if perf.portfolio_mer is not None:
+        lines.append(f"Portfolio MER: {perf.portfolio_mer * 100:.3f}%")
+
+    lines.append(f"Optimization Window: {perf.start_date} to {perf.end_date}")
+    if perf.limiting_ticker:
+        lines.append(f"Limiting Ticker: {perf.limiting_ticker}")
+
     output_path.write_text("\n".join(lines), encoding="utf-8")
     return output_path
 
@@ -157,10 +169,15 @@ def optimise_portfolio(
     output_dir: Path = EXPORT_DIR,
     time_constraint: str | None = None,
     asset_constraints: dict[str, float] | None = None,
-    geo_exposure: Iterable | None = None,  # placeholder for future logic
+    mer_mapping: dict[str, float] | None = None,
+    max_portfolio_mer: float | None = None,
+    geo_mapping: dict[str, str] | None = None,
+    geo_lower_bounds: dict[str, float] | None = None,
+    geo_upper_bounds: dict[str, float] | None = None,
     make_plot: bool = True,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
+    return_model: str = "ema",
 ) -> OptimisationResult:
     """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow.
 
@@ -171,12 +188,18 @@ def optimise_portfolio(
         time_constraint: Optional ISO date to filter the collated history.
         asset_constraints: Optional dict with ``min_weight``/``max_weight`` keys
             applied as linear constraints.
-        geo_exposure: Placeholder for future constraints; currently ignored.
+        mer_mapping: Optional mapping of ticker to its MER (decimal).
+        max_portfolio_mer: Maximum allowable weighted MER for the portfolio.
+        geo_mapping: Optional mapping of ticker to geographic region.
+        geo_lower_bounds: Minimum weight per region.
+        geo_upper_bounds: Maximum weight per region.
         make_plot: When ``True`` generate a pie chart of positive weights.
         category_map: Optional mapping of ticker -> category label used to
             collapse highly correlated exposures before optimisation.
         include_unmapped_categories: When ``True`` retain tickers that do not
             appear in ``category_map`` as standalone categories.
+        return_model: Expected return calculation method. 'ema' (Exponential
+            Moving Average) or 'mean' (Arithmetic Mean). Defaults to 'ema'.
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -199,10 +222,15 @@ def optimise_portfolio(
         output_dir=output_dir,
         time_constraint=time_constraint,
         asset_constraints=asset_constraints,
-        geo_exposure=geo_exposure,
+        mer_mapping=mer_mapping,
+        max_portfolio_mer=max_portfolio_mer,
+        geo_mapping=geo_mapping,
+        geo_lower_bounds=geo_lower_bounds,
+        geo_upper_bounds=geo_upper_bounds,
         category_map=category_map,
         include_unmapped_categories=include_unmapped_categories,
         plot_strategy=plot_strategy,
+        return_model=return_model,
     )
 
 
@@ -213,14 +241,27 @@ def _optimise_portfolio_impl(
     output_dir: Path,
     time_constraint: str | None,
     asset_constraints: dict[str, float] | None,
-    geo_exposure: Iterable | None,
+    mer_mapping: dict[str, float] | None,
+    max_portfolio_mer: float | None,
+    geo_mapping: dict[str, str] | None,
+    geo_lower_bounds: dict[str, float] | None,
+    geo_upper_bounds: dict[str, float] | None,
     category_map: Mapping[str, str] | None,
     include_unmapped_categories: bool,
     plot_strategy: AllocationPlotStrategy,
+    return_model: str,
 ) -> OptimisationResult:
     """Implementation detail powering :func:`optimise_portfolio`."""
 
-    prices = _load_collated_prices(portfolio_name, collated_dir, time_constraint=time_constraint)
+    prices = _load_collated_prices(
+        portfolio_name, collated_dir, time_constraint=time_constraint
+    )
+
+    first_valid_dates = prices.apply(lambda col: col.first_valid_index())
+    limiting_ticker = first_valid_dates.idxmax()
+    prices = prices.dropna()
+    start_date = prices.index.min().strftime("%Y-%m-%d")
+    end_date = prices.index.max().strftime("%Y-%m-%d")
 
     if category_map:
         try:
@@ -251,10 +292,17 @@ def _optimise_portfolio_impl(
 
         prices = aggregation.prices
 
-    mu = mean_historical_return(prices)
+    if return_model.lower() == "ema":
+        mu = ema_historical_return(prices)
+    else:
+        mu = mean_historical_return(prices)
+
     try:
         cov = CovarianceShrinkage(prices).ledoit_wolf()
     except (ImportError, ModuleNotFoundError):  # pragma: no cover - sklearn optional
+        logger.warning(
+            "scikit-learn is missing. Falling back to sample covariance instead of Ledoit-Wolf shrinkage."
+        )
         cov = prices.pct_change().dropna().cov()
     ef = EfficientFrontier(mu, cov)
 
@@ -264,18 +312,61 @@ def _optimise_portfolio_impl(
         if "max_weight" in asset_constraints:
             ef.add_constraint(lambda w: w <= asset_constraints["max_weight"])
 
-    if geo_exposure:  # pragma: no cover - placeholder for parity with original script
-        for _ in geo_exposure:
-            pass
+    if geo_mapping:
+        available_sectors = {geo_mapping.get(t) for t in ef.tickers if t in geo_mapping}
+
+        safe_lower = {}
+        for k, v in (geo_lower_bounds or {}).items():
+            if k in available_sectors:
+                safe_lower[k] = v
+            else:
+                logger.warning(
+                    "Portfolio %s lacks assets in sector '%s'; ignoring lower bound constraint.",
+                    portfolio_name,
+                    k,
+                )
+
+        safe_upper = {
+            k: v for k, v in (geo_upper_bounds or {}).items() if k in available_sectors
+        }
+
+        ef.add_sector_constraints(
+            geo_mapping,
+            sector_lower=safe_lower,
+            sector_upper=safe_upper,
+        )
+
+    if mer_mapping and max_portfolio_mer is not None:
+        aligned_mers = np.array([mer_mapping.get(t, 0.0) for t in ef.tickers])
+        # For max_sharpe, w is scaled by k, so we must scale the RHS by sum(w)
+        # Using subtraction form to satisfy DCP rules (affine <= constant)
+        ef.add_constraint(
+            lambda w: w @ aligned_mers - max_portfolio_mer * cp.sum(w) <= 0
+        )
 
     ef.max_sharpe()
     cleaned_weights = ef.clean_weights()
     expected, volatility, sharpe = ef.portfolio_performance(verbose=False)
 
+    portfolio_mer: float | None = None
+    if mer_mapping:
+        portfolio_mer = sum(
+            weight * mer_mapping.get(ticker, 0.0)
+            for ticker, weight in cleaned_weights.items()
+        )
+
     result = OptimisationResult(
         name=portfolio_name,
         weights=PortfolioWeights(cleaned_weights),
-        performance=OptimisationPerformance(expected, volatility, sharpe),
+        performance=OptimisationPerformance(
+            expected,
+            volatility,
+            sharpe,
+            start_date=start_date,
+            end_date=end_date,
+            limiting_ticker=str(limiting_ticker),
+            portfolio_mer=portfolio_mer,
+        ),
     )
 
     _save_weights(result, output_dir)
@@ -290,8 +381,14 @@ def optimise_all_portfolios(
     *,
     output_dir: Path = EXPORT_DIR,
     time_constraint: str | None = None,
+    mer_mapping: dict[str, float] | None = None,
+    max_portfolio_mer: float | None = None,
+    geo_mapping: dict[str, str] | None = None,
+    geo_lower_bounds: dict[str, float] | None = None,
+    geo_upper_bounds: dict[str, float] | None = None,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
+    return_model: str = "ema",
 ) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -299,10 +396,16 @@ def optimise_all_portfolios(
         collated_dir: Directory containing collated CSV files.
         output_dir: Directory for optimisation artefacts.
         time_constraint: Optional ISO date slice applied to every portfolio.
+        mer_mapping: Optional mapping of ticker to its MER (decimal).
+        max_portfolio_mer: Maximum allowable weighted MER for the portfolio.
+        geo_mapping: Optional mapping of ticker to geographic region.
+        geo_lower_bounds: Minimum weight per region.
+        geo_upper_bounds: Maximum weight per region.
         category_map: Optional mapping of ticker -> category label applied to
             each portfolio prior to optimisation.
         include_unmapped_categories: Toggle for retaining unmapped tickers as
             standalone categories.
+        return_model: Expected return calculation method. 'ema' or 'mean'.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -322,8 +425,14 @@ def optimise_all_portfolios(
             collated_dir=collated_dir,
             output_dir=output_dir,
             time_constraint=time_constraint,
+            mer_mapping=mer_mapping,
+            max_portfolio_mer=max_portfolio_mer,
+            geo_mapping=geo_mapping,
+            geo_lower_bounds=geo_lower_bounds,
+            geo_upper_bounds=geo_upper_bounds,
             category_map=category_map,
             include_unmapped_categories=include_unmapped_categories,
+            return_model=return_model,
         )
 
     return results
@@ -342,7 +451,11 @@ def main() -> None:  # pragma: no cover - interactive legacy flow
         except Exception as exc:
             print(f"  Unable to read {csv_path}: {exc}")
 
-    proceed = input("Do you want to optimize all portfolios found? (yes/no): ").strip().lower()
+    proceed = (
+        input("Do you want to optimize all portfolios found? (yes/no): ")
+        .strip()
+        .lower()
+    )
     if proceed != "yes":
         print("Optimization aborted.")
         return
@@ -350,8 +463,12 @@ def main() -> None:  # pragma: no cover - interactive legacy flow
     for csv_path in portfolio_files:
         name = csv_path.stem
         try:
-            optimise_portfolio(name, collated_dir=collated_dir, output_dir=output_dir, time_constraint="1980-01-01")
-            print(f"Optimised portfolio: {name}")
+            optimise_portfolio(
+                name,
+                collated_dir=collated_dir,
+                output_dir=output_dir,
+                time_constraint="1980-01-01",
+            )
         except Exception as exc:
             print(f"Error optimising {name}: {exc}")
 

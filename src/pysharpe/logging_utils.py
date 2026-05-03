@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pysharpe.config import get_settings
@@ -30,7 +30,7 @@ def configure_logging(log_dir: Path | None = None, level: str | None = None) -> 
     target_dir = log_dir or settings.log_dir
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     log_path = target_dir / f"pysharpe_{timestamp}.log"
 
     logging.basicConfig(

@@ -51,11 +51,17 @@ class PortfolioDefinition:
         return set(self.tickers)
 
 
+import csv
+
+
 def read_tickers(path: Path) -> List[str]:
-    """Read tickers from a newline-delimited file.
+    """Read tickers from a newline-delimited file or a structured CSV.
+
+    If the file is a structured CSV, it attempts to extract the 'ticker' or
+    'symbol' column. Otherwise, it treats every non-comment line as a ticker.
 
     Args:
-        path: File containing one ticker per line (``#`` lines are ignored).
+        path: File containing tickers.
 
     Returns:
         A list preserving the order of appearance while removing duplicates.
@@ -63,7 +69,7 @@ def read_tickers(path: Path) -> List[str]:
     Example:
         >>> from pathlib import Path
         >>> path = Path('example.csv')
-        >>> _ = path.write_text('AAPL\n# comment\nMSFT\nAAPL\n', encoding='utf-8')
+        >>> _ = path.write_text('ticker,value\\nAAPL,100\\nMSFT,200', encoding='utf-8')
         >>> read_tickers(path)
         ['AAPL', 'MSFT']
         >>> path.unlink()
@@ -72,13 +78,53 @@ def read_tickers(path: Path) -> List[str]:
     tickers: list[str] = []
     seen: set[str] = set()
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        cleaned = raw_line.strip()
-        if not cleaned or cleaned.startswith("#"):
-            continue
-        if cleaned not in seen:
-            tickers.append(cleaned)
-            seen.add(cleaned)
+    content = path.read_text(encoding="utf-8").strip()
+    if not content:
+        return []
+
+    lines = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    if not lines:
+        return []
+
+    # If the file contains commas, attempt to parse it as a CSV.
+    if "," in lines[0]:
+        reader = csv.reader(lines)
+        header = next(reader)
+
+        # Look for a known ticker column header
+        ticker_idx = -1
+        for i, col in enumerate(header):
+            cleaned_col = col.strip().lower()
+            if cleaned_col in ("ticker", "symbol", "name"):
+                ticker_idx = i
+                break
+
+        # If no explicit header is found, assume the first column is the ticker
+        # and treat the first row as data.
+        if ticker_idx == -1:
+            ticker_idx = 0
+            first_val = header[0].strip()
+            if first_val and first_val not in seen:
+                tickers.append(first_val)
+                seen.add(first_val)
+
+        for row in reader:
+            if not row or len(row) <= ticker_idx:
+                continue
+            cleaned = row[ticker_idx].strip()
+            if cleaned and cleaned not in seen:
+                tickers.append(cleaned)
+                seen.add(cleaned)
+    else:
+        # Simple newline-delimited file
+        for line in lines:
+            if line not in seen:
+                tickers.append(line)
+                seen.add(line)
 
     return tickers
 
@@ -192,7 +238,9 @@ class PortfolioRepository:
 
         raise FileNotFoundError(f"Portfolio file not found: {name}")
 
-    def iter_definitions(self, names: Iterable[str] | None = None) -> Iterable[PortfolioDefinition]:
+    def iter_definitions(
+        self, names: Iterable[str] | None = None
+    ) -> Iterable[PortfolioDefinition]:
         """Yield portfolio definitions for the requested names.
 
         Args:

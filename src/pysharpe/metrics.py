@@ -31,7 +31,9 @@ def _prep_numeric(frame: pd.DataFrame) -> pd.DataFrame:
     cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
     cleaned = cleaned.dropna(how="all")
     if cleaned.empty:
-        raise ValueError("Input must contain at least one finite observation per column.")
+        raise ValueError(
+            "Input must contain at least one finite observation per column."
+        )
     return cleaned
 
 
@@ -169,7 +171,9 @@ def annualize_volatility(
 
     counts = numeric.count()
     if (counts <= ddof).any():
-        raise ValueError("Not enough observations to compute volatility with the given ddof.")
+        raise ValueError(
+            "Not enough observations to compute volatility with the given ddof."
+        )
 
     stdev = numeric.std(ddof=ddof)
     annualised = stdev * np.sqrt(periods_per_year)
@@ -248,7 +252,9 @@ def sharpe_ratio(
         zero_mask = annualised_volatility.apply(lambda value: np.isclose(value, 0.0))
         if zero_mask.any():
             problematic = ", ".join(annualised_volatility[zero_mask].index)
-            raise ValueError(f"Volatility is zero; Sharpe ratio undefined for: {problematic}")
+            raise ValueError(
+                f"Volatility is zero; Sharpe ratio undefined for: {problematic}"
+            )
         excess = annualised_return - risk_free_rate
         return excess / annualised_volatility
 
@@ -259,10 +265,62 @@ def sharpe_ratio(
     return float(excess_return / annualised_volatility)
 
 
+def cagr(value_series: pd.Series) -> float:
+    """Compute the Compound Annual Growth Rate from a value series.
+
+    Args:
+        value_series: Portfolio value over time (index must be DatetimeIndex).
+
+    Returns:
+        CAGR as a decimal fraction.
+
+    Raises:
+        TypeError: If index is not DatetimeIndex.
+        ValueError: If initial value is not positive.
+    """
+    if value_series.empty:
+        return 0.0
+
+    if not isinstance(value_series.index, pd.DatetimeIndex):
+        raise TypeError("Input series must have a DatetimeIndex.")
+
+    start_val = value_series.iloc[0]
+    end_val = value_series.iloc[-1]
+
+    if start_val <= 0:
+        raise ValueError("Initial value must be positive.")
+
+    days = (value_series.index[-1] - value_series.index[0]).days
+    if days <= 0:
+        return 0.0
+
+    years = days / 365.25
+    return (end_val / start_val) ** (1 / years) - 1
+
+
+def maximum_drawdown(value_series: pd.Series) -> float:
+    """Calculate the maximum peak-to-trough drawdown.
+
+    Args:
+        value_series: Portfolio value over time.
+
+    Returns:
+        Maximum drawdown as a negative decimal (e.g., -0.20 for 20% loss).
+    """
+    if value_series.empty:
+        return 0.0
+
+    peak = value_series.cummax()
+    drawdown = (value_series - peak) / peak
+    return float(drawdown.min())
+
+
 __all__ = [
     "compute_returns",
     "annualize_return",
     "annualize_volatility",
     "expected_return",
     "sharpe_ratio",
+    "cagr",
+    "maximum_drawdown",
 ]

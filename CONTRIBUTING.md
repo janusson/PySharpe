@@ -1,6 +1,6 @@
 # Contributing to PySharpe
 
-Thanks for helping to make PySharpe better! This project values reliability,
+Thanks for helping to improve PySharpe! This project values reliability,
 reproducibility, and approachable tooling. The guidelines below outline how to
 get started.
 

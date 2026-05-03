@@ -28,7 +28,7 @@ def test_portfolio_weights_normalized_helper_matches_function():
 
 
 def test_optimisation_result_summary_formats_percentages():
-    performance = OptimisationPerformance(0.08, 0.15, 1.2)
+    performance = OptimisationPerformance(0.08, 0.15, 1.2, "2020-01-01", "2021-01-01")
     result = OptimisationResult(
         name="demo",
         weights=PortfolioWeights({"AAA": 0.6}),

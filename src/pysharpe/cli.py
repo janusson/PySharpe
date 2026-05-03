@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import pandas as pd
 
@@ -13,6 +14,12 @@ from pysharpe import data_collector, workflows
 from pysharpe.analysis import load_category_map
 from pysharpe.config import get_settings
 from pysharpe.data import PortfolioRepository
+from pysharpe.execution.allocator import (
+    AllocationConfig,
+    allocate_contribution,
+    score_opportunities,
+)
+from pysharpe.execution.rebalance import build_rebalance_plan, format_rebalance_plan
 from pysharpe.optimization.models import OptimisationResult
 from pysharpe.visualization import plot_dca_projection, simulate_dca
 from pysharpe.visualization import utils as viz_utils
@@ -84,6 +91,43 @@ def _handle_optimise(args: argparse.Namespace) -> int:
             end=args.end,
         )
 
+    # Optimization configuration
+    mer_mapping: dict[str, float] | None = None
+    geo_mapping: dict[str, str] | None = None
+    max_portfolio_mer: float | None = None
+    geo_upper_bounds: dict[str, float] | None = None
+    geo_lower_bounds: dict[str, float] | None = None
+
+    config_path = None
+    if args.config:
+        config_path = Path(args.config).expanduser()
+        if not config_path.exists():
+            print(f"Configuration file not found: {config_path}")
+            return 1
+    else:
+        default_config = Path("portfolio_config.json")
+        if default_config.exists():
+            config_path = default_config
+
+    if config_path:
+        try:
+            with config_path.open("r", encoding="utf-8") as f:
+                config_data = json.load(f)
+
+            mer_mapping = config_data.get("mer_mapping")
+            geo_mapping = config_data.get("geo_mapping")
+
+            constraints = config_data.get("constraints", {})
+            max_portfolio_mer = constraints.get("max_portfolio_mer")
+            geo_upper_bounds = constraints.get("geo_upper_bounds")
+            geo_lower_bounds = constraints.get("geo_lower_bounds")
+
+        except json.JSONDecodeError as exc:
+            print(f"Error parsing configuration file: {exc}")
+            return 1
+        except Exception as exc:
+            print(f"Unexpected error loading configuration: {exc}")
+            return 1
     include_unmapped = not args.drop_unmapped_categories
     category_map: dict[str, str] | None = None
     if args.category_map:
@@ -100,9 +144,15 @@ def _handle_optimise(args: argparse.Namespace) -> int:
         collated_dir=export_dir,
         output_dir=export_dir,
         time_constraint=args.time_constraint,
+        mer_mapping=mer_mapping,
+        max_portfolio_mer=max_portfolio_mer,
+        geo_mapping=geo_mapping,
+        geo_lower_bounds=geo_lower_bounds,
+        geo_upper_bounds=geo_upper_bounds,
         make_plot=not args.no_plot,
         category_map=category_map,
         include_unmapped_categories=include_unmapped,
+        return_model=args.return_model,
     )
 
     if not results:
@@ -111,6 +161,89 @@ def _handle_optimise(args: argparse.Namespace) -> int:
 
     _summarise_results(results.values())
     print(f"Artefacts written to {export_dir}")
+    return 0
+
+
+def _handle_allocate(args: argparse.Namespace) -> int:
+    import numpy as np
+
+    current_state_path = Path(args.portfolio).expanduser()
+    if not current_state_path.exists():
+        print(f"Error: Could not find portfolio state file at {current_state_path}")
+        print("Please provide a CSV with columns: ticker, current_value, target_weight")
+        return 1
+
+    try:
+        df = pd.read_csv(current_state_path)
+    except Exception as exc:
+        print(f"Error reading portfolio state: {exc}")
+        return 1
+
+    required_cols = {"ticker", "current_value", "target_weight"}
+    if not required_cols.issubset(df.columns):
+        missing = required_cols - set(df.columns)
+        print(f"Error: Missing required columns in {current_state_path}: {missing}")
+        return 1
+
+    config = None
+    if args.config:
+        config_path = Path(args.config).expanduser()
+        if config_path.exists():
+            try:
+                with config_path.open("r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+
+                alloc_cfg_kwargs = {}
+                if "allocation_weights" in config_data:
+                    weights = config_data["allocation_weights"]
+                    alloc_cfg_kwargs.update(
+                        {
+                            k: v
+                            for k, v in weights.items()
+                            if hasattr(AllocationConfig, k)
+                        }
+                    )
+
+                config = AllocationConfig(**alloc_cfg_kwargs)
+
+                # Overlay fundamental data if present in config
+                if "fundamentals" in config_data:
+                    funds_df = pd.DataFrame.from_dict(
+                        config_data["fundamentals"], orient="index"
+                    )
+                    funds_df.index.name = "ticker"
+                    df = df.merge(funds_df, on="ticker", how="left")
+
+            except Exception as exc:
+                print(f"Warning: Failed to load config {config_path}: {exc}")
+                print("Proceeding with default allocation config.")
+
+    # Ensure required valuation columns exist even if empty
+    for col in ["pe_ratio", "pb_ratio", "div_yield", "momentum_6m"]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    scored = score_opportunities(df, config=config)
+    result = allocate_contribution(
+        scored, contribution_dollars=args.amount, config=config
+    )
+
+    cols = [
+        "ticker",
+        "current_value",
+        "target_weight",
+        "current_weight",
+        "underweight",
+        "valuation_score",
+        "opportunity_score",
+        "recommended_allocation",
+        "recommended_weight_increase",
+    ]
+
+    pd.options.display.float_format = "{:,.4f}".format
+    print(f"\nAllocation recommendation for ${args.amount:,.2f}:\n")
+    print(result[cols].to_string(index=False))
+
     return 0
 
 
@@ -150,7 +283,9 @@ def _handle_plot(args: argparse.Namespace) -> int:
 
     frame = pd.read_csv(path)
     if args.date_column and args.date_column in frame.columns:
-        frame[args.date_column] = pd.to_datetime(frame[args.date_column], errors="coerce")
+        frame[args.date_column] = pd.to_datetime(
+            frame[args.date_column], errors="coerce"
+        )
         frame.set_index(args.date_column, inplace=True)
 
     columns = args.columns or frame.select_dtypes("number").columns.tolist()
@@ -177,6 +312,92 @@ def _handle_plot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_holdings_json(raw: str) -> dict[str, float]:
+    """Parse inline JSON or a JSON file path into a holdings mapping.
+
+    Parameters
+    ----------
+    raw : str
+        Either a JSON object string or a path to a JSON file.
+
+    Returns
+    -------
+    dict[str, float]
+        Mapping of ticker symbol to current value or share count.
+
+    Raises
+    ------
+    ValueError
+        If the payload is not a valid non-empty ticker-to-number mapping.
+    """
+
+    candidate = Path(raw).expanduser()
+    payload = candidate.read_text(encoding="utf-8") if candidate.exists() else raw
+    data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise ValueError("Holdings JSON must be an object mapping ticker to value.")
+
+    parsed: dict[str, float] = {}
+    for ticker, value in data.items():
+        clean_ticker = str(ticker).strip()
+        if not clean_ticker:
+            continue
+
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        if pd.isna(numeric):
+            raise ValueError(f"Invalid holdings value for ticker {clean_ticker}.")
+        if numeric < 0:
+            raise ValueError(
+                f"Holdings value cannot be negative for ticker {clean_ticker}."
+            )
+        parsed[clean_ticker] = float(numeric)
+
+    if not parsed:
+        raise ValueError("Holdings JSON did not contain any valid ticker entries.")
+    return parsed
+
+
+def _handle_rebalance(args: argparse.Namespace) -> int:
+    """Execute the user-facing rebalance CLI workflow.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments for the ``rebalance`` subcommand.
+
+    Returns
+    -------
+    int
+        Process exit code. Returns ``0`` on success and ``1`` for validation,
+        parsing, or file errors.
+    """
+
+    holdings_mapping = None
+    if args.holdings_json:
+        try:
+            holdings_mapping = _parse_holdings_json(args.holdings_json)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"Error: {exc}")
+            return 1
+
+    try:
+        plan = build_rebalance_plan(
+            args.portfolio,
+            new_cash=args.new_cash,
+            holdings_csv=args.holdings_csv,
+            holdings_mapping=holdings_mapping,
+            holdings_kind=args.holdings_kind,
+            export_dir=args.export_dir,
+            config_path=args.config,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print(format_rebalance_plan(plan, include_zero_buys=args.include_zero_buys))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pysharpe",
@@ -184,23 +405,130 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # allocate
+    allocate = subparsers.add_parser(
+        "allocate",
+        help="Calculate optimal cash deployment based on drift and valuation.",
+    )
+    allocate.add_argument(
+        "--portfolio",
+        required=True,
+        help="Path to CSV containing current portfolio state (ticker, current_value, target_weight).",
+    )
+    allocate.add_argument(
+        "--amount",
+        type=float,
+        required=True,
+        help="Dollar amount to contribute to the portfolio.",
+    )
+    allocate.add_argument(
+        "--config",
+        type=Path,
+        help="Optional path to a JSON configuration file defining fundamental valuation mappings.",
+    )
+
+    rebalance = subparsers.add_parser(
+        "rebalance",
+        help="Build buy orders from saved optimisation outputs and current holdings.",
+    )
+    rebalance.add_argument(
+        "--portfolio",
+        required=True,
+        help=(
+            "Portfolio name whose <portfolio>_weights.txt and "
+            "<portfolio>_collated.csv will be used."
+        ),
+    )
+    rebalance_holdings = rebalance.add_mutually_exclusive_group(required=True)
+    rebalance_holdings.add_argument(
+        "--holdings-csv",
+        type=Path,
+        help=(
+            "CSV containing a ticker column and either "
+            "current_value/total_value or shares."
+        ),
+    )
+    rebalance_holdings.add_argument(
+        "--holdings-json",
+        help=(
+            "Inline JSON object or path to a JSON file mapping "
+            "ticker to value/share count."
+        ),
+    )
+    rebalance.add_argument(
+        "--holdings-kind",
+        choices=("value", "shares"),
+        help="Interpret holdings JSON values, or override CSV auto-detection.",
+    )
+    rebalance.add_argument(
+        "--new-cash",
+        type=float,
+        required=True,
+        help="Dollar amount of new capital to allocate.",
+    )
+    rebalance.add_argument(
+        "--export-dir",
+        type=Path,
+        help=(
+            "Directory containing optimisation artefacts. "
+            "Defaults to the configured export directory."
+        ),
+    )
+    rebalance.add_argument(
+        "--config",
+        type=Path,
+        help="Optional JSON config with allocation_weights and fundamentals.",
+    )
+    rebalance.add_argument(
+        "--include-zero-buys",
+        action="store_true",
+        help=(
+            "Show the full merged portfolio state instead of only "
+            "positive buy recommendations."
+        ),
+    )
+
     # optimise
     optimise = subparsers.add_parser(
         "optimise",
         help="Download (optional) data and run the optimisation pipeline.",
     )
-    optimise.add_argument("--portfolio", dest="portfolios", nargs="*", help="Portfolio names to target.")
-    optimise.add_argument("--portfolio-dir", type=Path, help="Directory containing portfolio CSV files.")
-    optimise.add_argument("--price-dir", type=Path, help="Directory for price history CSVs.")
-    optimise.add_argument("--export-dir", type=Path, help="Directory for collated data and outputs.")
+    optimise.add_argument(
+        "--portfolio", dest="portfolios", nargs="*", help="Portfolio names to target."
+    )
+    optimise.add_argument(
+        "--portfolio-dir", type=Path, help="Directory containing portfolio CSV files."
+    )
+    optimise.add_argument(
+        "--price-dir", type=Path, help="Directory for price history CSVs."
+    )
+    optimise.add_argument(
+        "--export-dir", type=Path, help="Directory for collated data and outputs."
+    )
     optimise.add_argument("--log-dir", type=Path, help="Optional logging directory.")
-    optimise.add_argument("--period", default="max", help="History period requested when start/end are omitted.")
-    optimise.add_argument("--interval", default="1d", help="Sampling interval for downloads (default: 1d).")
+    optimise.add_argument(
+        "--period",
+        default="max",
+        help="History period requested when start/end are omitted.",
+    )
+    optimise.add_argument(
+        "--interval",
+        default="1d",
+        help="Sampling interval for downloads (default: 1d).",
+    )
     optimise.add_argument("--start", help="ISO start date for downloads.")
     optimise.add_argument("--end", help="ISO end date for downloads.")
-    optimise.add_argument("--time-constraint", dest="time_constraint", help="ISO start date applied to collated data.")
-    optimise.add_argument("--skip-download", action="store_true", help="Reuse previously downloaded data.")
-    optimise.add_argument("--no-plot", action="store_true", help="Skip allocation pie charts.")
+    optimise.add_argument(
+        "--time-constraint",
+        dest="time_constraint",
+        help="ISO start date applied to collated data.",
+    )
+    optimise.add_argument(
+        "--skip-download", action="store_true", help="Reuse previously downloaded data."
+    )
+    optimise.add_argument(
+        "--no-plot", action="store_true", help="Skip allocation pie charts."
+    )
     optimise.add_argument(
         "--category-map",
         type=Path,
@@ -216,31 +544,70 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Discard tickers missing a category instead of treating them as standalone categories.",
     )
+    optimise.add_argument(
+        "--config",
+        type=Path,
+        help="Path to a JSON configuration file defining MER, geography, and constraints.",
+    )
+    optimise.add_argument(
+        "--return-model",
+        choices=["ema", "mean"],
+        default="ema",
+        help="Expected return calculation method (default: ema).",
+    )
 
     # simulate-dca
     simulate = subparsers.add_parser(
         "simulate-dca",
         help="Generate a dollar-cost averaging projection.",
     )
-    simulate.add_argument("--months", type=int, default=36, help="Number of months to simulate (default: 36).")
-    simulate.add_argument("--initial", type=float, default=1000.0, help="Initial lump sum investment.")
-    simulate.add_argument("--monthly", type=float, default=250.0, help="Recurring contribution amount.")
-    simulate.add_argument("--rate", type=float, default=0.08, help="Annual return rate as a decimal (default: 0.08).")
+    simulate.add_argument(
+        "--months",
+        type=int,
+        default=36,
+        help="Number of months to simulate (default: 36).",
+    )
+    simulate.add_argument(
+        "--initial", type=float, default=1000.0, help="Initial lump sum investment."
+    )
+    simulate.add_argument(
+        "--monthly", type=float, default=250.0, help="Recurring contribution amount."
+    )
+    simulate.add_argument(
+        "--rate",
+        type=float,
+        default=0.08,
+        help="Annual return rate as a decimal (default: 0.08).",
+    )
     simulate.add_argument("--output", help="Optional path to save the generated plot.")
-    simulate.add_argument("--plot", action="store_true", help="Display the plot interactively.")
+    simulate.add_argument(
+        "--plot", action="store_true", help="Display the plot interactively."
+    )
 
     # plot
     plot = subparsers.add_parser(
         "plot",
         help="Plot numeric series from a CSV file (collated data or performance logs).",
     )
-    plot.add_argument("--input", required=True, help="Path to the CSV file to visualise.")
-    plot.add_argument("--columns", nargs="*", help="Specific column names to plot (defaults to numeric columns).")
-    plot.add_argument("--date-column", help="Name of a column to use as the datetime index.")
+    plot.add_argument(
+        "--input", required=True, help="Path to the CSV file to visualise."
+    )
+    plot.add_argument(
+        "--columns",
+        nargs="*",
+        help="Specific column names to plot (defaults to numeric columns).",
+    )
+    plot.add_argument(
+        "--date-column", help="Name of a column to use as the datetime index."
+    )
     plot.add_argument("--title", help="Custom plot title.")
-    plot.add_argument("--ylabel", default="Value", help="Y axis label (default: Value).")
+    plot.add_argument(
+        "--ylabel", default="Value", help="Y axis label (default: Value)."
+    )
     plot.add_argument("--output", help="Optional file path for saving the plot.")
-    plot.add_argument("--show", action="store_true", help="Display the plot interactively.")
+    plot.add_argument(
+        "--show", action="store_true", help="Display the plot interactively."
+    )
 
     return parser
 
@@ -253,6 +620,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "optimise":
         return _handle_optimise(args)
+    if args.command == "allocate":
+        return _handle_allocate(args)
+    if args.command == "rebalance":
+        return _handle_rebalance(args)
     if args.command == "simulate-dca":
         return _handle_simulate_dca(args)
     if args.command == "plot":

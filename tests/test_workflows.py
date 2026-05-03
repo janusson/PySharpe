@@ -5,7 +5,11 @@ from __future__ import annotations
 import pandas as pd
 
 from pysharpe import workflows
-from pysharpe.optimization.models import OptimisationPerformance, OptimisationResult, PortfolioWeights
+from pysharpe.optimization.models import (
+    OptimisationPerformance,
+    OptimisationResult,
+    PortfolioWeights,
+)
 
 
 def test_download_portfolios_delegates(monkeypatch, tmp_path):
@@ -72,7 +76,9 @@ def test_optimise_portfolios_with_names(monkeypatch, tmp_path):
         return OptimisationResult(
             name=name,
             weights=PortfolioWeights({"AAA": 0.5, "BBB": 0.5}),
-            performance=OptimisationPerformance(0.08, 0.15, 1.3),
+            performance=OptimisationPerformance(
+                0.08, 0.15, 1.3, "2020-01-01", "2021-01-01"
+            ),
         )
 
     monkeypatch.setattr(workflows, "optimise_portfolio", _fake_optimize)
