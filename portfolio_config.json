@@ -1,0 +1,33 @@
+{
+  "mer_mapping": {
+    "VFV.TO": 0.0009,
+    "QQC.TO": 0.002,
+    "VCN.TO": 0.0005,
+    "VDY.TO": 0.0022,
+    "VMO.TO": 0.0031,
+    "VIU.TO": 0.0023
+  },
+  "geo_mapping": {
+    "VFV.TO": "US",
+    "QQC.TO": "US",
+    "VCN.TO": "CA",
+    "VDY.TO": "CA",
+    "VMO.TO": "INT",
+    "VA.TO": "INT",
+    "VE.TO": "INT",
+    "VIU.TO": "INT"
+  },
+  "constraints": {
+    "max_portfolio_mer": 0.0016,
+    "geo_upper_bounds": {
+      "US": 0.6,
+      "CA": 0.5,
+      "INT": 0.5
+    },
+    "geo_lower_bounds": {
+      "US": 0.1,
+      "CA": 0.1,
+      "INT": 0.01
+    }
+  }
+}
