@@ -24,6 +24,8 @@ dependencies = [
     "arch>=6.0",
     "duckdb>=0.10",
     "pytest>=9.0.2",
+    "matplotlib>=3.9",
+    "streamlit>=1.52",
 ]
 
 [project.optional-dependencies]
