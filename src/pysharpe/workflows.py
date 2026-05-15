@@ -83,6 +83,7 @@ def optimise_portfolios(
     category_map: dict[str, str] | None = None,
     include_unmapped_categories: bool = True,
     return_model: str = "ema",
+    base_currency: str = "CAD",
 ) -> dict[str, OptimisationResult]:
     """Optimise one or more portfolios and persist artefacts.
 
@@ -103,6 +104,7 @@ def optimise_portfolios(
         include_unmapped_categories: When ``True`` keep tickers that are not
             present in ``category_map`` as standalone categories.
         return_model: Expected return calculation method. 'ema' or 'mean'. Defaults to 'ema'.
+        base_currency: The target currency for all assets (default "CAD").
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult` objects.
@@ -145,6 +147,7 @@ def optimise_portfolios(
                 category_map=category_map,
                 include_unmapped_categories=include_unmapped_categories,
                 return_model=return_model,
+                base_currency=base_currency,
             )
         except FileNotFoundError as exc:
             logger.warning("Skipping %s: %s", name, exc)

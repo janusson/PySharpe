@@ -2,6 +2,7 @@
 
 ## v0.3.0 (unreleased)
 
+- Added dynamic Foreign Exchange (FX) adjustment helper to convert multi-currency portfolio data into a common base currency (e.g., USD to CAD) before optimization.
 - Added Bayesian Portfolio Optimization using `PyMC` (`BayesianOptimizer`) for estimating robust posterior distributions of asset returns.
 - Added Time-Series Analysis tools (`statsmodels`, `arch`) including ADF stationarity testing (`check_stationarity`), GARCH volatility forecasting (`GARCHVolatilityForecaster`), and Vector Autoregression (`VARModeler`).
 - Added Causal Inference and Data Linkage module using an embedded `DuckDB` database (`DataLinker`) to perform high-performance SQL window functions and join market data with external macro datasets.
@@ -23,6 +24,10 @@
 - Documented the rebalance workflow in NumPy-style docstrings and expanded the README with end-to-end usage instructions for CSV and JSON holdings input.
 - Added `scripts/export_current_state.py` so users can pull live prices, merge holdings with optimiser weights, and write the CSV required by `pysharpe allocate`.
 - Integrated `valueizer.py` into core `execution/allocator.py`.
+- Added `CANADIAN_BENCHMARKS` and `fetch_benchmark_metrics` to provide standard all-in-one ETF baselines (VEQT, XGRO, VBAL, etc.) for performance comparison.
+- Implemented `generate_efficient_frontier` and `plot_portfolio_comparison` to map and visualize the Efficient Frontier curve overlaid with user portfolios, optimized targets, and benchmarks.
+- Added an interactive **Weight Tweak Engine** to the Streamlit dashboard (`app.py`), allowing real-time portfolio manipulation and visualization on the Efficient Frontier.
+- Refactored FX conversion logic into a shared utility `apply_fx_conversion` in `src/pysharpe/data/fetcher.py`.
 
 ## v0.2.0
 

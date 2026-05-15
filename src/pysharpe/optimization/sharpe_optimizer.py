@@ -42,6 +42,7 @@ class SharpeOptimizerConfig:
     target_return: Optional[float] = None
     mer_by_ticker: Dict[str, float] = field(default_factory=dict)
     num_portfolios_monte_carlo: int = 10000
+    max_weight: float = 0.20
 
 
 class SharpeOptimizer:
@@ -206,9 +207,15 @@ class SharpeOptimizer:
         if num_assets == 0:
             return OptimizationResult({}, 0.0, 0.0, 0.0)
 
+        if self.config.max_weight * num_assets < 1.0:
+            raise ValueError(
+                f"The max_weight constraint ({self.config.max_weight}) is too restrictive "
+                f"for {num_assets} assets to sum to 1.0."
+            )
+
         # Constraints and Bounds
         constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-        bounds = tuple((0.0, 1.0) for _ in range(num_assets))
+        bounds = tuple((0.0, self.config.max_weight) for _ in range(num_assets))
 
         # Initial guess: equal weighting or best from Monte Carlo
         initial_guess = np.array([1.0 / num_assets] * num_assets)

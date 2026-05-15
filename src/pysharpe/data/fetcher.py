@@ -9,8 +9,95 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional
 
 import pandas as pd
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+
+def apply_fx_conversion(
+    prices: pd.DataFrame,
+    base_currency: str = "CAD",
+    fetcher: Optional[PriceFetcher] = None,
+) -> pd.DataFrame:
+    """Adjust price data for foreign exchange rates.
+
+    Args:
+        prices: Historical price data with tickers as columns.
+        base_currency: The target currency for all assets (default "CAD").
+        fetcher: Optional PriceFetcher to use for downloading FX data.
+
+    Returns:
+        DataFrame with all prices converted to the base currency.
+
+    Raises:
+        ValueError: If FX data cannot be downloaded or is empty.
+    """
+
+    if fetcher is None:
+        fetcher = YFinancePriceFetcher()
+
+    adjusted_prices = prices.copy()
+
+    start_date = prices.index.min().strftime("%Y-%m-%d")
+    end_date = prices.index.max().strftime("%Y-%m-%d")
+
+    for ticker in prices.columns:
+        try:
+            # Ticker.info can be slow/flaky, but is the source of truth for currency
+            ticker_info = yf.Ticker(ticker).info
+            currency = ticker_info.get("currency")
+        except Exception as exc:
+            logger.warning(
+                "Could not determine currency for %s: %s. Assuming %s.",
+                ticker,
+                exc,
+                base_currency,
+            )
+            currency = base_currency
+
+        if not currency or currency.upper() == base_currency.upper():
+            continue
+
+        fx_ticker = f"{currency}{base_currency}=X"
+        logger.warning(
+            "Notice: %s is priced in %s. Prices converted to %s using daily %s rates.",
+            ticker,
+            currency,
+            base_currency,
+            fx_ticker,
+        )
+
+        try:
+            fx_data = fetcher.fetch_history(
+                fx_ticker,
+                period="max",
+                interval="1d",
+                start=start_date,
+                end=end_date,
+            )
+            if fx_data.empty:
+                raise ValueError(f"FX data for {fx_ticker} is empty.")
+            fx_series = fx_data["Close"]
+        except Exception as exc:
+            if isinstance(exc, ValueError) and "is empty" in str(exc):
+                raise
+            raise ValueError(
+                f"Failed to download FX data for {fx_ticker}: {exc}"
+            ) from exc
+
+        # Reindex to match prices.index, using ffill and then bfill
+        if fx_series.index.tz is not None:
+            fx_series.index = fx_series.index.tz_localize(None)
+
+        # Ensure prices index is also naive if it has timezones
+        prices_index = prices.index
+        if hasattr(prices_index, "tz") and prices_index.tz is not None:
+            prices_index = prices_index.tz_localize(None)
+
+        aligned_fx = fx_series.reindex(prices_index).ffill().bfill()
+        adjusted_prices[ticker] = adjusted_prices[ticker] * aligned_fx
+
+    return adjusted_prices
 
 
 class PriceHistoryError(RuntimeError):

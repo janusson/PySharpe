@@ -18,15 +18,26 @@ from pypfopt import EfficientFrontier
 
 from pysharpe import metrics
 from pysharpe.analysis import (
+    CANADIAN_BENCHMARKS,
     CategoryAggregation,
     apply_category_mapping,
+    fetch_benchmark_metrics,
     load_category_map,
 )
 from pysharpe.config import get_settings
 from pysharpe.data.collation import CollationService
 from pysharpe.data.fetcher import YFinancePriceFetcher
-from pysharpe.optimization import PortfolioWeights
-from pysharpe.visualization import simulate_dca
+from pysharpe.optimization.models import (
+    OptimisationPerformance,
+    OptimisationResult,
+    PortfolioWeights,
+)
+from pysharpe.optimization.sharpe_optimizer import SharpeOptimizer
+from pysharpe.visualization import (
+    generate_efficient_frontier,
+    plot_portfolio_comparison,
+    simulate_dca,
+)
 
 try:
     import altair as alt
@@ -88,7 +99,9 @@ def _clean_numeric_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def _resolve_field_frame(raw_data: pd.DataFrame, field_priority: Iterable[str]) -> pd.DataFrame:
+def _resolve_field_frame(
+    raw_data: pd.DataFrame, field_priority: Iterable[str]
+) -> pd.DataFrame:
     """Extract the first matching field from yfinance output."""
 
     if raw_data.empty:
@@ -128,7 +141,9 @@ def _select_price_data(numeric_df: pd.DataFrame) -> pd.DataFrame:
     if close_columns:
         return numeric_df.loc[:, close_columns].copy()
 
-    fallback_cols = [col for col in numeric_df.columns if "volume" not in str(col).lower()]
+    fallback_cols = [
+        col for col in numeric_df.columns if "volume" not in str(col).lower()
+    ]
     if fallback_cols:
         return numeric_df.loc[:, fallback_cols].copy()
     return pd.DataFrame(index=numeric_df.index)
@@ -260,9 +275,13 @@ def load_prices(tickers: list[str], start: str, end: str) -> PortfolioData:
     start_ts = pd.Timestamp(start) if start else None
     end_ts = pd.Timestamp(end) if end else None
 
-    cached_collated = _load_collated_from_disk(str(collated_path)) if collated_path.exists() else None
+    cached_collated = (
+        _load_collated_from_disk(str(collated_path)) if collated_path.exists() else None
+    )
     if cached_collated is not None:
-        available_columns = [ticker for ticker in tickers_tuple if ticker in cached_collated.columns]
+        available_columns = [
+            ticker for ticker in tickers_tuple if ticker in cached_collated.columns
+        ]
         if len(available_columns) == len(tickers_tuple):
             combined = cached_collated.loc[:, available_columns].sort_index()
             if start_ts is not None:
@@ -274,10 +293,15 @@ def load_prices(tickers: list[str], start: str, end: str) -> PortfolioData:
                 raise RuntimeError(
                     "Cached price data does not cover the selected date range. Please adjust the dates or refresh the cache."
                 )
-            combined.columns = pd.Index([str(col) for col in combined.columns], name="Ticker")
+            combined.columns = pd.Index(
+                [str(col) for col in combined.columns], name="Ticker"
+            )
             start_idx = combined.index.min() if not combined.empty else None
             end_idx = combined.index.max() if not combined.empty else None
-            LOGGER.info("Using cached collated data for tickers: %s", ", ".join(available_columns))
+            LOGGER.info(
+                "Using cached collated data for tickers: %s",
+                ", ".join(available_columns),
+            )
             return PortfolioData(
                 tickers=tickers_tuple,
                 prices=combined,
@@ -312,7 +336,9 @@ def load_prices(tickers: list[str], start: str, end: str) -> PortfolioData:
         valid_frames[ticker] = frame
 
     if not valid_frames:
-        LOGGER.error("No valid price data retrieved for tickers: %s", ", ".join(tickers_tuple))
+        LOGGER.error(
+            "No valid price data retrieved for tickers: %s", ", ".join(tickers_tuple)
+        )
         raise RuntimeError("No valid price data retrieved for the selected tickers.")
 
     price_series: list[pd.Series] = []
@@ -330,7 +356,10 @@ def load_prices(tickers: list[str], start: str, end: str) -> PortfolioData:
         price_series.append(series)
 
     if not price_series:
-        LOGGER.error("Adjusted close data missing after processing tickers: %s", ", ".join(tickers_tuple))
+        LOGGER.error(
+            "Adjusted close data missing after processing tickers: %s",
+            ", ".join(tickers_tuple),
+        )
         raise RuntimeError("No usable adjusted close price series were retrieved.")
 
     combined = pd.concat(price_series, axis=1).sort_index()
@@ -344,23 +373,37 @@ def load_prices(tickers: list[str], start: str, end: str) -> PortfolioData:
 
     combined = combined.ffill().bfill()
     if combined.empty:
-        LOGGER.error("Filtered price frame is empty after applying date range for tickers: %s", ", ".join(ordered_valid_tickers))
+        LOGGER.error(
+            "Filtered price frame is empty after applying date range for tickers: %s",
+            ", ".join(ordered_valid_tickers),
+        )
         raise RuntimeError(
             "Price data is empty after applying the selected date range. Please choose a broader window or refresh the tickers."
         )
     combined.columns = pd.Index([str(col) for col in combined.columns], name="Ticker")
 
     try:
-        collated_df = _STREAMLIT_SERVICE.collate_portfolio(portfolio_name, ordered_valid_tickers)
+        collated_df = _STREAMLIT_SERVICE.collate_portfolio(
+            portfolio_name, ordered_valid_tickers
+        )
     except Exception as exc:
         LOGGER.exception("Collation failed for tickers: %s", ", ".join(tickers_tuple))
         raise RuntimeError(f"Error collating portfolio files: {exc}") from exc
 
     _normalize_datetime_index(collated_df)
     if collated_df.empty:
-        LOGGER.error("Collated portfolio is empty for tickers: %s", ", ".join(ordered_valid_tickers))
-        raise RuntimeError("Collated portfolio is empty. Please retry the download or adjust the selected tickers.")
-    collated_view = collated_df.loc[combined.index.min(): combined.index.max()] if not combined.empty else collated_df
+        LOGGER.error(
+            "Collated portfolio is empty for tickers: %s",
+            ", ".join(ordered_valid_tickers),
+        )
+        raise RuntimeError(
+            "Collated portfolio is empty. Please retry the download or adjust the selected tickers."
+        )
+    collated_view = (
+        collated_df.loc[combined.index.min() : combined.index.max()]
+        if not combined.empty
+        else collated_df
+    )
 
     if not collated_path.exists():
         LOGGER.warning("Expected collated file missing at %s", collated_path)
@@ -401,15 +444,19 @@ def gather_metadata(tickers: list[str]) -> pd.DataFrame:
             info = yf.Ticker(ticker).info or {}
         except Exception:
             info = {}
-        records[ticker] = {
-            "name": info.get("shortName", "Unknown"),
-            "exchange": info.get("exchange", "Unknown"),
-            "currency": info.get("currency", "N/A"),
-        } if info else {
-            "name": "Lookup failed",
-            "exchange": "-",
-            "currency": "-",
-        }
+        records[ticker] = (
+            {
+                "name": info.get("shortName", "Unknown"),
+                "exchange": info.get("exchange", "Unknown"),
+                "currency": info.get("currency", "N/A"),
+            }
+            if info
+            else {
+                "name": "Lookup failed",
+                "exchange": "-",
+                "currency": "-",
+            }
+        )
 
     if not records:
         return pd.DataFrame(columns=["name", "exchange", "currency"])
@@ -439,7 +486,9 @@ def load_preview_data(tickers: list[str], end_date: dt.date) -> pd.DataFrame:
     if raw_download.empty:
         return pd.DataFrame()
 
-    closes = _clean_numeric_frame(_resolve_field_frame(raw_download, ("Adj Close", "Close")))
+    closes = _clean_numeric_frame(
+        _resolve_field_frame(raw_download, ("Adj Close", "Close"))
+    )
     volumes = _clean_numeric_frame(_resolve_field_frame(raw_download, ("Volume",)))
 
     combined = closes
@@ -455,7 +504,9 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
     """Compute metrics using PySharpe helpers and ensure aligned indices."""
 
     if price_frame.empty:
-        raise ValueError("Price data is empty; please adjust tickers, dates, or upload a richer dataset.")
+        raise ValueError(
+            "Price data is empty; please adjust tickers, dates, or upload a richer dataset."
+        )
 
     returns = price_frame.pct_change().dropna(how="all")
     if returns.empty:
@@ -471,7 +522,9 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
     volatility = volatility.reindex(column_index)
     sharpe = sharpe.reindex(column_index)
 
-    return MetricResults(returns=returns, expected=expected, volatility=volatility, sharpe=sharpe)
+    return MetricResults(
+        returns=returns, expected=expected, volatility=volatility, sharpe=sharpe
+    )
 
 
 def optimise_weights(metrics_result: MetricResults) -> PortfolioWeights | None:
@@ -569,11 +622,15 @@ def render_metrics_table(metrics_result: MetricResults) -> pd.DataFrame:
             "sharpe_ratio": metrics_result.sharpe,
         }
     )
-    st.dataframe(summary.style.format({
-        "expected_return": "{:.4f}",
-        "annual_volatility": "{:.4f}",
-        "sharpe_ratio": "{:.4f}",
-    }))
+    st.dataframe(
+        summary.style.format(
+            {
+                "expected_return": "{:.4f}",
+                "annual_volatility": "{:.4f}",
+                "sharpe_ratio": "{:.4f}",
+            }
+        )
+    )
     return summary
 
 
@@ -633,19 +690,31 @@ def sidebar_controls() -> dict[str, object]:
     if uploaded_file is not None:
         price_frame = pd.read_csv(uploaded_file, index_col=0, parse_dates=True)
         price_frame = price_frame.sort_index().dropna(how="all")
-        price_frame = price_frame.loc[str(start_date):str(end_date)] if not price_frame.empty else price_frame
+        price_frame = (
+            price_frame.loc[str(start_date) : str(end_date)]
+            if not price_frame.empty
+            else price_frame
+        )
         tickers = tuple(str(col) for col in price_frame.columns)
         if not tickers:
             st.warning("Uploaded file contains no ticker columns.")
             st.stop()
         data_source = "upload"
         preview = price_frame.tail(60)
-        metadata = pd.DataFrame(
-            {
-                ticker: {"name": "Provided via CSV", "exchange": "-", "currency": "-"}
-                for ticker in tickers
-            }
-        ).T if tickers else pd.DataFrame()
+        metadata = (
+            pd.DataFrame(
+                {
+                    ticker: {
+                        "name": "Provided via CSV",
+                        "exchange": "-",
+                        "currency": "-",
+                    }
+                    for ticker in tickers
+                }
+            ).T
+            if tickers
+            else pd.DataFrame()
+        )
         if not metadata.empty:
             metadata.index.name = "Ticker"
         portfolio_data = PortfolioData(
@@ -661,8 +730,14 @@ def sidebar_controls() -> dict[str, object]:
         )
         download_summary: dict[str, object] | None = None
     else:
-        tickers_raw = st.sidebar.text_input("Tickers (comma-separated)", value="AAPL,MSFT,GOOGL")
-        tickers_list = [ticker.strip().upper() for ticker in tickers_raw.split(",") if ticker.strip()]
+        tickers_raw = st.sidebar.text_input(
+            "Tickers (comma-separated)", value="AAPL,MSFT,GOOGL"
+        )
+        tickers_list = [
+            ticker.strip().upper()
+            for ticker in tickers_raw.split(",")
+            if ticker.strip()
+        ]
         tickers = tuple(sorted(set(tickers_list)))
         if not tickers:
             st.warning("Please enter at least one valid ticker symbol.")
@@ -680,18 +755,28 @@ def sidebar_controls() -> dict[str, object]:
         data_source = "download"
         price_frame = portfolio_data.prices
         if price_frame.empty:
-            st.error("No valid price data retrieved. Please adjust the tickers or date range and try again.")
+            st.error(
+                "No valid price data retrieved. Please adjust the tickers or date range and try again."
+            )
             st.stop()
         preview = load_preview_data(resolved_tickers, end_date)
-        metadata = gather_metadata(resolved_tickers) if resolved_tickers else pd.DataFrame()
+        metadata = (
+            gather_metadata(resolved_tickers) if resolved_tickers else pd.DataFrame()
+        )
         if not metadata.empty:
             metadata.index.name = "Ticker"
         download_summary = {
             "tickers": tickers,
             "price_history_dir": str(portfolio_data.price_history_dir),
-            "collated_path": str(portfolio_data.collated_path) if portfolio_data.collated_path else None,
-            "start": portfolio_data.start.isoformat() if isinstance(portfolio_data.start, pd.Timestamp) else None,
-            "end": portfolio_data.end.isoformat() if isinstance(portfolio_data.end, pd.Timestamp) else None,
+            "collated_path": str(portfolio_data.collated_path)
+            if portfolio_data.collated_path
+            else None,
+            "start": portfolio_data.start.isoformat()
+            if isinstance(portfolio_data.start, pd.Timestamp)
+            else None,
+            "end": portfolio_data.end.isoformat()
+            if isinstance(portfolio_data.end, pd.Timestamp)
+            else None,
             "rows": portfolio_data.prices.shape[0],
             "columns": portfolio_data.prices.shape[1],
             "warnings": portfolio_data.warnings,
@@ -699,7 +784,9 @@ def sidebar_controls() -> dict[str, object]:
         }
 
     # Normalise uploaded or downloaded data into numeric-only DataFrame.
-    numeric_df = price_frame.select_dtypes("number") if not price_frame.empty else pd.DataFrame()
+    numeric_df = (
+        price_frame.select_dtypes("number") if not price_frame.empty else pd.DataFrame()
+    )
     price_data = _select_price_data(numeric_df)
 
     category_summary: CategoryAggregation | None = None
@@ -715,7 +802,9 @@ def sidebar_controls() -> dict[str, object]:
     include_unmapped_categories = True
 
     if use_categories:
-        include_unmapped_categories = st.sidebar.checkbox("Keep unmapped tickers", value=True)
+        include_unmapped_categories = st.sidebar.checkbox(
+            "Keep unmapped tickers", value=True
+        )
         uploaded_map = st.sidebar.file_uploader(
             "Upload category map (JSON)",
             type="json",
@@ -724,7 +813,9 @@ def sidebar_controls() -> dict[str, object]:
         if uploaded_map is not None:
             try:
                 category_map = _load_uploaded_category_map(uploaded_map)
-                category_settings["map_source"] = uploaded_map.name or "uploaded mapping"
+                category_settings["map_source"] = (
+                    uploaded_map.name or "uploaded mapping"
+                )
             except ValueError as exc:
                 st.sidebar.error(str(exc))
                 category_map = {}
@@ -760,10 +851,18 @@ def sidebar_controls() -> dict[str, object]:
         category_settings["include_unmapped"] = True
 
     st.sidebar.header("DCA Settings")
-    dca_initial = st.sidebar.number_input("Initial Investment", min_value=0.0, value=1000.0, step=100.0)
-    dca_monthly = st.sidebar.number_input("Monthly Contribution", min_value=0.0, value=250.0, step=25.0)
-    dca_months = st.sidebar.slider("Months", min_value=12, max_value=600, value=240, step=12)
-    if st.session_state.get("dca_rate_pending_reset", False) and not st.session_state.get("dca_rate_override", False):
+    dca_initial = st.sidebar.number_input(
+        "Initial Investment", min_value=0.0, value=1000.0, step=100.0
+    )
+    dca_monthly = st.sidebar.number_input(
+        "Monthly Contribution", min_value=0.0, value=250.0, step=25.0
+    )
+    dca_months = st.sidebar.slider(
+        "Months", min_value=12, max_value=600, value=240, step=12
+    )
+    if st.session_state.get(
+        "dca_rate_pending_reset", False
+    ) and not st.session_state.get("dca_rate_override", False):
         # Drop the slider's stored value before rebuilding it so the updated default takes effect without
         # reassigning the widget key, avoiding StreamlitAPIException.
         st.session_state.pop("dca_rate_slider", None)
@@ -784,10 +883,33 @@ def sidebar_controls() -> dict[str, object]:
         st.session_state.get("dca_rate_default", default_rate),
     )
 
+    st.sidebar.header("Custom Portfolio Weights")
+    custom_weights = {}
+    if not price_data.empty:
+        raw_weights = {}
+        assets = list(price_data.columns)
+        num_assets = len(assets)
+        default_weight = 1.0 / num_assets if num_assets > 0 else 0.0
+        for asset in assets:
+            raw_weights[asset] = st.sidebar.slider(
+                f"Weight: {asset}", 0.0, 1.0, default_weight, step=0.01
+            )
+
+        total = sum(raw_weights.values())
+        if total > 0:
+            custom_weights = {k: v / total for k, v in raw_weights.items()}
+        else:
+            custom_weights = {k: default_weight for k in assets}
+
+        st.sidebar.caption("Normalized custom weights:")
+        for k, v in custom_weights.items():
+            st.sidebar.text(f"{k}: {v:.2%}")
+
     return {
         "data": price_frame,
         "portfolio_data": portfolio_data,
         "price_data": price_data,
+        "custom_weights": custom_weights,
         "tickers": tickers,
         "preview": preview,
         "metadata": metadata,
@@ -821,7 +943,9 @@ def main() -> None:
     download_summary = controls.get("download_summary")
 
     if prices.empty:
-        st.warning("No valid price data available for the selected tickers or file. Please adjust your inputs.")
+        st.warning(
+            "No valid price data available for the selected tickers or file. Please adjust your inputs."
+        )
         return
 
     if download_summary:
@@ -829,8 +953,12 @@ def main() -> None:
         if download_summary.get("used_cache"):
             st.info(f"Using cached price data for: {tickers_display}")
         else:
-            st.success(f"Downloaded {len(download_summary['tickers'])} tickers: {tickers_display}")
-        st.caption(f"Price history directory: `{download_summary['price_history_dir']}`")
+            st.success(
+                f"Downloaded {len(download_summary['tickers'])} tickers: {tickers_display}"
+            )
+        st.caption(
+            f"Price history directory: `{download_summary['price_history_dir']}`"
+        )
         if download_summary.get("collated_path"):
             st.caption(f"Collated CSV: `{download_summary['collated_path']}`")
         for warning_message in download_summary.get("warnings", ()) or ():
@@ -852,8 +980,14 @@ def main() -> None:
     category_settings = controls.get("category_settings", {})
     category_summary: CategoryAggregation | None = controls.get("category_aggregation")
     if category_settings.get("enabled") and category_summary:
-        multi_group = any(len(members) > 1 for members in category_summary.groups.values())
-        if multi_group or category_summary.dropped or category_settings.get("map_source"):
+        multi_group = any(
+            len(members) > 1 for members in category_summary.groups.values()
+        )
+        if (
+            multi_group
+            or category_summary.dropped
+            or category_settings.get("map_source")
+        ):
             st.subheader("Category Grouping Overview")
             summary_rows = [
                 {"Category": category, "Tickers": ", ".join(members)}
@@ -907,7 +1041,11 @@ def main() -> None:
             st.warning("No suitable Close/Adj Close series found for analytics.")
         else:
             metrics_result = compute_metrics(price_data)
-            mean_expected = float(metrics_result.expected.mean()) if not metrics_result.expected.empty else np.nan
+            mean_expected = (
+                float(metrics_result.expected.mean())
+                if not metrics_result.expected.empty
+                else np.nan
+            )
             if not np.isnan(mean_expected):
                 st.session_state["dca_rate_default"] = mean_expected
                 if not st.session_state.get("dca_rate_override", False):
@@ -917,7 +1055,11 @@ def main() -> None:
                     st.session_state["dca_rate_pending_reset"] = False
             else:
                 st.session_state["dca_rate_pending_reset"] = False
-            controls["dca_rate"] = float(st.session_state.get("dca_rate_value", st.session_state.get("dca_rate_default", 0.08)))
+            controls["dca_rate"] = float(
+                st.session_state.get(
+                    "dca_rate_value", st.session_state.get("dca_rate_default", 0.08)
+                )
+            )
             with metrics_placeholder.container():
                 summary = render_metrics_table(metrics_result)
                 st.download_button(
@@ -948,6 +1090,93 @@ def main() -> None:
                         file_name="pysharpe_weights.csv",
                         mime="text/csv",
                     )
+
+    st.subheader("Efficient Frontier & Custom Mix")
+    if not price_data.empty and len(price_data.columns) >= 2:
+        try:
+            # Prepare Custom Mix Performance
+            optimizer = SharpeOptimizer(price_data)
+            custom_weights = controls.get("custom_weights", {})
+            assets = optimizer.assets
+            user_weights_array = np.array(
+                [custom_weights.get(asset, 0.0) for asset in assets]
+            )
+
+            user_ret, user_vol, user_sharpe = optimizer.calculate_portfolio_performance(
+                user_weights_array
+            )
+            user_perf = OptimisationPerformance(
+                expected_return=user_ret,
+                volatility=user_vol,
+                sharpe_ratio=user_sharpe,
+                start_date=str(price_data.index.min().date()),
+                end_date=str(price_data.index.max().date()),
+            )
+            user_port = OptimisationResult(
+                name="Custom Mix",
+                weights=PortfolioWeights(custom_weights),
+                performance=user_perf,
+            )
+
+            # Prepare Optimized Portfolio
+            opt_result = optimizer.optimize()
+
+            # Fetch Benchmarks
+            start_str = str(price_data.index.min().date())
+            end_str = str(price_data.index.max().date())
+            benchmarks_df = fetch_benchmark_metrics(
+                list(CANADIAN_BENCHMARKS.keys()), start_date=start_str, end_date=end_str
+            )
+
+            # Generate Frontier Points
+            frontier_rets, frontier_vols = generate_efficient_frontier(price_data)
+
+            # Plot
+            fig = plot_portfolio_comparison(
+                frontier_returns=frontier_rets,
+                frontier_vols=frontier_vols,
+                user_portfolio=user_port,
+                optimized_portfolio=opt_result,
+                benchmarks_df=benchmarks_df,
+                prices=price_data,
+            )
+            st.pyplot(fig)
+
+            # Markdown Table Comparison
+            st.markdown("### Performance Comparison")
+
+            comp_data = []
+            comp_data.append(
+                {
+                    "Portfolio": "Custom Mix",
+                    "Expected Return": f"{user_perf.expected_return:.2%}",
+                    "Volatility": f"{user_perf.volatility:.2%}",
+                    "Sharpe Ratio": f"{user_perf.sharpe_ratio:.2f}",
+                }
+            )
+            comp_data.append(
+                {
+                    "Portfolio": "PySharpe Optimized",
+                    "Expected Return": f"{opt_result.performance.expected_return:.2%}",
+                    "Volatility": f"{opt_result.performance.volatility:.2%}",
+                    "Sharpe Ratio": f"{opt_result.performance.sharpe_ratio:.2f}",
+                }
+            )
+
+            for _, row in benchmarks_df.iterrows():
+                comp_data.append(
+                    {
+                        "Portfolio": f"Benchmark: {row['Ticker']}",
+                        "Expected Return": f"{row['Annualized Return']:.2%}",
+                        "Volatility": f"{row['Annualized Volatility']:.2%}",
+                        "Sharpe Ratio": f"{row['Sharpe Ratio']:.2f}",
+                    }
+                )
+
+            st.table(pd.DataFrame(comp_data))
+
+        except Exception as e:
+            st.error(f"Error generating Efficient Frontier plot: {e}")
 
     st.subheader("Dollar-Cost Averaging Simulation")
     dca_df = render_dca_projection(

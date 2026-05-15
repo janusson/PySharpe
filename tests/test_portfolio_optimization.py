@@ -19,6 +19,7 @@ def _write_collated(tmp_path: Path, name: str) -> Path:
             "Date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"],
             "AAA": [100.0, 101.0, 102.0, 103.0],
             "BBB": [200.0, 199.0, 201.0, 202.0],
+            "CCC": [300.0, 305.0, 302.0, 301.0],
         }
     )
     csv_path = tmp_path / f"{name}_collated.csv"
@@ -38,10 +39,11 @@ def test_optimise_portfolio_creates_outputs(tmp_path):
         collated_dir=collated_dir,
         output_dir=output_dir,
         make_plot=False,
+        max_weight=1.0,
     )
 
     assert isinstance(result, OptimisationResult)
-    assert set(result.weights.allocations.keys()) == {"AAA", "BBB"}
+    assert set(result.weights.allocations.keys()) == {"AAA", "BBB", "CCC"}
     assert result.performance.sharpe_ratio != 0
     assert (output_dir / "demo_weights.txt").exists()
     assert (output_dir / "demo_performance.txt").exists()
@@ -58,6 +60,7 @@ def test_optimise_all_portfolios(tmp_path):
         collated_dir=collated_dir,
         output_dir=exports,
         time_constraint="2023-01-02",
+        max_weight=1.0,
     )
 
     assert {"alpha", "beta"} == set(results.keys())
@@ -92,6 +95,7 @@ def test_optimise_portfolio_respects_constraints(tmp_path):
         output_dir=output_dir,
         asset_constraints={"max_weight": 0.65},
         make_plot=False,
+        max_weight=1.0,
     )
 
     weights = result.weights.allocations
@@ -112,6 +116,7 @@ def test_optimise_portfolio_time_constraint_requires_data(tmp_path):
             output_dir=output_dir,
             time_constraint="2024-01-05",
             make_plot=False,
+            max_weight=1.0,
         )
 
 
@@ -131,6 +136,7 @@ def test_optimise_portfolio_skips_plot_when_disabled(monkeypatch, tmp_path):
         collated_dir=collated_dir,
         output_dir=output_dir,
         make_plot=False,
+        max_weight=1.0,
     )
 
 
@@ -158,8 +164,99 @@ def test_optimise_portfolio_with_category_map(tmp_path):
         output_dir=output_dir,
         category_map=category_map,
         make_plot=False,
+        max_weight=1.0,
     )
 
     weights = result.weights.allocations
     assert "US Equity" in weights
     assert set(weights.keys()).issubset({"US Equity", "IEF"})
+
+
+def test_optimise_portfolio_insufficient_assets(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+
+    # Create a portfolio with only 2 assets
+    frame = pd.DataFrame(
+        {
+            "Date": ["2023-01-01", "2023-01-02"],
+            "AAA": [100.0, 101.0],
+            "BBB": [200.0, 199.0],
+        }
+    )
+    csv_path = collated_dir / "short_collated.csv"
+    frame.to_csv(csv_path, index=False)
+
+    with pytest.raises(ValueError) as excinfo:
+        portfolio_optimization.optimise_portfolio(
+            "short",
+            collated_dir=collated_dir,
+            output_dir=output_dir,
+            make_plot=False,
+            max_weight=1.0,
+        )
+    assert "minimum of 3 assets" in str(excinfo.value)
+
+
+def test_optimise_portfolio_for_sharpe_insufficient_assets(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+
+    # Create a portfolio with only 2 assets
+    frame = pd.DataFrame(
+        {
+            "Date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"],
+            "AAA": [100.0, 101.0, 102.0, 103.0],
+            "BBB": [200.0, 199.0, 201.0, 202.0],
+        }
+    )
+    csv_path = collated_dir / "short_sharpe_collated.csv"
+    frame.to_csv(csv_path, index=False)
+
+    with pytest.raises(ValueError) as excinfo:
+        portfolio_optimization.optimise_portfolio_for_sharpe(
+            "short_sharpe",
+            collated_dir=collated_dir,
+            output_dir=output_dir,
+            make_plot=False,
+            max_weight=1.0,
+        )
+    assert "minimum of 3 assets" in str(excinfo.value)
+
+
+def test_optimise_portfolio_enforces_max_weight(tmp_path):
+    collated_dir = tmp_path
+    output_dir = tmp_path / "exports"
+    output_dir.mkdir()
+
+    # Create a portfolio with 5 assets so max_weight=0.20 is valid
+    frame = pd.DataFrame(
+        {
+            "Date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"],
+            "AAA": [100.0, 105.0, 110.0, 120.0],  # Very strong performer
+            "BBB": [200.0, 199.0, 200.0, 201.0],
+            "CCC": [300.0, 301.0, 302.0, 303.0],
+            "DDD": [400.0, 395.0, 390.0, 385.0],
+            "EEE": [500.0, 500.0, 500.0, 500.0],
+        }
+    )
+    csv_path = collated_dir / "maxweight_collated.csv"
+    frame.to_csv(csv_path, index=False)
+
+    result = portfolio_optimization.optimise_portfolio(
+        "maxweight",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        make_plot=False,
+        max_weight=0.25,
+    )
+
+    weights = result.weights.allocations
+    assert len(weights) > 0
+    # The sum should be 1.0
+    assert pytest.approx(sum(weights.values()), rel=1e-6) == 1.0
+    # No individual weight should exceed 0.25
+    for ticker, weight in weights.items():
+        assert weight <= 0.25 + 1e-6

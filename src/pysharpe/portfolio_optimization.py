@@ -17,6 +17,7 @@ from pypfopt.risk_models import CovarianceShrinkage
 
 from pysharpe.analysis import apply_category_mapping
 from pysharpe.config import get_settings
+from pysharpe.data.fetcher import YFinancePriceFetcher, apply_fx_conversion
 from pysharpe.optimization.models import (
     OptimisationPerformance,
     OptimisationResult,
@@ -32,6 +33,8 @@ _SETTINGS = get_settings()
 EXPORT_DIR = Path(_SETTINGS.export_dir)
 
 logger = logging.getLogger(__name__)
+
+MIN_ASSETS = 3
 
 
 class AllocationPlotStrategy(Protocol):
@@ -182,6 +185,8 @@ def optimise_portfolio(
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
     return_model: str = "ema",
+    base_currency: str = "CAD",
+    max_weight: float = 0.20,
 ) -> OptimisationResult:
     """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow.
 
@@ -204,6 +209,7 @@ def optimise_portfolio(
             appear in ``category_map`` as standalone categories.
         return_model: Expected return calculation method. 'ema' (Exponential
             Moving Average) or 'mean' (Arithmetic Mean). Defaults to 'ema'.
+        base_currency: The target currency for all assets (default "CAD").
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -235,6 +241,8 @@ def optimise_portfolio(
         include_unmapped_categories=include_unmapped_categories,
         plot_strategy=plot_strategy,
         return_model=return_model,
+        base_currency=base_currency,
+        max_weight=max_weight,
     )
 
 
@@ -260,12 +268,26 @@ def _optimise_portfolio_impl(
     include_unmapped_categories: bool,
     plot_strategy: AllocationPlotStrategy,
     return_model: str,
+    base_currency: str,
+    max_weight: float = 0.20,
 ) -> OptimisationResult:
     """Implementation detail powering :func:`optimise_portfolio`."""
 
     prices = _load_collated_prices(
         portfolio_name, collated_dir, time_constraint=time_constraint
     )
+
+    if len(prices.columns) < MIN_ASSETS:
+        raise ValueError(
+            f"Portfolio optimization requires a minimum of {MIN_ASSETS} assets to ensure basic diversification. "
+            "For fewer assets, use direct manual allocation."
+        )
+
+    if max_weight * len(prices.columns) < 1.0:
+        raise ValueError(
+            f"The max_weight constraint ({max_weight}) is too restrictive for "
+            f"{len(prices.columns)} assets to sum to 1.0."
+        )
 
     tickers = list(prices.columns)
 
@@ -287,6 +309,7 @@ def _optimise_portfolio_impl(
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
     limiting_ticker = first_valid_dates.idxmax()
     prices = prices.dropna()
+    prices = apply_fx_conversion(prices, base_currency=base_currency)
     start_date = prices.index.min().strftime("%Y-%m-%d")
     end_date = prices.index.max().strftime("%Y-%m-%d")
 
@@ -331,7 +354,9 @@ def _optimise_portfolio_impl(
             "scikit-learn is missing. Falling back to sample covariance instead of Ledoit-Wolf shrinkage."
         )
         cov = prices.pct_change().dropna().cov()
-    ef = EfficientFrontier(mu, cov)
+
+    # Apply max_weight bounds to EfficientFrontier
+    ef = EfficientFrontier(mu, cov, weight_bounds=(0.0, max_weight))
 
     if asset_constraints:
         if "min_weight" in asset_constraints:
@@ -373,7 +398,28 @@ def _optimise_portfolio_impl(
 
     ef.max_sharpe()
     cleaned_weights = ef.clean_weights()
-    expected, volatility, sharpe = ef.portfolio_performance(verbose=False)
+
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=RuntimeWarning,
+            message="invalid value encountered in sqrt",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            category=RuntimeWarning,
+            message="invalid value encountered in power",
+        )
+        expected, volatility, sharpe = ef.portfolio_performance(verbose=False)
+
+    if np.isnan(volatility):
+        volatility = 0.0
+        if expected - 0.02 > 0:  # Assuming 2% risk-free rate for dummy calculation
+            sharpe = np.inf
+        else:
+            sharpe = 0.0
 
     portfolio_mer: float | None = None
     if mer_mapping:
@@ -411,6 +457,8 @@ def optimise_portfolio_for_sharpe(
     time_constraint: Optional[str] = None,
     config: Optional[SharpeOptimizerConfig] = None,
     make_plot: bool = True,
+    base_currency: str = "CAD",
+    max_weight: float = 0.20,
 ) -> OptimisationResult:
     """Optimises a portfolio to maximize the Sharpe ratio using the custom SharpeOptimizer.
 
@@ -421,6 +469,8 @@ def optimise_portfolio_for_sharpe(
         time_constraint: Optional ISO date to filter the collated history.
         config: Configuration for the SharpeOptimizer. If None, default settings are used.
         make_plot: When ``True`` generate a pie chart of positive weights.
+        base_currency: The target currency for all assets (default "CAD").
+        max_weight: The maximum allowable weight for any single asset. Defaults to 0.20 (20%).
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -435,9 +485,22 @@ def optimise_portfolio_for_sharpe(
         portfolio_name, collated_dir, time_constraint=time_constraint
     )
 
+    if len(prices.columns) < MIN_ASSETS:
+        raise ValueError(
+            f"Portfolio optimization requires a minimum of {MIN_ASSETS} assets to ensure basic diversification. "
+            "For fewer assets, use direct manual allocation."
+        )
+
+    if max_weight * len(prices.columns) < 1.0:
+        raise ValueError(
+            f"The max_weight constraint ({max_weight}) is too restrictive for "
+            f"{len(prices.columns)} assets to sum to 1.0."
+        )
+
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
     limiting_ticker = first_valid_dates.idxmax()  # Used for metadata
     prices = prices.dropna()
+    prices = apply_fx_conversion(prices, base_currency=base_currency)
 
     if prices.empty:
         raise ValueError(
@@ -449,6 +512,11 @@ def optimise_portfolio_for_sharpe(
     end_date = prices.index.max().strftime("%Y-%m-%d")
 
     # Initialize and run the SharpeOptimizer
+    if config is None:
+        config = SharpeOptimizerConfig(max_weight=max_weight)
+    else:
+        config.max_weight = max_weight
+
     sharpe_optimizer = SharpeOptimizer(prices=prices, config=config)
     optimization_result = sharpe_optimizer.optimize()
 
@@ -495,6 +563,8 @@ def optimise_all_portfolios(
     include_unmapped_categories: bool = True,
     return_model: str = "ema",
     sharpe_optimizer_config: Optional[SharpeOptimizerConfig] = None,
+    base_currency: str = "CAD",
+    max_weight: float = 0.20,
 ) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -515,6 +585,8 @@ def optimise_all_portfolios(
         sharpe_optimizer_config: Optional configuration for Sharpe ratio optimization.
             If provided, `optimise_portfolio_for_sharpe` will be used instead of
             the default `optimise_portfolio`.
+        base_currency: The target currency for all assets (default "CAD").
+        max_weight: The maximum allowable weight for any single asset. Defaults to 0.20 (20%).
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -537,6 +609,8 @@ def optimise_all_portfolios(
                 output_dir=output_dir,
                 time_constraint=time_constraint,
                 config=sharpe_optimizer_config,
+                base_currency=base_currency,
+                max_weight=max_weight,
             )
         else:
             results[name] = optimise_portfolio(
@@ -552,6 +626,8 @@ def optimise_all_portfolios(
                 category_map=category_map,
                 include_unmapped_categories=include_unmapped_categories,
                 return_model=return_model,
+                base_currency=base_currency,
+                max_weight=max_weight,
             )
 
     return results

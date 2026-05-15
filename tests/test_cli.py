@@ -49,6 +49,7 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
         category_map,
         include_unmapped_categories,
         return_model,
+        base_currency,
     ):
         captured["optimise"] = {
             "portfolio_names": tuple(portfolio_names),
@@ -59,6 +60,7 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
             "category_map": category_map,
             "include_unmapped": include_unmapped_categories,
             "return_model": return_model,
+            "base_currency": base_currency,
         }
         return {
             "demo": OptimisationResult(
@@ -91,6 +93,7 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     assert Path(captured["optimise"]["collated_dir"]).resolve() == export_dir.resolve()
     assert captured["optimise"]["category_map"] is None
     assert captured["optimise"]["include_unmapped"] is True
+    assert captured["optimise"]["base_currency"] == "CAD"
     output = capsys.readouterr().out
     assert "Artefacts written" in output
 

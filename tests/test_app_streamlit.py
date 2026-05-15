@@ -71,8 +71,13 @@ class SidebarAPI:
     def number_input(self, label: str, **kwargs) -> float:
         return self.number_values.get(label, kwargs.get("value", 0.0))
 
-    def slider(self, label: str, **kwargs):
-        return self.slider_values.get(label, kwargs.get("value"))
+    def slider(self, label: str, *args, **kwargs):
+        default_val = kwargs.get("value")
+        if default_val is None and len(args) >= 3:
+            default_val = args[2]
+        elif default_val is None:
+            default_val = 0.0
+        return self.slider_values.get(label, default_val)
 
     def checkbox(self, label: str, value: bool = False, **_kwargs) -> bool:
         return self.checkbox_values.get(label, value)
@@ -85,6 +90,12 @@ class SidebarAPI:
 
     def error(self, message: str) -> None:
         self.owner.warning(message)
+
+    def caption(self, message: str) -> None:
+        self.owner.write(message)
+
+    def text(self, message: str) -> None:
+        self.owner.write(message)
 
 
 class StreamlitStub:
@@ -130,6 +141,9 @@ class StreamlitStub:
 
     def success(self, message: str) -> None:
         self.success_calls.append(message)
+
+    def error(self, message: str) -> None:
+        self.warning_calls.append(message)
 
     def set_page_config(self, *args, **kwargs) -> None:
         self.page_config_calls.append((args, kwargs))
@@ -209,7 +223,9 @@ class DummyAlt:
     def Color(self, field: str, type: str) -> tuple[str, str, str]:  # noqa: N802
         return ("color", field, type)
 
-    def Tooltip(self, field: str, title: str, format: str | None = None) -> tuple[str, str, str, str | None]:  # noqa: N802
+    def Tooltip(
+        self, field: str, title: str, format: str | None = None
+    ) -> tuple[str, str, str, str | None]:  # noqa: N802
         return ("tooltip", field, title, format)
 
 
@@ -230,16 +246,25 @@ def alt_stub(monkeypatch: pytest.MonkeyPatch) -> DummyAlt:
 def test_plot_cumulative_returns_empty_data(streamlit_stub: StreamlitStub) -> None:
     app.plot_cumulative_returns(pd.DataFrame())
 
-    assert streamlit_stub.info_calls == ["No price data available to plot cumulative returns."]
+    assert streamlit_stub.info_calls == [
+        "No price data available to plot cumulative returns."
+    ]
     assert not streamlit_stub.line_chart_calls
 
 
-def test_plot_cumulative_returns_insufficient_history(streamlit_stub: StreamlitStub) -> None:
-    price_frame = pd.DataFrame({"AAPL": [100.0]}, index=pd.date_range("2023-01-01", periods=1))
+def test_plot_cumulative_returns_insufficient_history(
+    streamlit_stub: StreamlitStub,
+) -> None:
+    price_frame = pd.DataFrame(
+        {"AAPL": [100.0]}, index=pd.date_range("2023-01-01", periods=1)
+    )
 
     app.plot_cumulative_returns(price_frame)
 
-    assert streamlit_stub.info_calls[-1] == "Not enough price history to compute cumulative returns."
+    assert (
+        streamlit_stub.info_calls[-1]
+        == "Not enough price history to compute cumulative returns."
+    )
 
 
 def test_plot_cumulative_returns_renders_chart(streamlit_stub: StreamlitStub) -> None:
@@ -259,7 +284,9 @@ def test_plot_cumulative_returns_renders_chart(streamlit_stub: StreamlitStub) ->
     assert "height" in kwargs and kwargs["height"] == 320
 
 
-def test_plot_weights_with_positive_allocations(streamlit_stub: StreamlitStub, alt_stub: DummyAlt) -> None:
+def test_plot_weights_with_positive_allocations(
+    streamlit_stub: StreamlitStub, alt_stub: DummyAlt
+) -> None:
     weights = SimpleNamespace(allocations={"AAPL": 0.6, "MSFT": 0.4})
 
     app.plot_weights(weights)
@@ -272,7 +299,9 @@ def test_plot_weights_with_positive_allocations(streamlit_stub: StreamlitStub, a
     assert kwargs.get("use_container_width")
 
 
-def test_plot_weights_no_positive_allocations(streamlit_stub: StreamlitStub, alt_stub: DummyAlt) -> None:
+def test_plot_weights_no_positive_allocations(
+    streamlit_stub: StreamlitStub, alt_stub: DummyAlt
+) -> None:
     weights = SimpleNamespace(allocations={"AAPL": 0.0, "MSFT": -0.2})
 
     app.plot_weights(weights)
@@ -282,7 +311,9 @@ def test_plot_weights_no_positive_allocations(streamlit_stub: StreamlitStub, alt
     assert not streamlit_stub.altair_chart_calls
 
 
-def test_plot_weights_altair_missing(streamlit_stub: StreamlitStub, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plot_weights_altair_missing(
+    streamlit_stub: StreamlitStub, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(app, "alt", None)
     weights = SimpleNamespace(allocations={"AAPL": 0.7, "MSFT": 0.3})
 
@@ -303,11 +334,17 @@ def test_render_metrics_table_returns_dataframe(streamlit_stub: StreamlitStub) -
     summary = app.render_metrics_table(results)
 
     assert isinstance(summary, pd.DataFrame)
-    assert list(summary.columns) == ["expected_return", "annual_volatility", "sharpe_ratio"]
+    assert list(summary.columns) == [
+        "expected_return",
+        "annual_volatility",
+        "sharpe_ratio",
+    ]
     assert streamlit_stub.dataframe_calls  # Styler object recorded
 
 
-def test_render_dca_projection_emits_metrics(monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub) -> None:
+def test_render_dca_projection_emits_metrics(
+    monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub
+) -> None:
     class FakeProjection:
         months = [0, 1, 2]
         balances = [1000.0, 1100.0, 1200.0]
@@ -331,7 +368,9 @@ def test_render_dca_projection_emits_metrics(monkeypatch: pytest.MonkeyPatch, st
     assert streamlit_stub.metric_calls[1] == ("Total Contributions", "$1,400.00")
 
 
-def test_sidebar_controls_download_flow(monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub, alt_stub: DummyAlt) -> None:
+def test_sidebar_controls_download_flow(
+    monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub, alt_stub: DummyAlt
+) -> None:
     streamlit_stub.sidebar.text_value = "AAPL, MSFT"
     streamlit_stub.sidebar.slider_values["Annual Return Rate"] = 0.1
 
@@ -345,14 +384,22 @@ def test_sidebar_controls_download_flow(monkeypatch: pytest.MonkeyPatch, streaml
     )
     preview_frame = price_frame.drop(columns=["AAPL Volume"])
     metadata = pd.DataFrame(
-        {"name": ["Apple", "Microsoft"], "exchange": ["NASDAQ", "NASDAQ"], "currency": ["USD", "USD"]},
+        {
+            "name": ["Apple", "Microsoft"],
+            "exchange": ["NASDAQ", "NASDAQ"],
+            "currency": ["USD", "USD"],
+        },
         index=["AAPL", "MSFT"],
     )
 
     portfolio_data = app.PortfolioData(
         tickers=("AAPL", "MSFT"),
-        prices=price_frame.drop(columns=["AAPL Volume"]).rename(columns={"AAPL Close": "AAPL", "MSFT Close": "MSFT"}),
-        collated=price_frame.drop(columns=["AAPL Volume"]).rename(columns={"AAPL Close": "AAPL", "MSFT Close": "MSFT"}),
+        prices=price_frame.drop(columns=["AAPL Volume"]).rename(
+            columns={"AAPL Close": "AAPL", "MSFT Close": "MSFT"}
+        ),
+        collated=price_frame.drop(columns=["AAPL Volume"]).rename(
+            columns={"AAPL Close": "AAPL", "MSFT Close": "MSFT"}
+        ),
         price_history_dir=app.SETTINGS.price_history_dir,
         collated_path=app.SETTINGS.export_dir / "streamlit_test_collated.csv",
         start=price_frame.index.min(),
@@ -362,7 +409,9 @@ def test_sidebar_controls_download_flow(monkeypatch: pytest.MonkeyPatch, streaml
     )
 
     monkeypatch.setattr(app, "load_prices", lambda tickers, start, end: portfolio_data)
-    monkeypatch.setattr(app, "load_preview_data", lambda tickers, end_date: preview_frame.copy())
+    monkeypatch.setattr(
+        app, "load_preview_data", lambda tickers, end_date: preview_frame.copy()
+    )
     monkeypatch.setattr(app, "gather_metadata", lambda tickers: metadata.copy())
 
     controls = app.sidebar_controls()
@@ -380,14 +429,34 @@ def test_sidebar_controls_download_flow(monkeypatch: pytest.MonkeyPatch, streaml
     assert controls["portfolio_data"].warnings == ()
 
 
-def test_sidebar_controls_upload_flow(monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub) -> None:
+def test_sidebar_controls_upload_flow(
+    monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub
+) -> None:
     csv_data = io.StringIO("Date,AAPL\n2024-01-01,100\n2024-01-02,101\n")
     streamlit_stub.sidebar.uploaded_file = csv_data
     streamlit_stub.sidebar.slider_values["Annual Return Rate"] = 0.05
 
-    monkeypatch.setattr(app, "load_prices", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("load_prices not used")))
-    monkeypatch.setattr(app, "load_preview_data", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("load_preview_data not used")))
-    monkeypatch.setattr(app, "gather_metadata", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("gather_metadata not used")))
+    monkeypatch.setattr(
+        app,
+        "load_prices",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("load_prices not used")
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "load_preview_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("load_preview_data not used")
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "gather_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("gather_metadata not used")
+        ),
+    )
 
     controls = app.sidebar_controls()
 
@@ -400,7 +469,9 @@ def test_sidebar_controls_upload_flow(monkeypatch: pytest.MonkeyPatch, streamlit
     assert controls["portfolio_data"].used_cache is False
 
 
-def test_main_renders_dashboard(monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub, alt_stub: DummyAlt) -> None:
+def test_main_renders_dashboard(
+    monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub, alt_stub: DummyAlt
+) -> None:
     price_frame = pd.DataFrame(
         {
             "AAPL": [100.0, 101.0, 102.0],
@@ -409,7 +480,11 @@ def test_main_renders_dashboard(monkeypatch: pytest.MonkeyPatch, streamlit_stub:
         index=pd.date_range("2024-01-01", periods=3, freq="D"),
     )
     metadata = pd.DataFrame(
-        {"name": ["Apple", "Microsoft"], "exchange": ["NASDAQ", "NASDAQ"], "currency": ["USD", "USD"]},
+        {
+            "name": ["Apple", "Microsoft"],
+            "exchange": ["NASDAQ", "NASDAQ"],
+            "currency": ["USD", "USD"],
+        },
         index=["AAPL", "MSFT"],
     )
     metric_result = app.MetricResults(
@@ -466,13 +541,31 @@ def test_main_renders_dashboard(monkeypatch: pytest.MonkeyPatch, streamlit_stub:
 
     monkeypatch.setattr(app, "sidebar_controls", fake_sidebar_controls)
     monkeypatch.setattr(app, "compute_metrics", lambda _: metric_result)
-    monkeypatch.setattr(app, "plot_cumulative_returns", lambda df: plot_calls.update({"returns": df.copy()}))
-    monkeypatch.setattr(app, "optimise_weights", lambda result: SimpleNamespace(allocations={"AAPL": 0.6, "MSFT": 0.4}))
-    monkeypatch.setattr(app, "plot_weights", lambda weights: plot_calls.update({"weights": pd.Series(weights.allocations)}))
+    monkeypatch.setattr(
+        app,
+        "plot_cumulative_returns",
+        lambda df: plot_calls.update({"returns": df.copy()}),
+    )
+    monkeypatch.setattr(
+        app,
+        "optimise_weights",
+        lambda result: SimpleNamespace(allocations={"AAPL": 0.6, "MSFT": 0.4}),
+    )
+    monkeypatch.setattr(
+        app,
+        "plot_weights",
+        lambda weights: plot_calls.update({"weights": pd.Series(weights.allocations)}),
+    )
     monkeypatch.setattr(
         app,
         "render_dca_projection",
-        lambda *args, **kwargs: pd.DataFrame({"Months": [0, 1], "Balance": [1000.0, 1100.0], "Contributions": [1000.0, 1250.0]}),
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "Months": [0, 1],
+                "Balance": [1000.0, 1100.0],
+                "Contributions": [1000.0, 1250.0],
+            }
+        ),
     )
 
     app.main()

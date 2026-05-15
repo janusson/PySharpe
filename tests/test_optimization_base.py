@@ -21,7 +21,10 @@ def sample_data():
 
 
 def test_sharpe_optimizer_implements_protocol(sample_data):
-    optimizer = SharpeOptimizer(prices=sample_data)
+    from pysharpe.optimization.sharpe_optimizer import SharpeOptimizerConfig
+
+    config = SharpeOptimizerConfig(max_weight=1.0)
+    optimizer = SharpeOptimizer(prices=sample_data, config=config)
     assert isinstance(optimizer, PortfolioOptimizer)
 
     result = optimizer.optimize()

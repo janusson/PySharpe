@@ -153,6 +153,7 @@ def _handle_optimise(args: argparse.Namespace) -> int:
         category_map=category_map,
         include_unmapped_categories=include_unmapped,
         return_model=args.return_model,
+        base_currency=args.base_currency,
     )
 
     if not results:
@@ -559,6 +560,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["ema", "mean"],
         default="ema",
         help="Expected return calculation method (default: ema).",
+    )
+    optimise.add_argument(
+        "--base-currency",
+        default="CAD",
+        help="The target currency for all assets (default: CAD).",
     )
 
     # simulate-dca

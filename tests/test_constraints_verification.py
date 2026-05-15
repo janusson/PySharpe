@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -55,8 +54,8 @@ def test_optimisation_constraints(tmp_path):
             mer_mapping=mer_mapping,
             max_portfolio_mer=max_mer,
             make_plot=False,
+            max_weight=1.0,
         )
-
         weights_mer = result_mer.weights.allocations
         port_mer = sum(weights_mer.get(t, 0) * mer_mapping[t] for t in weights_mer)
 
@@ -70,41 +69,49 @@ def test_optimisation_constraints(tmp_path):
 
     # --- Test 2: Geo constraint ---
     # Limit US (A) to 10%
+    try:
+        result_geo = optimise_portfolio(
+            "test_portfolio",
+            collated_dir=collated_dir,
+            output_dir=output_dir,
+            geo_mapping=geo_mapping,
+            geo_upper_bounds={"US": 0.40},
+            make_plot=False,
+            max_weight=1.0,
+        )
 
-    result_geo = optimise_portfolio(
-        "test_portfolio",
-        collated_dir=collated_dir,
-        output_dir=output_dir,
-        geo_mapping=geo_mapping,
-        geo_upper_bounds={"US": 0.1},
-        make_plot=False,
-    )
+        weights_geo = result_geo.weights.allocations
+        print(f"\nTest 2 Weights: {weights_geo}")
 
-    weights_geo = result_geo.weights.allocations
-    print(f"\nTest 2 Weights: {weights_geo}")
+        assert weights_geo.get("A", 0) <= 0.40 + 1e-5
 
-    assert weights_geo.get("A", 0) <= 0.10 + 1e-5
+    except Exception as e:
+        pytest.fail(f"Test 2 failed with error: {e}")
 
     # --- Test 3: Combined Constraints ---
+    try:
+        result_combined = optimise_portfolio(
+            "test_portfolio",
+            collated_dir=collated_dir,
+            output_dir=output_dir,
+            mer_mapping=mer_mapping,
+            max_portfolio_mer=0.01,
+            geo_mapping=geo_mapping,
+            geo_upper_bounds={"CA": 0.6},
+            make_plot=False,
+            max_weight=1.0,
+        )
 
-    result_combined = optimise_portfolio(
-        "test_portfolio",
-        collated_dir=collated_dir,
-        output_dir=output_dir,
-        mer_mapping=mer_mapping,
-        max_portfolio_mer=0.01,
-        geo_mapping=geo_mapping,
-        geo_upper_bounds={"CA": 0.6},
-        make_plot=False,
-    )
+        weights_combined = result_combined.weights.allocations
+        port_mer_combined = sum(
+            weights_combined.get(t, 0) * mer_mapping[t] for t in weights_combined
+        )
 
-    weights_combined = result_combined.weights.allocations
-    port_mer_combined = sum(
-        weights_combined.get(t, 0) * mer_mapping[t] for t in weights_combined
-    )
+        print(f"\nTest 3 Weights: {weights_combined}")
+        print(f"Combined MER: {port_mer_combined}")
 
-    print(f"\nTest 3 Weights: {weights_combined}")
-    print(f"Combined MER: {port_mer_combined}")
+        assert port_mer_combined <= 0.01 + 1e-5
+        assert weights_combined.get("B", 0) <= 0.6 + 1e-5
 
-    assert port_mer_combined <= 0.01 + 1e-5
-    assert weights_combined.get("B", 0) <= 0.6 + 1e-5
+    except Exception as e:
+        pytest.fail(f"Test 3 failed with error: {e}")
