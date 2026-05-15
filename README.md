@@ -32,32 +32,51 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-## Quickstart
+## Quickstart (The "Golden Path")
 
-PySharpe’s shortest path is:
+PySharpe's most powerful workflow bridges theory and execution in two steps:
 
-1. Run `pysharpe optimise` to generate target weights for a portfolio.
-2. Run `pysharpe rebalance` with your current holdings and new cash.
-3. Follow the printed buy plan showing recommended dollars and estimated shares.
+1. **Research & Target Setting**: Generate optimal weights based on historical performance.
+   ```bash
+   pysharpe optimise --portfolio demo --export-dir outputs/
+   ```
+   *Produces: `outputs/demo_weights.txt` and `outputs/demo_collated.csv`.*
 
-Example:
+2. **Smart Execution**: Generate a buy plan for new capital using your current holdings.
+   ```bash
+   pysharpe rebalance \
+     --portfolio demo \
+     --holdings-json '{"AAPL": 2, "MSFT": 1}' \
+     --new-cash 1000 \
+     --export-dir outputs/
+   ```
 
-```bash
-pysharpe optimise --portfolio demo --export-dir outputs/
+*PySharpe calculates how much you are "drifting" from your targets and blends it with fundamental valuation to tell you exactly how many shares to buy.*
 
-pysharpe rebalance \
-  --portfolio demo \
-  --holdings-json '{"AAPL": 2, "MSFT": 1}' \
-  --holdings-kind shares \
-  --new-cash 1000 \
-  --export-dir outputs/
-```
+## Professional Usage & Best Practices
 
-How it works:
+### 1. The Collaborative Research Workflow
+For best results, use the **Streamlit Dashboard** (`app.py`) for visual exploration and "Category Grouping" to handle correlated assets (e.g., grouping VOO and VFV). Once you are satisfied with a portfolio mix, transition to the **CLI** for recurring rebalancing and scripted updates.
 
-- `pysharpe optimise` writes `<portfolio>_weights.txt` and `<portfolio>_collated.csv`.
-- `pysharpe rebalance` loads those files, merges them with your real holdings, scores underweight opportunities, and reuses the existing allocation engine to recommend what to buy.
-- The output includes latest price, target weight, current weight, opportunity score, buy amount, and estimated shares.
+### 2. Constraints and MER Management
+Serious investors should use a `portfolio_config.json` to enforce structural discipline:
+- **MER Caps**: Prevent your portfolio from becoming "expensive" by capping the weighted average expense ratio.
+- **Geo Limits**: Ensure you aren't over-exposed to a single region (e.g., max 60% US).
+- **Valuation Overlay**: Use the `--config` flag during `allocate` or `rebalance` to weight buys toward assets with lower P/E or higher Dividend Yield.
+
+## Interpreting Your Results
+
+### Portfolio Analytics
+- **Sharpe Ratio**: The primary efficiency metric. A higher Sharpe means better risk-adjusted returns. Target > 1.0 where possible.
+- **Annual Volatility**: A measure of the "bumpiness" of the ride. Use this to ensure the portfolio aligns with your risk tolerance.
+- **Expected Return (EMA)**: By default, PySharpe uses an Exponential Moving Average for returns, which weights recent history more heavily. This makes the model more responsive to current market regimes.
+
+### Rebalancing Metrics
+- **Drift (Underweight %)**: The percentage points an asset is below its target. Higher drift indicates a stronger "need" to buy.
+- **Valuation Score (0-1)**: A multi-factor score blending P/E, P/B, Dividend Yield, and Momentum. A score of 1.0 represents a "perfect" fundamental setup.
+- **Opportunity Score**: The final ranking tool. It blends **Drift** (60%) and **Valuation** (40%).
+    - **Score > 0.8**: Strong Buy. The asset is significantly underweight and fundamentals are attractive.
+    - **Score < 0.3**: Low Priority. The asset is likely near its target or fundamentals are poor.
 
 ## Usage
 
