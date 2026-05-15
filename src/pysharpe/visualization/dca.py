@@ -93,7 +93,7 @@ def simulate_dca(
 def plot_dca_projection(
     projection: DCAProjection,
     *,
-    ax: Optional["plt.Axes"] = None,
+    ax: Optional[plt.Axes] = None,
     show: bool = False,
     title: Optional[str] = None,
 ):

@@ -369,7 +369,7 @@ def test_plot_subcommand_reads_csv(monkeypatch, tmp_path):
     saved: dict[str, Path] = {}
 
     class _Figure:
-        def savefig(self, path):
+        def savefig(self, path, **kwargs):
             saved["path"] = Path(path)
 
         def clf(self):

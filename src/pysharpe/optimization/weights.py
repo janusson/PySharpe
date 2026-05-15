@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from collections.abc import Mapping
 
 ATOL: float = 1e-12
 RTOL: float = 1e-9

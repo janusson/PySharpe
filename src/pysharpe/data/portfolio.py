@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Set
+from typing import List, Set
 
 from pysharpe.config import PySharpeSettings, get_settings
 

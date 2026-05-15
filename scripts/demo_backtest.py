@@ -1,7 +1,10 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
 from pysharpe.analysis.backtest_engine import HistoricalBacktester
 from pysharpe.metrics import cagr, maximum_drawdown
+
 
 def main():
     # 1. Load Collated Data
@@ -48,7 +51,7 @@ def main():
     max_dd = maximum_drawdown(result.portfolio_value)
 
     print("-" * 40)
-    print(f"Initial Value:   $10,000.00")
+    print("Initial Value:   $10,000.00")
     print(f"Final Value:     ${final_val:,.2f}")
     print(f"Total Return:    {total_return:.2%}")
     print(f"CAGR:            {cagr_val:.2%}")

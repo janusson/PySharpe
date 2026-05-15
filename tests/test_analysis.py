@@ -2,21 +2,22 @@
 Tests for the analysis module.
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from pysharpe.analysis.scoring import (
-    technical_score,
-    dividend_score,
-    composite_score,
-    validate_data,
-    validate_weights
-)
+import pandas as pd
+import pytest
+
 from pysharpe.analysis.backtest import (
-    prepare_backtest_data,
     optimize_portfolio,
-    simulate_returns
+    prepare_backtest_data,
+    simulate_returns,
 )
+from pysharpe.analysis.scoring import (
+    composite_score,
+    dividend_score,
+    technical_score,
+    validate_weights,
+)
+
 
 def test_technical_score():
     """Test technical scoring function."""

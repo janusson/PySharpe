@@ -315,6 +315,57 @@ def maximum_drawdown(value_series: pd.Series) -> float:
     return float(drawdown.min())
 
 
+def compute_realized_volatility(
+    prices: PandasLike,
+    window: int,
+    *,
+    periods_per_year: int = 252,
+) -> PandasLike:
+    """Compute rolling annualized realized volatility from log returns.
+
+    This function calculates the standard deviation of log returns over a
+    sliding window and annualizes the result. It is optimized for speed using
+    pandas rolling primitives.
+
+    Args:
+        prices: Ordered price levels for one or more assets.
+        window: The size of the rolling window (number of periods).
+        periods_per_year: Observation frequency used to annualise the volatility.
+
+    Returns:
+        Rolling annualized volatility matching the dimensionality of ``prices``.
+        The first ``window`` rows will typically contain NaNs.
+
+    Raises:
+        TypeError: If ``prices`` is not a pandas Series or DataFrame.
+        ValueError: If ``window`` is less than 2.
+
+    Example:
+        >>> import pandas as pd
+        >>> from pysharpe import metrics
+        >>> prices = pd.Series([100, 101, 102, 101, 103], dtype=float)
+        >>> res = metrics.compute_realized_volatility(prices, window=2)
+        >>> res.iloc[-1]  # doctest: +ELLIPSIS
+        0.31...
+    """
+    if window < 2:
+        raise ValueError("window must be at least 2")
+
+    # Log returns are standard for realized volatility
+    returns = compute_returns(prices, method="log", dropna=False)
+
+    frame, was_series = _coerce_to_dataframe(returns)
+
+    # Use pandas rolling std for high performance and NaN handling.
+    # We use ddof=1 to match annualize_volatility convention.
+    rolling_std = frame.rolling(window=window).std(ddof=1)
+    annualized = rolling_std * np.sqrt(periods_per_year)
+
+    if was_series:
+        return annualized.iloc[:, 0]
+    return annualized
+
+
 __all__ = [
     "compute_returns",
     "annualize_return",
@@ -323,4 +374,5 @@ __all__ = [
     "sharpe_ratio",
     "cagr",
     "maximum_drawdown",
+    "compute_realized_volatility",
 ]

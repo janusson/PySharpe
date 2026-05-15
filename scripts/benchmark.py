@@ -24,10 +24,11 @@ import argparse
 import json
 import statistics
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Iterable
+from typing import Callable
 
 import numpy as np
 import pandas as pd

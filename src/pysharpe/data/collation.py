@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import pandas as pd
 from pandas.errors import EmptyDataError
 
 from pysharpe.config import PySharpeSettings, get_settings
 
-from .fetcher import PriceFetcher, PriceHistoryError
+from .fetcher import DuckDBCachedPriceFetcher, PriceFetcher, PriceHistoryError
+from .linkage import HistoryLinker
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,30 @@ class CollationService:
         price_history_dir: Path | None = None,
         export_dir: Path | None = None,
     ) -> None:
-        self.fetcher = fetcher
         self.settings = settings or get_settings()
-        self.price_history_dir = Path(price_history_dir or self.settings.price_history_dir)
+
+        self.price_history_dir = Path(
+            price_history_dir or self.settings.price_history_dir
+        )
         self.export_dir = Path(export_dir or self.settings.export_dir)
         self.settings.ensure_directories()
         self.price_history_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine the database path. If not configured, default to pysharpe_cache.db
+        # in the project root or the same directory as price_history_dir.
+        db_path = str(self.export_dir / "pysharpe_cache.db")
+
+        # Only wrap if it's not already wrapped
+        if isinstance(fetcher, DuckDBCachedPriceFetcher):
+            self.fetcher = fetcher
+        else:
+            self.fetcher = DuckDBCachedPriceFetcher(fetcher, db_path=db_path)
+
+        self.crypto_tickers = {"BTC-USD", "ETH-USD"}  # Define known 24/7 tickers
+
+    def _is_24_7_asset(self, ticker: str) -> bool:
+        return ticker in self.crypto_tickers
 
     def download_portfolio_prices(
         self,
@@ -137,13 +155,38 @@ class CollationService:
         results: dict[str, pd.DataFrame] = {}
         for ticker in sorted(set(tickers)):
             try:
-                frame = self.fetcher.fetch_history(
-                    ticker,
-                    period=period,
-                    interval=interval,
-                    start=start,
-                    end=end,
-                )
+                # Check if ticker has a proxy configuration
+                if ticker in self.settings.proxy_map:
+                    proxy_config = self.settings.proxy_map[ticker]
+                    # We pass the full proxy config to a temporary proxy map.
+                    # proxy_map setting format: {"VFV.TO": {"proxy": "VOO", "fx_adjust": true, "start_date": "2010-01-01"}}
+                    proxy_name = proxy_config.get("proxy")
+                    fx_adjust = proxy_config.get("fx_adjust", False)
+                    start_date = proxy_config.get(
+                        "start_date", "1900-01-01"
+                    )  # Fallback to very early date if missing
+
+                    linker = HistoryLinker(
+                        proxy_map={ticker: proxy_name},
+                        fx_adjust=fx_adjust,
+                        fetcher=self.fetcher,
+                    )
+
+                    # HistoryLinker returns a Series named ticker
+                    stitched_series = linker.get_stitched_series(ticker, start_date)
+
+                    # Convert to dataframe to match fetch_history return type expected by this method
+                    frame = stitched_series.to_frame(name="Close")
+                    frame.index.name = "Date"
+
+                else:
+                    frame = self.fetcher.fetch_history(
+                        ticker,
+                        period=period,
+                        interval=interval,
+                        start=start,
+                        end=end,
+                    )
             except PriceHistoryError as exc:
                 logger.error("Skipping %s: %s", ticker, exc)
                 continue
@@ -217,7 +260,34 @@ class CollationService:
             logger.warning("No price data collated for %s", name)
             return pd.DataFrame()
 
-        combined = pd.concat(frames, axis=1).sort_index()
+        # Separate 24/7 assets and equity assets
+        equity_frames = []
+        crypto_frames = []
+        for ticker, frame in zip(included, frames):
+            if self._is_24_7_asset(ticker):
+                crypto_frames.append(frame)
+            else:
+                equity_frames.append(frame)
+
+        # Create a master equity calendar
+        equity_calendar = pd.DatetimeIndex([])
+        if equity_frames:
+            all_equity_dates = [df.index for df in equity_frames]
+            equity_calendar = pd.DatetimeIndex(sorted(set().union(*all_equity_dates)))
+
+        # Reindex crypto assets to the equity calendar using ffill
+        processed_frames = equity_frames.copy()
+        if crypto_frames and not equity_calendar.empty:
+            for frame in crypto_frames:
+                ticker = frame.columns[0]  # Assuming single column DataFrames here
+                logger.info("Aligning 24/7 asset %s to equity calendar.", ticker)
+                aligned_frame = frame.reindex(equity_calendar, method="ffill")
+                processed_frames.append(aligned_frame)
+        elif crypto_frames and equity_calendar.empty:
+            # If only crypto assets exist, no equity calendar to align to, just keep them as is
+            processed_frames.extend(crypto_frames)
+
+        combined = pd.concat(processed_frames, axis=1).sort_index()
         cleaned = combined.loc[:, combined.notna().any()]
         included = list(cleaned.columns)
         # Change: Derived included tickers directly from surviving columns to

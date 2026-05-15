@@ -34,6 +34,7 @@ _METRIC_EXPORTS: dict[str, tuple[str, str]] = {
     "annualize_volatility": ("pysharpe.metrics", "annualize_volatility"),
     "expected_return": ("pysharpe.metrics", "expected_return"),
     "sharpe_ratio": ("pysharpe.metrics", "sharpe_ratio"),
+    "compute_realized_volatility": ("pysharpe.metrics", "compute_realized_volatility"),
 }
 
 _SETTINGS = get_settings()
@@ -95,6 +96,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.visualization",
         "plot_dca_projection",
     ),
+    "plot_equity_curves": (
+        "pysharpe.visualization",
+        "plot_equity_curves",
+    ),
 }
 
 _EXPORT_MAP.update(_METRIC_EXPORTS)
@@ -128,7 +133,10 @@ def __dir__() -> list[str]:  # pragma: no cover - proxy to improve discoverabili
 
 
 if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
-    from pysharpe.analysis import apply_category_mapping, load_category_map  # noqa: F401
+    from pysharpe.analysis import (  # noqa: F401
+        apply_category_mapping,
+        load_category_map,
+    )
     from pysharpe.data_collector import (  # noqa: F401
         PortfolioTickerReader,
         SecurityDataCollector,
@@ -140,25 +148,30 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         read_tickers_from_file,
         setup_logging,
     )
-    from pysharpe.workflows import download_portfolios, optimise_portfolios  # noqa: F401
-    from pysharpe.portfolio_optimization import (  # noqa: F401
-        optimise_all_portfolios,
-        optimise_portfolio,
+    from pysharpe.metrics import (  # noqa: F401
+        annualize_return,
+        annualize_volatility,
+        compute_realized_volatility,
+        compute_returns,
+        expected_return,
+        sharpe_ratio,
     )
     from pysharpe.optimization import (  # noqa: F401
         OptimisationPerformance,
         OptimisationResult,
         PortfolioWeights,
     )
+    from pysharpe.portfolio_optimization import (  # noqa: F401
+        optimise_all_portfolios,
+        optimise_portfolio,
+    )
     from pysharpe.visualization import (  # noqa: F401
         DCAProjection,
         plot_dca_projection,
+        plot_equity_curves,
         simulate_dca,
     )
-    from pysharpe.metrics import (  # noqa: F401
-        annualize_return,
-        annualize_volatility,
-        compute_returns,
-        expected_return,
-        sharpe_ratio,
+    from pysharpe.workflows import (  # noqa: F401
+        download_portfolios,
+        optimise_portfolios,
     )

@@ -1,12 +1,11 @@
-import pandas as pd
 import json
-import numpy as np
-import cvxpy as cp
+
+import pandas as pd
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import ema_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 
-with open('portfolio_config.json', 'r') as f:
+with open('portfolio_config.json') as f:
     config = json.load(f)
 
 df = pd.read_csv('data/exports/demo_collated.csv', index_col=0, parse_dates=True).dropna()

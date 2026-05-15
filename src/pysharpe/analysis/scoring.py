@@ -3,9 +3,10 @@ Scoring module for technical and fundamental analysis of securities.
 Combines technical indicators and dividend metrics for comprehensive scoring.
 """
 
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, List
 
 # Default weights for scoring functions
 DEFAULT_TECH_WEIGHTS = {

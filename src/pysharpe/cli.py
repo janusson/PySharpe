@@ -293,15 +293,20 @@ def _handle_plot(args: argparse.Namespace) -> int:
         print("No numeric columns available to plot.")
         return 1
 
-    ax = frame[columns].plot(figsize=(8, 4))
-    ax.set_title(args.title or path.stem)
-    ax.set_ylabel(args.ylabel)
-    ax.grid(True)
+    if args.type == "heatmap":
+        from pysharpe.visualization.correlation import plot_correlation_heatmap
+
+        ax = plot_correlation_heatmap(frame[columns], title=args.title)
+    else:
+        ax = frame[columns].plot(figsize=(8, 4))
+        ax.set_title(args.title or path.stem)
+        ax.set_ylabel(args.ylabel)
+        ax.grid(True)
 
     if args.output:
         output = Path(args.output).expanduser()
         output.parent.mkdir(parents=True, exist_ok=True)
-        ax.figure.savefig(output)
+        ax.figure.savefig(output, dpi=300 if args.type == "heatmap" else None)
         print(f"Plot saved to {output}")
 
     if args.show:
@@ -588,6 +593,12 @@ def _build_parser() -> argparse.ArgumentParser:
     plot = subparsers.add_parser(
         "plot",
         help="Plot numeric series from a CSV file (collated data or performance logs).",
+    )
+    plot.add_argument(
+        "--type",
+        choices=["line", "heatmap"],
+        default="line",
+        help="Type of plot to generate (default: line).",
     )
     plot.add_argument(
         "--input", required=True, help="Path to the CSV file to visualise."

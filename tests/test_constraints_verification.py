@@ -1,10 +1,9 @@
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from pysharpe.portfolio_optimization import OptimisationResult, optimise_portfolio
+from pysharpe.portfolio_optimization import optimise_portfolio
 
 
 def test_optimisation_constraints(tmp_path):

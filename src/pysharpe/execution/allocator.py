@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,13 +44,24 @@ class AllocationConfig:
     weight_underweight: float = 0.6
     weight_valuation: float = 0.4
 
-    weight_pe: float = 0.4
-    weight_pb: float = 0.3
-    weight_div_yield: float = 0.2
-    weight_momentum: float = 0.1
+    time_series_factors: Dict[str, Tuple[float, Literal["positive", "negative"]]] = (
+        field(
+            default_factory=lambda: {
+                "pe_ratio": (0.4, "negative"),
+                "pb_ratio": (0.3, "negative"),
+                "div_yield": (0.2, "positive"),
+                "momentum_6m": (0.1, "positive"),
+            }
+        )
+    )
 
     min_allocation_dollars: float = 25.0
     valuation_epsilon: float = 0.1
+    trend_factors: Dict[str, float] = field(
+        default_factory=lambda: {
+            "ma_crossover_signal": 0.2,
+        }
+    )
 
 
 def _zscore(series: pd.Series) -> pd.Series:
@@ -148,44 +162,51 @@ def score_opportunities(
     else:
         df["underweight_score"] = df["underweight"] / max_under
 
-    # 2) Valuation factors
-    # Lower PE and PB are "better": invert the z-score
-    pe_z = _zscore(df.get("pe_ratio", pd.Series(np.nan, index=df.index)))
-    pb_z = _zscore(df.get("pb_ratio", pd.Series(np.nan, index=df.index)))
+    # 2) Valuation factors (dynamic based on config)
+    weighted_normalized_scores = []
+    total_w = 0.0
 
-    pe_score = -pe_z  # low PE => higher score
-    pb_score = -pb_z  # low PB => higher score
+    # Process time-series factors (e.g., PE, PB, Div Yield, Momentum)
+    for factor_name, (weight, direction) in config.time_series_factors.items():
+        if factor_name not in df.columns:
+            logger.warning(
+                f"Time-series factor '{factor_name}' not found in DataFrame; skipping."
+            )
+            continue
 
-    # Higher dividend yield is good
-    div_z = _zscore(df.get("div_yield", pd.Series(np.nan, index=df.index)))
-    div_score = div_z
+        series = df[factor_name]
+        z_score = _zscore(series)
 
-    # Momentum: higher is good, but with low weight by default
-    if "momentum_6m" in df.columns:
-        mom_z = _zscore(df["momentum_6m"])
-        mom_score = mom_z
+        # Apply direction: negative factors (e.g., PE) are inverted
+        factor_score = -z_score if direction == "negative" else z_score
+
+        # Normalize to [0, 1] for stability
+        normalized_score = _minmax_01(factor_score)
+
+        weighted_normalized_scores.append(weight * normalized_score)
+        total_w += weight
+
+    # Process trend factors (e.g., MA Crossover Signals)
+    for factor_name, weight in config.trend_factors.items():
+        if factor_name not in df.columns:
+            logger.warning(
+                f"Trend factor '{factor_name}' not found in DataFrame; skipping."
+            )
+            continue
+
+        # Trend factors are expected to be pre-scored (e.g., -1, 0, 1). Normalize to [0, 1]
+        series = df[factor_name]
+        normalized_score = (series + 1) / 2  # Maps -1->0, 0->0.5, 1->1
+
+        weighted_normalized_scores.append(weight * normalized_score)
+        total_w += weight
+
+    if total_w == 0 or not weighted_normalized_scores:
+        valuation_score = pd.Series(
+            0.5, index=df.index
+        )  # Neutral if no factors or weights
     else:
-        mom_score = pd.Series(0.0, index=df.index)
-
-    # Normalize each to [0, 1] for stability
-    pe_n = _minmax_01(pe_score)
-    pb_n = _minmax_01(pb_score)
-    div_n = _minmax_01(div_score)
-    mom_n = _minmax_01(mom_score)
-
-    # Weighted valuation score in [0, 1]
-    w_pe = config.weight_pe
-    w_pb = config.weight_pb
-    w_div = config.weight_div_yield
-    w_mom = config.weight_momentum
-
-    total_w = w_pe + w_pb + w_div + w_mom
-    if total_w == 0:
-        total_w = 1.0
-
-    valuation_score = (
-        w_pe * pe_n + w_pb * pb_n + w_div * div_n + w_mom * mom_n
-    ) / total_w
+        valuation_score = sum(weighted_normalized_scores) / total_w
 
     df["valuation_score"] = valuation_score
 

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
 _DEFAULT_DATA_DIR = Path("data")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,8 @@ class PySharpeSettings:
     log_dir: Path = field(default_factory=lambda: Path("logs"))
     log_level: str = "INFO"
     artifact_version: str = "v1"
+    mer_by_ticker: dict[str, float] = field(default_factory=dict)
+    proxy_map: dict[str, dict[str, object]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # pragma: no cover - dataclass hook
         object.__setattr__(self, "data_dir", self.data_dir.resolve())
@@ -113,11 +119,48 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
     log_level = os.getenv("PYSHARPE_LOG_LEVEL", "INFO")
     artifact_version = os.getenv("PYSHARPE_ARTIFACT_VERSION", "v1")
 
+    mer_by_ticker_str = os.getenv("PYSHARPE_MER_BY_TICKER")
+    if mer_by_ticker_str:
+        try:
+            mer_by_ticker = json.loads(mer_by_ticker_str)
+            # Ensure keys are strings and values are floats
+            if not all(
+                isinstance(k, str) and isinstance(v, (int, float))
+                for k, v in mer_by_ticker.items()
+            ):
+                raise ValueError(
+                    "MER_BY_TICKER values must be string to float mapping."
+                )
+            mer_by_ticker = {k: float(v) for k, v in mer_by_ticker.items()}
+        except json.JSONDecodeError:
+            logger.warning(
+                "PYSHARPE_MER_BY_TICKER is not a valid JSON string. Using default MERs."
+            )
+            mer_by_ticker = {"VEQT": 0.17}
+        except ValueError as e:
+            logger.warning(
+                f"Invalid values in PYSHARPE_MER_BY_TICKER: {e}. Using default MERs."
+            )
+            mer_by_ticker = {"VEQT": 0.17}
+    else:
+        mer_by_ticker = {"VEQT": 0.17}
+
+    proxy_map = {}
+    proxy_map_path = Path("proxy_map.json")
+    if proxy_map_path.exists():
+        try:
+            with open(proxy_map_path, "r") as f:
+                proxy_map = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load proxy_map.json: {e}")
+
     return PySharpeSettings(
         data_dir=data_dir,
         log_dir=log_dir,
         log_level=log_level,
         artifact_version=artifact_version,
+        mer_by_ticker=mer_by_ticker,
+        proxy_map=proxy_map,
     )
 
 

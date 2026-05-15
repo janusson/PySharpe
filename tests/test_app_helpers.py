@@ -1,8 +1,7 @@
-import app
 import pandas as pd
 import pytest
-from pysharpe.optimization import PortfolioWeights
 
+import app
 from app import (
     MetricResults,
     _clean_numeric_frame,
@@ -11,6 +10,7 @@ from app import (
     _select_price_data,
     compute_metrics,
 )
+from pysharpe.optimization import PortfolioWeights
 
 
 def call_cached(func, *args, **kwargs):

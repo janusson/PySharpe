@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import hashlib
+import json
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,11 @@ import yfinance as yf
 from pypfopt import EfficientFrontier
 
 from pysharpe import metrics
-from pysharpe.analysis import CategoryAggregation, apply_category_mapping, load_category_map
+from pysharpe.analysis import (
+    CategoryAggregation,
+    apply_category_mapping,
+    load_category_map,
+)
 from pysharpe.config import get_settings
 from pysharpe.data.collation import CollationService
 from pysharpe.data.fetcher import YFinancePriceFetcher

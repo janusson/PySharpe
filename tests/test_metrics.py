@@ -9,6 +9,7 @@ import pytest
 from pysharpe.metrics import (
     annualize_return,
     annualize_volatility,
+    compute_realized_volatility,
     compute_returns,
     expected_return,
     sharpe_ratio,
@@ -28,7 +29,9 @@ def test_compute_returns_simple_series(sample_price_series):
 
 def test_compute_returns_log_matches_manual(sample_price_series):
     log_returns = compute_returns(sample_price_series, method="log")
-    manual = np.log(sample_price_series.iloc[1:].values / sample_price_series.iloc[:-1].values)
+    manual = np.log(
+        sample_price_series.iloc[1:].values / sample_price_series.iloc[:-1].values
+    )
     np.testing.assert_allclose(log_returns.values, manual, rtol=1e-9)
 
 
@@ -77,3 +80,20 @@ def test_sharpe_ratio_raises_when_vol_zero():
     with pytest.raises(ValueError):
         sharpe_ratio(returns)
 
+
+def test_compute_realized_volatility_matches_manual(sample_price_series):
+    window = 5
+    result = compute_realized_volatility(
+        sample_price_series, window=window, periods_per_year=252
+    )
+
+    # Manual calculation
+    log_returns = np.log(sample_price_series / sample_price_series.shift(1))
+    manual = log_returns.rolling(window=window).std() * np.sqrt(252)
+
+    pd.testing.assert_series_equal(result, manual)
+
+
+def test_compute_realized_volatility_validates_window(sample_price_series):
+    with pytest.raises(ValueError):
+        compute_realized_volatility(sample_price_series, window=1)

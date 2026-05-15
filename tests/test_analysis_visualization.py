@@ -1,9 +1,16 @@
-import pytest
-import pandas as pd
 import matplotlib
+import pandas as pd
+import pytest
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from pysharpe.analysis.visualization import plot_score_distribution, plot_score_comparison, plot_backtest_results
+
+from pysharpe.analysis.visualization import (
+    plot_backtest_results,
+    plot_score_comparison,
+    plot_score_distribution,
+)
+
 
 @pytest.fixture(autouse=True)
 def close_plots():

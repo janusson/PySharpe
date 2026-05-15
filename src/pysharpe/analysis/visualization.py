@@ -2,10 +2,12 @@
 Visualization utilities for security scoring analysis.
 """
 
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
 from typing import Optional
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
 
 def plot_score_distribution(
     df: pd.DataFrame,

@@ -5,7 +5,11 @@
     "VCN.TO": 0.0005,
     "VDY.TO": 0.0022,
     "VMO.TO": 0.0031,
-    "VIU.TO": 0.0023
+    "VIU.TO": 0.0023,
+    "FCUV.TO": 0.0038,
+    "FCUQ.TO": 0.0039,
+    "INAI.TO": 0.0039,
+    "MNT.TO": 0.0035
   },
   "geo_mapping": {
     "VFV.TO": "US",
@@ -15,19 +19,24 @@
     "VMO.TO": "INT",
     "VA.TO": "INT",
     "VE.TO": "INT",
-    "VIU.TO": "INT"
+    "VIU.TO": "INT",
+    "FCUV.TO": "US",
+    "FCUQ.TO": "US",
+    "INAI.TO": "US",
+    "MNT.TO": "GOLD",
+    "ZGLD.TO": "GOLD"
   },
   "constraints": {
-    "max_portfolio_mer": 0.0016,
+    "max_portfolio_mer": 0.002,
     "geo_upper_bounds": {
       "US": 0.6,
-      "CA": 0.5,
-      "INT": 0.5
+      "CA": 0.3,
+      "INT": 0.3,
+      "GOLD": 0.2
     },
     "geo_lower_bounds": {
-      "US": 0.1,
-      "CA": 0.1,
-      "INT": 0.01
+      "US": 0.2,
+      "CA": 0.1
     }
   }
 }

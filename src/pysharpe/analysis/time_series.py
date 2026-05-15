@@ -5,9 +5,8 @@ including stationarity testing, GARCH volatility forecasting, and Vector Autoreg
 """
 
 import logging
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Union
 
-import numpy as np
 import pandas as pd
 from arch import arch_model
 from statsmodels.tsa.api import VAR

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Dict, Optional, Protocol
 
 import cvxpy as cp
 import numpy as np
@@ -21,6 +21,10 @@ from pysharpe.optimization.models import (
     OptimisationPerformance,
     OptimisationResult,
     PortfolioWeights,
+)
+from pysharpe.optimization.sharpe_optimizer import (
+    SharpeOptimizer,
+    SharpeOptimizerConfig,
 )
 from pysharpe.visualization.utils import require_matplotlib
 
@@ -234,6 +238,12 @@ def optimise_portfolio(
     )
 
 
+class ConfigurationError(ValueError):
+    """Raised when portfolio configuration is incomplete or invalid."""
+
+    pass
+
+
 def _optimise_portfolio_impl(
     *,
     portfolio_name: str,
@@ -256,6 +266,23 @@ def _optimise_portfolio_impl(
     prices = _load_collated_prices(
         portfolio_name, collated_dir, time_constraint=time_constraint
     )
+
+    tickers = list(prices.columns)
+
+    if mer_mapping or geo_mapping:
+        missing_mer = [t for t in tickers if mer_mapping and t not in mer_mapping]
+        missing_geo = [t for t in tickers if geo_mapping and t not in geo_mapping]
+
+        if missing_mer or missing_geo:
+            errors = []
+            if missing_mer:
+                errors.append(f"MER data missing for: {', '.join(missing_mer)}")
+            if missing_geo:
+                errors.append(f"Geographic data missing for: {', '.join(missing_geo)}")
+            raise ConfigurationError(
+                f"Configuration missing for portfolio '{portfolio_name}'. "
+                + "; ".join(errors)
+            )
 
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
     limiting_ticker = first_valid_dates.idxmax()
@@ -376,6 +403,84 @@ def _optimise_portfolio_impl(
     return result
 
 
+def optimise_portfolio_for_sharpe(
+    portfolio_name: str,
+    *,
+    collated_dir: Path = EXPORT_DIR,
+    output_dir: Path = EXPORT_DIR,
+    time_constraint: Optional[str] = None,
+    config: Optional[SharpeOptimizerConfig] = None,
+    make_plot: bool = True,
+) -> OptimisationResult:
+    """Optimises a portfolio to maximize the Sharpe ratio using the custom SharpeOptimizer.
+
+    Args:
+        portfolio_name: Name of the portfolio (also the collated CSV stem).
+        collated_dir: Directory containing ``*_collated.csv`` files.
+        output_dir: Directory where optimisation artefacts are written.
+        time_constraint: Optional ISO date to filter the collated history.
+        config: Configuration for the SharpeOptimizer. If None, default settings are used.
+        make_plot: When ``True`` generate a pie chart of positive weights.
+
+    Returns:
+        :class:`OptimisationResult` containing weights and performance stats.
+
+    Raises:
+        FileNotFoundError: If the collated CSV is missing.
+        ValueError: If the constraint removes all usable data or no assets are found.
+    """
+    plot_strategy = _resolve_plot_strategy(make_plot)
+
+    prices = _load_collated_prices(
+        portfolio_name, collated_dir, time_constraint=time_constraint
+    )
+
+    first_valid_dates = prices.apply(lambda col: col.first_valid_index())
+    limiting_ticker = first_valid_dates.idxmax()  # Used for metadata
+    prices = prices.dropna()
+
+    if prices.empty:
+        raise ValueError(
+            f"No data available for {portfolio_name} after applying time constraint "
+            "and dropping NaNs for Sharpe optimization."
+        )
+
+    start_date = prices.index.min().strftime("%Y-%m-%d")
+    end_date = prices.index.max().strftime("%Y-%m-%d")
+
+    # Initialize and run the SharpeOptimizer
+    sharpe_optimizer = SharpeOptimizer(prices=prices, config=config)
+    optimization_result = sharpe_optimizer.optimize()
+
+    # Calculate portfolio MER for performance reporting
+    portfolio_mer: float | None = None
+    if config and config.mer_by_ticker:
+        portfolio_mer = sum(
+            weight * config.mer_by_ticker.get(ticker, 0.0) / 100.0  # MER is % in config
+            for ticker, weight in optimization_result.weights.items()
+        )
+
+    result = OptimisationResult(
+        name=portfolio_name,
+        weights=PortfolioWeights(optimization_result.weights),
+        performance=OptimisationPerformance(
+            optimization_result.expected_return,
+            optimization_result.volatility,
+            optimization_result.sharpe_ratio,
+            start_date=start_date,
+            end_date=end_date,
+            limiting_ticker=str(limiting_ticker),
+            portfolio_mer=portfolio_mer,
+        ),
+    )
+
+    _save_weights(result, output_dir)
+    _save_performance(result, output_dir)
+    plot_strategy(result, output_dir)
+
+    return result
+
+
 def optimise_all_portfolios(
     collated_dir: Path = EXPORT_DIR,
     *,
@@ -389,6 +494,7 @@ def optimise_all_portfolios(
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
     return_model: str = "ema",
+    sharpe_optimizer_config: Optional[SharpeOptimizerConfig] = None,
 ) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -406,6 +512,9 @@ def optimise_all_portfolios(
         include_unmapped_categories: Toggle for retaining unmapped tickers as
             standalone categories.
         return_model: Expected return calculation method. 'ema' or 'mean'.
+        sharpe_optimizer_config: Optional configuration for Sharpe ratio optimization.
+            If provided, `optimise_portfolio_for_sharpe` will be used instead of
+            the default `optimise_portfolio`.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -420,20 +529,30 @@ def optimise_all_portfolios(
 
     for path in Path(collated_dir).glob("*_collated.csv"):
         name = path.stem.replace("_collated", "")
-        results[name] = optimise_portfolio(
-            name,
-            collated_dir=collated_dir,
-            output_dir=output_dir,
-            time_constraint=time_constraint,
-            mer_mapping=mer_mapping,
-            max_portfolio_mer=max_portfolio_mer,
-            geo_mapping=geo_mapping,
-            geo_lower_bounds=geo_lower_bounds,
-            geo_upper_bounds=geo_upper_bounds,
-            category_map=category_map,
-            include_unmapped_categories=include_unmapped_categories,
-            return_model=return_model,
-        )
+        if sharpe_optimizer_config:
+            logger.info(f"Optimising {name} for Sharpe ratio maximization.")
+            results[name] = optimise_portfolio_for_sharpe(
+                name,
+                collated_dir=collated_dir,
+                output_dir=output_dir,
+                time_constraint=time_constraint,
+                config=sharpe_optimizer_config,
+            )
+        else:
+            results[name] = optimise_portfolio(
+                name,
+                collated_dir=collated_dir,
+                output_dir=output_dir,
+                time_constraint=time_constraint,
+                mer_mapping=mer_mapping,
+                max_portfolio_mer=max_portfolio_mer,
+                geo_mapping=geo_mapping,
+                geo_lower_bounds=geo_lower_bounds,
+                geo_upper_bounds=geo_upper_bounds,
+                category_map=category_map,
+                include_unmapped_categories=include_unmapped_categories,
+                return_model=return_model,
+            )
 
     return results
 

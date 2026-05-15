@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 
-import pytest
 import pandas as pd
+import pytest
 
-from pysharpe.execution.rebalance import build_rebalance_plan, format_rebalance_plan, main
+from pysharpe.execution.rebalance import (
+    build_rebalance_plan,
+    format_rebalance_plan,
+    main,
+)
 
 
 def _write_artifacts(export_dir) -> None:
