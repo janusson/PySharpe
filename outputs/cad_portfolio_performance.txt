@@ -1,0 +1,6 @@
+Expected annual return: 35.14%
+Annual volatility: 12.11%
+Sharpe Ratio: 2.90
+Portfolio MER: 0.200%
+Optimization Window: 2024-01-22 to 2026-05-08
+Limiting Ticker: INAI.TO

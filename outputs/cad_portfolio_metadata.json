@@ -1,0 +1,24 @@
+{
+  "name": "cad_portfolio",
+  "requested_tickers": [
+    "VFV.TO",
+    "VDY.TO",
+    "VMO.TO",
+    "FCUV.TO",
+    "FCUQ.TO",
+    "INAI.TO",
+    "MNT.TO"
+  ],
+  "included_tickers": [
+    "VFV.TO",
+    "VDY.TO",
+    "VMO.TO",
+    "FCUV.TO",
+    "FCUQ.TO",
+    "INAI.TO",
+    "MNT.TO"
+  ],
+  "dropped_tickers": [],
+  "generated_at": "2026-05-10T02:31:11.522385Z",
+  "artifact_version": "v1"
+}
