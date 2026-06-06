@@ -23,6 +23,7 @@ from pysharpe.app.analytics import (
     MetricResults,  # noqa: F401 - re-exported for tests
     compute_metrics,
 )
+from pysharpe.app.backtest import render_backtest_tab
 from pysharpe.app.charts import render_frontier_comparison
 from pysharpe.app.data import (
     _STREAMLIT_SERVICE,  # noqa: F401 - test visibility
@@ -352,108 +353,115 @@ def main() -> None:
             st.subheader("Collated Portfolio Preview")
             st.dataframe(portfolio_data.collated.head().style.format("{:.2f}"))
 
-    st.subheader("Price Preview")
-    preview = controls.get("preview", pd.DataFrame())
-    if preview.empty:
-        preview = prices.tail(60)
-    preview = preview.tail(60)
-    price_columns = set(price_data.columns)
-    preview_columns = [
-        column
-        for column in preview.columns
-        if (column in price_columns)
-        or ("close" in str(column).lower())
-        or ("volume" in str(column).lower())
-    ]
-    if preview_columns:
-        preview = preview.loc[:, preview_columns]
-    if preview.columns.duplicated().any():
-        preview = preview.loc[:, ~preview.columns.duplicated()]
-    st.dataframe(preview.style.format("{:.2f}"))
+    tab_analytics, tab_backtest = st.tabs(["Analytics", "Backtest"])
 
-    st.subheader("Ticker Verification")
-    metadata = controls.get("metadata", pd.DataFrame())
-    if metadata.empty:
-        st.info("No ticker metadata available for the current selection.")
-    else:
-        st.dataframe(metadata)
+    with tab_analytics:
+        st.subheader("Price Preview")
+        preview = controls.get("preview", pd.DataFrame())
+        if preview.empty:
+            preview = prices.tail(60)
+        preview = preview.tail(60)
+        price_columns = set(price_data.columns)
+        preview_columns = [
+            column
+            for column in preview.columns
+            if (column in price_columns)
+            or ("close" in str(column).lower())
+            or ("volume" in str(column).lower())
+        ]
+        if preview_columns:
+            preview = preview.loc[:, preview_columns]
+        if preview.columns.duplicated().any():
+            preview = preview.loc[:, ~preview.columns.duplicated()]
+        st.dataframe(preview.style.format("{:.2f}"))
 
-    metrics_placeholder = st.empty()
-    chart_placeholder = st.empty()
-    weights_placeholder = st.empty()
-
-    if st.button("Compute Metrics", type="primary"):
-        if price_data.empty or price_data.select_dtypes("number").empty:
-            st.warning("No suitable Close/Adj Close series found for analytics.")
+        st.subheader("Ticker Verification")
+        metadata = controls.get("metadata", pd.DataFrame())
+        if metadata.empty:
+            st.info("No ticker metadata available for the current selection.")
         else:
-            metrics_result = compute_metrics(price_data)
-            mean_expected = (
-                float(metrics_result.expected.mean())
-                if not metrics_result.expected.empty
-                else np.nan
-            )
-            if not np.isnan(mean_expected):
-                st.session_state["dca_rate_default"] = mean_expected
-                if not st.session_state.get("dca_rate_override", False):
-                    st.session_state["dca_rate_value"] = mean_expected
-                    st.session_state["dca_rate_pending_reset"] = True
+            st.dataframe(metadata)
+
+        metrics_placeholder = st.empty()
+        chart_placeholder = st.empty()
+        weights_placeholder = st.empty()
+
+        if st.button("Compute Metrics", type="primary"):
+            if price_data.empty or price_data.select_dtypes("number").empty:
+                st.warning("No suitable Close/Adj Close series found for analytics.")
+            else:
+                metrics_result = compute_metrics(price_data)
+                mean_expected = (
+                    float(metrics_result.expected.mean())
+                    if not metrics_result.expected.empty
+                    else np.nan
+                )
+                if not np.isnan(mean_expected):
+                    st.session_state["dca_rate_default"] = mean_expected
+                    if not st.session_state.get("dca_rate_override", False):
+                        st.session_state["dca_rate_value"] = mean_expected
+                        st.session_state["dca_rate_pending_reset"] = True
+                    else:
+                        st.session_state["dca_rate_pending_reset"] = False
                 else:
                     st.session_state["dca_rate_pending_reset"] = False
-            else:
-                st.session_state["dca_rate_pending_reset"] = False
-            controls["dca_rate"] = float(
-                st.session_state.get(
-                    "dca_rate_value", st.session_state.get("dca_rate_default", 0.08)
+                controls["dca_rate"] = float(
+                    st.session_state.get(
+                        "dca_rate_value",
+                        st.session_state.get("dca_rate_default", 0.08),
+                    )
                 )
-            )
-            with metrics_placeholder.container():
-                summary = render_metrics_table(metrics_result)
-                st.download_button(
-                    "Download Metrics CSV",
-                    data=summary.to_csv().encode("utf-8"),
-                    file_name="pysharpe_metrics.csv",
-                    mime="text/csv",
-                )
-            with chart_placeholder.container():
-                st.subheader("Cumulative Returns")
-                plot_cumulative_returns(price_data)
-            weights_placeholder.empty()
-
-    if st.button("Optimise Portfolio"):
-        if price_data.empty or price_data.select_dtypes("number").empty:
-            st.warning("Cannot optimise without Close/Adj Close price history.")
-        else:
-            metrics_result = compute_metrics(price_data)
-            weights = optimise_weights(metrics_result)
-            if weights:
-                with weights_placeholder.container():
-                    st.subheader("Portfolio Weights")
-                    plot_weights(weights)
-                    weight_series = pd.Series(weights.allocations, name="weight")
+                with metrics_placeholder.container():
+                    summary = render_metrics_table(metrics_result)
                     st.download_button(
-                        "Download Weights CSV",
-                        data=weight_series.to_csv().encode("utf-8"),
-                        file_name="pysharpe_weights.csv",
+                        "Download Metrics CSV",
+                        data=summary.to_csv().encode("utf-8"),
+                        file_name="pysharpe_metrics.csv",
                         mime="text/csv",
                     )
+                with chart_placeholder.container():
+                    st.subheader("Cumulative Returns")
+                    plot_cumulative_returns(price_data)
+                weights_placeholder.empty()
 
-    st.subheader("Efficient Frontier & Custom Mix")
-    if not price_data.empty and len(price_data.columns) >= 2:
-        render_frontier_comparison(price_data, controls.get("custom_weights", {}))
+        if st.button("Optimise Portfolio"):
+            if price_data.empty or price_data.select_dtypes("number").empty:
+                st.warning("Cannot optimise without Close/Adj Close price history.")
+            else:
+                metrics_result = compute_metrics(price_data)
+                weights = optimise_weights(metrics_result)
+                if weights:
+                    with weights_placeholder.container():
+                        st.subheader("Portfolio Weights")
+                        plot_weights(weights)
+                        weight_series = pd.Series(weights.allocations, name="weight")
+                        st.download_button(
+                            "Download Weights CSV",
+                            data=weight_series.to_csv().encode("utf-8"),
+                            file_name="pysharpe_weights.csv",
+                            mime="text/csv",
+                        )
 
-    st.subheader("Dollar-Cost Averaging Simulation")
-    dca_df = render_dca_projection(
-        controls["dca_months"],
-        controls["dca_initial"],
-        controls["dca_monthly"],
-        float(st.session_state.get("dca_rate_value", controls["dca_rate"])),
-    )
-    st.download_button(
-        "Download DCA Projection CSV",
-        data=dca_df.to_csv(index=False).encode("utf-8"),
-        file_name="pysharpe_dca_projection.csv",
-        mime="text/csv",
-    )
+        st.subheader("Efficient Frontier & Custom Mix")
+        if not price_data.empty and len(price_data.columns) >= 2:
+            render_frontier_comparison(price_data, controls.get("custom_weights", {}))
+
+        st.subheader("Dollar-Cost Averaging Simulation")
+        dca_df = render_dca_projection(
+            controls["dca_months"],
+            controls["dca_initial"],
+            controls["dca_monthly"],
+            float(st.session_state.get("dca_rate_value", controls["dca_rate"])),
+        )
+        st.download_button(
+            "Download DCA Projection CSV",
+            data=dca_df.to_csv(index=False).encode("utf-8"),
+            file_name="pysharpe_dca_projection.csv",
+            mime="text/csv",
+        )
+
+    with tab_backtest:
+        render_backtest_tab(prices)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution only

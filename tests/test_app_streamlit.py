@@ -179,7 +179,12 @@ class StreamlitStub:
         self.download_button_calls.append((label, kwargs))
 
     def columns(self, spec: int) -> list[ColumnContext]:
+        if isinstance(spec, (list, tuple)):
+            return [ColumnContext() for _ in spec]
         return [ColumnContext() for _ in range(spec)]
+
+    def tabs(self, labels: list[str]) -> list[ColumnContext]:
+        return [ColumnContext() for _ in labels]
 
     def empty(self) -> Placeholder:
         placeholder = Placeholder(self)
