@@ -75,7 +75,7 @@ def _cached_collated_prices(
     portfolio_name: str,
     collated_dir: str,
     time_constraint: str | None,
-    mtime: float,
+    mtime: float,  # cache-busting key only — not used in the body
 ) -> pd.DataFrame:
     csv_path = Path(collated_dir) / f"{portfolio_name}_collated.csv"
     if not csv_path.exists():
@@ -107,7 +107,10 @@ def _load_collated_prices(
 ) -> pd.DataFrame:
     resolved_dir = str(Path(collated_dir).resolve())
     csv_path = Path(resolved_dir) / f"{portfolio_name}_collated.csv"
-    mtime = csv_path.stat().st_mtime if csv_path.exists() else 0.0
+    try:
+        mtime = csv_path.stat().st_mtime
+    except FileNotFoundError:
+        mtime = 0.0
     cached = _cached_collated_prices(
         portfolio_name,
         resolved_dir,
