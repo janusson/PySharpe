@@ -75,6 +75,7 @@ def _cached_collated_prices(
     portfolio_name: str,
     collated_dir: str,
     time_constraint: str | None,
+    mtime: float,
 ) -> pd.DataFrame:
     csv_path = Path(collated_dir) / f"{portfolio_name}_collated.csv"
     if not csv_path.exists():
@@ -104,10 +105,14 @@ def _load_collated_prices(
     *,
     time_constraint: str | None = None,
 ) -> pd.DataFrame:
+    resolved_dir = str(Path(collated_dir).resolve())
+    csv_path = Path(resolved_dir) / f"{portfolio_name}_collated.csv"
+    mtime = csv_path.stat().st_mtime if csv_path.exists() else 0.0
     cached = _cached_collated_prices(
         portfolio_name,
-        str(Path(collated_dir).resolve()),
+        resolved_dir,
         time_constraint,
+        mtime,
     )
     return cached.copy(deep=True)
 
@@ -524,7 +529,7 @@ def optimise_portfolio_for_sharpe(
     portfolio_mer: float | None = None
     if config and config.mer_by_ticker:
         portfolio_mer = sum(
-            weight * config.mer_by_ticker.get(ticker, 0.0) / 100.0  # MER is % in config
+            weight * config.mer_by_ticker.get(ticker, 0.0)
             for ticker, weight in optimization_result.weights.items()
         )
 

@@ -231,15 +231,21 @@ def test_optimise_portfolio_enforces_max_weight(tmp_path):
     output_dir = tmp_path / "exports"
     output_dir.mkdir()
 
-    # Create a portfolio with 5 assets so max_weight=0.20 is valid
+    # Create a portfolio with 5 assets so max_weight=0.25 is valid.
+    # Extra rows are included so that if apply_fx_conversion trims the first
+    # row (no FX data before the second date), the optimiser still receives
+    # enough data to converge to weights that sum to 1.0.
     frame = pd.DataFrame(
         {
-            "Date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"],
-            "AAA": [100.0, 105.0, 110.0, 120.0],  # Very strong performer
-            "BBB": [200.0, 199.0, 200.0, 201.0],
-            "CCC": [300.0, 301.0, 302.0, 303.0],
-            "DDD": [400.0, 395.0, 390.0, 385.0],
-            "EEE": [500.0, 500.0, 500.0, 500.0],
+            "Date": [
+                "2022-12-28", "2022-12-29", "2022-12-30",
+                "2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04",
+            ],
+            "AAA": [95.0, 97.0, 99.0, 100.0, 105.0, 110.0, 120.0],  # Very strong performer
+            "BBB": [198.0, 199.0, 200.0, 200.0, 199.0, 200.0, 201.0],
+            "CCC": [298.0, 299.0, 300.0, 300.0, 301.0, 302.0, 303.0],
+            "DDD": [405.0, 403.0, 401.0, 400.0, 395.0, 390.0, 385.0],
+            "EEE": [500.0, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0],
         }
     )
     csv_path = collated_dir / "maxweight_collated.csv"
@@ -260,3 +266,49 @@ def test_optimise_portfolio_enforces_max_weight(tmp_path):
     # No individual weight should exceed 0.25
     for ticker, weight in weights.items():
         assert weight <= 0.25 + 1e-6
+
+
+def test_load_collated_prices_reflects_updated_file(tmp_path):
+    """_load_collated_prices must return fresh data after the CSV is overwritten.
+
+    In the normal optimise workflow, download_portfolios rewrites the collated CSV
+    and then optimise_portfolios reads it. If the LRU cache is blind to file
+    modifications, the optimizer silently uses stale prices from the prior download.
+    """
+    from pysharpe.portfolio_optimization import (
+        _cached_collated_prices,
+        _load_collated_prices,
+    )
+
+    _cached_collated_prices.cache_clear()
+
+    csv_path = tmp_path / "demo_collated.csv"
+
+    # Initial collated file — price is 100
+    pd.DataFrame(
+        {
+            "Date": ["2023-01-01", "2023-01-02"],
+            "AAA": [100.0, 101.0],
+            "BBB": [200.0, 201.0],
+            "CCC": [300.0, 301.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    result_v1 = _load_collated_prices("demo", tmp_path)
+    assert result_v1["AAA"].iloc[0] == pytest.approx(100.0)
+
+    # Simulate a re-download: overwrite the file with new prices
+    pd.DataFrame(
+        {
+            "Date": ["2023-01-01", "2023-01-02"],
+            "AAA": [999.0, 998.0],
+            "BBB": [200.0, 201.0],
+            "CCC": [300.0, 301.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    result_v2 = _load_collated_prices("demo", tmp_path)
+    assert result_v2["AAA"].iloc[0] == pytest.approx(999.0), (
+        f"Expected fresh price 999.0 but got {result_v2['AAA'].iloc[0]}. "
+        "The LRU cache returned stale data from before the file was re-written."
+    )
