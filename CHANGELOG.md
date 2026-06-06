@@ -2,6 +2,19 @@
 
 ## v0.3.0 (unreleased)
 
+### Bug Fixes
+
+- **MER unit consistency**: Removed a double-division bug where MER values supplied as decimal fractions (e.g. `0.0017` for 0.17%) were being divided by 100 a second time inside `SharpeOptimizer` and `optimise_portfolio_for_sharpe`, causing reported costs to be 100× smaller than intended. The default VEQT MER in `config.py` has also been corrected from `0.17` (percentage point) to `0.0017` (decimal fraction) to match the documented convention.
+- **FX lookahead bias**: `apply_fx_conversion` was calling `.bfill()` after `.ffill()` on aligned exchange-rate series, which applied future FX rates to historical prices and introduced lookahead bias. Back-fill has been removed. Leading rows where FX data is not yet available are now detected, logged as a warning, and excluded from the price history to preserve temporal integrity. If all rows are excluded (FX history does not overlap the price window at all) a `ValueError` is raised with a clear message. A tz-normalisation guard was also added so callers can pass tz-aware price DataFrames without triggering a `TypeError`.
+- **Stale LRU cache**: `_cached_collated_prices` was keyed on `(portfolio_name, collated_dir, time_constraint)` only, so re-downloading a collated CSV within the same Python process silently returned the pre-download snapshot. File modification time is now included in the cache key: `_load_collated_prices` reads `csv_path.stat().st_mtime` (via `try/except FileNotFoundError`) and passes it as an extra `mtime: float` argument, causing a cache miss whenever the file is overwritten.
+- **DuckDB wrapping of custom fetchers**: `CollationService` was wrapping every non-`DuckDBCachedPriceFetcher` fetcher in the write-through DuckDB cache, including test stubs and custom implementations. This meant test stubs were bypassed when the global cache already held data for the requested ticker. DuckDB wrapping is now applied only to `YFinancePriceFetcher` instances, where network-call caching is appropriate.
+
+### Security
+
+- Upgraded `starlette` from 1.0.0 to 1.2.1 (transitive dependency via `streamlit`) to address a missing Host header validation vulnerability (Dependabot #29).
+
+---
+
 - Added dynamic Foreign Exchange (FX) adjustment helper to convert multi-currency portfolio data into a common base currency (e.g., USD to CAD) before optimization.
 - Added Bayesian Portfolio Optimization using `PyMC` (`BayesianOptimizer`) for estimating robust posterior distributions of asset returns.
 - Added Time-Series Analysis tools (`statsmodels`, `arch`) including ADF stationarity testing (`check_stationarity`), GARCH volatility forecasting (`GARCHVolatilityForecaster`), and Vector Autoregression (`VARModeler`).
