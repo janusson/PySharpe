@@ -61,7 +61,7 @@ def parse_weight_input(text: str) -> dict[str, float]:
             raise ValueError(
                 f"Could not parse entry {entry!r}. Expected format: 'TICKER=weight'."
             )
-        key = parts[0].strip()
+        key = parts[0].strip().upper()
         if not key:
             raise ValueError(f"Empty ticker symbol in entry {entry!r}.")
         try:
@@ -218,11 +218,17 @@ def _run_and_display(
     m3.metric("Sharpe Ratio", f"{sharpe_val:.2f}")
     m4.metric("Rebalances", str(n_rebalances))
 
+    # Normalise portfolio index to tz-naive so Plotly can mix it with the
+    # benchmark trace (also tz-naive) and vline timestamps without errors.
+    port_index = result.portfolio_value.index
+    if hasattr(port_index, "tz") and port_index.tz is not None:
+        port_index = port_index.tz_localize(None)
+
     # Equity curve
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=result.portfolio_value.index,
+            x=port_index,
             y=result.portfolio_value.values,
             name="Portfolio",
             line=dict(color="#2196F3"),
@@ -249,6 +255,8 @@ def _run_and_display(
                     if bm_close.index.tz
                     else bm_close.index
                 )
+                if bm_close.empty or bm_close.iloc[0] == 0:
+                    raise ValueError("Benchmark first price is zero or missing.")
                 bm_norm = initial_capital * (bm_close / bm_close.iloc[0])
                 fig.add_trace(
                     go.Scatter(
@@ -263,10 +271,11 @@ def _run_and_display(
                 f"Could not fetch benchmark data for {benchmark_ticker}."
             )
 
-    # Rebalance markers
+    # Rebalance markers (strip tz to match the tz-naive portfolio index)
     for dt in result.rebalance_events:
+        dt_naive = dt.tz_localize(None) if dt.tzinfo else dt
         fig.add_vline(
-            x=dt,
+            x=dt_naive,
             line_width=1,
             line_dash="dot",
             line_color="rgba(150,150,150,0.5)",

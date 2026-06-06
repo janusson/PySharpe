@@ -191,8 +191,10 @@ class HistoricalBacktester:
             # 1. Calculate current value based on holdings
             asset_values = current_shares * current_prices
             total_value = np.sum(asset_values)
-            current_weights = asset_values / total_value
             portfolio_values[t] = total_value
+            if total_value <= 0:
+                break  # Portfolio wiped out; stop simulation
+            current_weights = asset_values / total_value
 
             # 2. Check Rebalance Triggers
             should_rebalance = False
