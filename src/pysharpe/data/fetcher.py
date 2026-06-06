@@ -14,6 +14,14 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 
+def _default_duckdb_cache_path() -> str:
+    from pysharpe.config import get_settings
+
+    settings = get_settings()
+    settings.ensure_directories()
+    return str(settings.cache_dir / "pysharpe_cache.db")
+
+
 def apply_fx_conversion(
     prices: pd.DataFrame,
     base_currency: str = "CAD",
@@ -36,7 +44,13 @@ def apply_fx_conversion(
     if fetcher is None:
         fetcher = YFinancePriceFetcher()
 
+    # Normalize to tz-naive so multiplication against tz-naive FX rates never raises TypeError.
+    if hasattr(prices.index, "tz") and prices.index.tz is not None:
+        prices = prices.copy()
+        prices.index = prices.index.tz_localize(None)
+
     adjusted_prices = prices.copy()
+    rows_to_exclude = pd.Series(False, index=prices.index)
 
     start_date = prices.index.min().strftime("%Y-%m-%d")
     end_date = prices.index.max().strftime("%Y-%m-%d")
@@ -85,7 +99,6 @@ def apply_fx_conversion(
                 f"Failed to download FX data for {fx_ticker}: {exc}"
             ) from exc
 
-        # Reindex to match prices.index, using ffill and then bfill
         if fx_series.index.tz is not None:
             fx_series.index = fx_series.index.tz_localize(None)
 
@@ -94,9 +107,34 @@ def apply_fx_conversion(
         if hasattr(prices_index, "tz") and prices_index.tz is not None:
             prices_index = prices_index.tz_localize(None)
 
-        aligned_fx = fx_series.reindex(prices_index).ffill().bfill()
+        aligned_fx = fx_series.reindex(prices_index).ffill()
+
+        leading_nan = aligned_fx.isna()
+        if leading_nan.any():
+            first_valid = aligned_fx.first_valid_index()
+            n = int(leading_nan.sum())
+            logger.warning(
+                "FX data for %s not available before %s; excluding %d row(s) "
+                "from price history to prevent lookahead bias.",
+                fx_ticker,
+                first_valid,
+                n,
+            )
+            # Use .values for positional alignment: prices_index may be tz-stripped
+            # but has the same length and row order as prices.index.
+            rows_to_exclude |= pd.Series(
+                leading_nan.values, index=prices.index, dtype=bool
+            )
+
         adjusted_prices[ticker] = adjusted_prices[ticker] * aligned_fx
 
+    if rows_to_exclude.any():
+        adjusted_prices = adjusted_prices.loc[~rows_to_exclude]
+        if adjusted_prices.empty:
+            raise ValueError(
+                "All rows were excluded due to missing FX data. "
+                "Ensure your FX history covers the full prices date range."
+            )
     return adjusted_prices
 
 
@@ -141,13 +179,15 @@ class DuckDBCachedPriceFetcher(PriceFetcher):
     """A caching decorator for PriceFetcher that uses DuckDB.
 
     Data is stored in a local DuckDB file and is considered fresh for 24 hours.
+    When no explicit path is provided, the cache lives under
+    ``data/cache/pysharpe_cache.db``.
     """
 
     def __init__(
-        self, fetcher: PriceFetcher, db_path: str = "pysharpe_cache.db"
+        self, fetcher: PriceFetcher, db_path: str | None = None
     ) -> None:
         self.fetcher = fetcher
-        self.db_path = db_path
+        self.db_path = db_path or _default_duckdb_cache_path()
         self._init_db()
 
     def _lazy_module(self):
