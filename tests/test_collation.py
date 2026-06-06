@@ -10,7 +10,7 @@ import pandas.testing as tm
 
 from pysharpe.data import CollationService, PriceFetcher
 from pysharpe.data.collation import load_raw, parse_records
-from pysharpe.data.fetcher import PriceHistoryError
+from pysharpe.data.fetcher import PriceHistoryError, YFinancePriceFetcher
 
 
 class _NoopFetcher(PriceFetcher):
@@ -92,6 +92,21 @@ def test_collate_portfolio_returns_empty_when_no_data(tmp_path):
 
     frame = service.collate_portfolio("missing", ("AAA",))
     assert frame.empty
+
+
+def test_collation_service_uses_settings_cache_dir(tmp_path):
+    from pysharpe.config import build_settings
+
+    settings = build_settings(base_dir=tmp_path / "runtime")
+    # Only YFinancePriceFetcher gets wrapped in DuckDB; custom fetchers pass through.
+    service = CollationService(
+        YFinancePriceFetcher(),
+        settings=settings,
+        price_history_dir=tmp_path / "price_hist",
+        export_dir=tmp_path / "exports",
+    )
+
+    assert Path(service.fetcher.db_path) == settings.cache_dir / "pysharpe_cache.db"
 
 
 def test_download_portfolio_prices_writes_csv(tmp_path):

@@ -13,7 +13,7 @@ from pandas.errors import EmptyDataError
 
 from pysharpe.config import PySharpeSettings, get_settings
 
-from .fetcher import DuckDBCachedPriceFetcher, PriceFetcher, PriceHistoryError
+from .fetcher import DuckDBCachedPriceFetcher, PriceFetcher, PriceHistoryError, YFinancePriceFetcher
 from .linkage import HistoryLinker
 
 logger = logging.getLogger(__name__)
@@ -105,15 +105,15 @@ class CollationService:
         self.price_history_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
 
-        # Determine the database path. If not configured, default to pysharpe_cache.db
-        # in the project root or the same directory as price_history_dir.
-        db_path = str(self.export_dir / "pysharpe_cache.db")
-
-        # Only wrap if it's not already wrapped
+        # Only the live yfinance fetcher needs the DuckDB write-through cache.
+        # Custom fetchers (test stubs, etc.) are used directly to preserve isolation.
         if isinstance(fetcher, DuckDBCachedPriceFetcher):
             self.fetcher = fetcher
-        else:
+        elif isinstance(fetcher, YFinancePriceFetcher):
+            db_path = str(self.settings.cache_dir / "pysharpe_cache.db")
             self.fetcher = DuckDBCachedPriceFetcher(fetcher, db_path=db_path)
+        else:
+            self.fetcher = fetcher
 
         self.crypto_tickers = {"BTC-USD", "ETH-USD"}  # Define known 24/7 tickers
 
