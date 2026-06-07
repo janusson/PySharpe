@@ -9,6 +9,11 @@
 - **Stale LRU cache**: `_cached_collated_prices` was keyed on `(portfolio_name, collated_dir, time_constraint)` only, so re-downloading a collated CSV within the same Python process silently returned the pre-download snapshot. File modification time is now included in the cache key: `_load_collated_prices` reads `csv_path.stat().st_mtime` (via `try/except FileNotFoundError`) and passes it as an extra `mtime: float` argument, causing a cache miss whenever the file is overwritten.
 - **DuckDB wrapping of custom fetchers**: `CollationService` was wrapping every non-`DuckDBCachedPriceFetcher` fetcher in the write-through DuckDB cache, including test stubs and custom implementations. This meant test stubs were bypassed when the global cache already held data for the requested ticker. DuckDB wrapping is now applied only to `YFinancePriceFetcher` instances, where network-call caching is appropriate.
 
+### Features
+
+- **Backtesting tab** (`src/pysharpe/app/backtest.py`): Added a "Backtest" tab to the Streamlit dashboard. Users can simulate historical portfolio performance with configurable rebalancing strategies (monthly/quarterly/annual calendar, absolute drift band, relative drift band, or none), transaction fees, and slippage. Results display CAGR, Max Drawdown, Sharpe Ratio, and rebalance count, alongside an interactive equity curve with optional Canadian ETF benchmark overlay (VEQT, XEQT, VGRO, XGRO, VBAL, XBAL) and a stacked area weight-drift chart. Portfolio values can be downloaded as CSV.
+- **Backtest engine hardening** (`src/pysharpe/analysis/backtest_engine.py`): Added `_PERIOD_ALIAS_MAP` to translate newer pandas offset aliases (`ME`/`QE`/`YE`) to period aliases (`M`/`Q`/`Y`) required by `DatetimeIndex.to_period()` on pandas ≥ 2.2. Added a zero-portfolio-value guard to break the simulation loop cleanly if all asset prices reach zero, preventing a division-by-zero.
+
 ### Security
 
 - Upgraded `starlette` from 1.0.0 to 1.2.1 (transitive dependency via `streamlit`) to address a missing Host header validation vulnerability (Dependabot #29).
