@@ -1,8 +1,14 @@
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pandas as pd
 import pytest
+from conftest import _SAMPLING_SKIP_REASON, pymc_sampling_works
 
-from pysharpe.optimization.bayesian import BayesianOptimizer
+from pysharpe.optimization.bayesian import (
+    BayesianOptimizer,
+    _is_compilation_error,
+)
 
 
 @pytest.fixture
@@ -27,6 +33,10 @@ def test_bayesian_optimizer_init():
     assert optimizer.model_ is None
 
 
+@pytest.mark.skipif(
+    not pymc_sampling_works(),
+    reason=_SAMPLING_SKIP_REASON,
+)
 def test_fit_returns_model(sample_returns):
     """Test fitting the returns model (with small samples for speed)."""
     optimizer = BayesianOptimizer(random_seed=42)
@@ -41,6 +51,10 @@ def test_fit_returns_model(sample_returns):
     assert optimizer.assets_ == ["Asset_A", "Asset_B"]
 
 
+@pytest.mark.skipif(
+    not pymc_sampling_works(),
+    reason=_SAMPLING_SKIP_REASON,
+)
 def test_get_posterior_estimates(sample_returns):
     """Test extracting posterior estimates."""
     optimizer = BayesianOptimizer(random_seed=42)
@@ -68,6 +82,84 @@ def test_fit_returns_model_invalid_input():
 
     with pytest.raises(ValueError):
         optimizer.fit_returns_model(pd.DataFrame())  # Empty DataFrame
+
+
+def test_compilation_error_detection():
+    """Test that _is_compilation_error correctly identifies compilation failures."""
+    # Errors whose messages contain compiler keywords should be detected
+    for msg in (
+        "gcc: error: linker command failed with exit code 1",
+        "clang: error: unable to execute command: Segmentation fault",
+        "Compilation failed: cannot compile C code",
+        "ld returned 1 exit status",
+    ):
+        assert _is_compilation_error(RuntimeError(msg)), f"Should detect: {msg}"
+
+    # Unrelated errors should pass through
+    assert not _is_compilation_error(ValueError("Invalid shape"))
+    assert not _is_compilation_error(RuntimeError("convergence failure"))
+
+
+def test_fast_compile_fallback_on_compile_error(sample_returns):
+    """Test that a C-compiler/linker error triggers the FAST_COMPILE fallback.
+
+    When ``pm.sample`` raises an error whose message matches compilation-
+    failure keywords, the optimizer should log a warning, enable PyTensor's
+    FAST_COMPILE mode, and retry sampling successfully.
+    """
+    optimizer = BayesianOptimizer(random_seed=42)
+
+    # Simulate a trace-like return for the second (successful) attempt.
+    fake_trace = MagicMock(name="trace")
+
+    # The first call to pm.sample raises a linker error; the second succeeds.
+    fake_error = RuntimeError("gcc: error: linker command failed")
+
+    with patch.object(BayesianOptimizer, "_enable_fast_compile") as mock_fast_compile:
+        with patch("pysharpe.optimization.bayesian.pm.sample") as mock_sample:
+            mock_sample.side_effect = [fake_error, fake_trace]
+
+            trace = optimizer.fit_returns_model(
+                sample_returns, draws=100, tune=100, chains=1, cores=1
+            )
+
+            mock_fast_compile.assert_called_once()
+            assert mock_sample.call_count == 2
+
+    assert trace is fake_trace
+
+
+def test_no_fallback_for_non_compilation_errors(sample_returns):
+    """Test that non-compilation errors are re-raised without fallback."""
+    optimizer = BayesianOptimizer(random_seed=42)
+
+    # An ordinary ValueError should NOT trigger the FAST_COMPILE fallback.
+    real_error = ValueError("Something else broke")
+
+    with patch("pysharpe.optimization.bayesian.pm.sample") as mock_sample:
+        mock_sample.side_effect = real_error
+
+        with pytest.raises(ValueError, match="Something else broke"):
+            optimizer.fit_returns_model(
+                sample_returns, draws=100, tune=100, chains=1, cores=1
+            )
+
+    assert mock_sample.call_count == 1
+
+
+def test_fast_compile_static_method():
+    """Test that _enable_fast_compile correctly sets PyTensor's config mode."""
+    try:
+        import pytensor
+    except ImportError:  # pragma: no cover
+        pytest.skip("PyTensor is not installed.")
+
+    original = pytensor.config.mode
+    try:
+        BayesianOptimizer._enable_fast_compile()
+        assert pytensor.config.mode == "FAST_COMPILE"
+    finally:
+        pytensor.config.mode = original
 
 
 def test_get_estimates_before_fit():

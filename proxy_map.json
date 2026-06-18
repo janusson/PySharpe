@@ -1,4 +1,16 @@
 {
-  "VFV.TO": {"proxy": "VOO", "fx_adjust": true, "start_date": "2010-01-01"},
-  "BTC": {"proxy": "BTC-USD", "fx_adjust": false, "start_date": "2014-01-01"}
+  "VFV.TO": {
+    "proxy": "VOO",
+    "fx_adjust": true,
+    "start_date": "2010-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "BTC": {
+    "proxy": "BTC-USD",
+    "fx_adjust": false,
+    "start_date": "2014-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": false
+  }
 }

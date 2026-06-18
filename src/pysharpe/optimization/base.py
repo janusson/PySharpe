@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class OptimizationResult:
         sharpe_ratio: The calculated Sharpe ratio of the optimized portfolio.
     """
 
-    weights: Dict[str, float]
+    weights: dict[str, float]
     expected_return: float
     volatility: float
     sharpe_ratio: float

@@ -238,10 +238,23 @@ def test_optimise_portfolio_enforces_max_weight(tmp_path):
     frame = pd.DataFrame(
         {
             "Date": [
-                "2022-12-28", "2022-12-29", "2022-12-30",
-                "2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04",
+                "2022-12-28",
+                "2022-12-29",
+                "2022-12-30",
+                "2023-01-01",
+                "2023-01-02",
+                "2023-01-03",
+                "2023-01-04",
             ],
-            "AAA": [95.0, 97.0, 99.0, 100.0, 105.0, 110.0, 120.0],  # Very strong performer
+            "AAA": [
+                95.0,
+                97.0,
+                99.0,
+                100.0,
+                105.0,
+                110.0,
+                120.0,
+            ],  # Very strong performer
             "BBB": [198.0, 199.0, 200.0, 200.0, 199.0, 200.0, 201.0],
             "CCC": [298.0, 299.0, 300.0, 300.0, 301.0, 302.0, 303.0],
             "DDD": [405.0, 403.0, 401.0, 400.0, 395.0, 390.0, 385.0],
@@ -264,7 +277,7 @@ def test_optimise_portfolio_enforces_max_weight(tmp_path):
     # The sum should be 1.0
     assert pytest.approx(sum(weights.values()), rel=1e-6) == 1.0
     # No individual weight should exceed 0.25
-    for ticker, weight in weights.items():
+    for _ticker, weight in weights.items():
         assert weight <= 0.25 + 1e-6
 
 

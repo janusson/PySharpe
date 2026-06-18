@@ -10,7 +10,8 @@ PySharpe is a portfolio research toolkit that wraps data collection, return anal
 - **Time-Series Analysis**: Test for stationarity (ADF), forecast volatility clusters using GARCH models, and capture asset interdependencies with Vector Autoregression (VAR).
 - **Causal Inference & Data Linkage**: Use an embedded DuckDB database to perform high-performance SQL window functions, lagging, and joining of market data with external macro-economic datasets.
 - Optimise weights with `pypfopt` using an Efficient Frontier model, applying optional MER and geographic constraints.
-- Run historical portfolio backtests with calendar and drift-based rebalancing logic.
+- Run historical portfolio backtests with calendar and drift-based rebalancing logic through an interactive Streamlit tab or the CLI.
+- Overlay Canadian ETF benchmarks (VEQT, XEQT, VGRO, XGRO, VBAL, XBAL) on equity curves and visualise weight drift over time.
 - Calculate smart cash allocations to correct portfolio drift while factoring in fundamental valuation.
 - Run dollar-cost averaging (DCA) projections and export the results.
 - Interact through an opinionated Streamlit UI or the command-line utilities.
@@ -32,15 +33,15 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-## Quickstart (The "Golden Path")
+## Quickstart
 
 PySharpe's most powerful workflow bridges theory and execution in two steps:
 
 1. **Research & Target Setting**: Generate optimal weights based on historical performance.
    ```bash
-   pysharpe optimise --portfolio demo --export-dir outputs/
+   pysharpe optimise --portfolio demo --export-dir data/exports/
    ```
-   *Produces: `outputs/demo_weights.txt` and `outputs/demo_collated.csv`.*
+   *Produces: `data/exports/demo_weights.txt` and `data/exports/demo_collated.csv`.*
 
 2. **Smart Execution**: Generate a buy plan for new capital using your current holdings.
    ```bash
@@ -48,7 +49,7 @@ PySharpe's most powerful workflow bridges theory and execution in two steps:
      --portfolio demo \
      --holdings-json '{"AAPL": 2, "MSFT": 1}' \
      --new-cash 1000 \
-     --export-dir outputs/
+     --export-dir data/exports/
    ```
 
 *PySharpe calculates how much you are "drifting" from your targets and blends it with fundamental valuation to tell you exactly how many shares to buy.*
@@ -59,24 +60,22 @@ PySharpe's most powerful workflow bridges theory and execution in two steps:
 For best results, use the **Streamlit Dashboard** (`app.py`) for visual exploration and "Category Grouping" to handle correlated assets (e.g., grouping VOO and VFV). Once you are satisfied with a portfolio mix, transition to the **CLI** for recurring rebalancing and scripted updates.
 
 ### 2. Constraints and MER Management
-Serious investors should use a `portfolio_config.json` to enforce structural discipline:
-- **MER Caps**: Prevent your portfolio from becoming "expensive" by capping the weighted average expense ratio.
-- **Geo Limits**: Ensure you aren't over-exposed to a single region (e.g., max 60% US).
-- **Valuation Overlay**: Use the `--config` flag during `allocate` or `rebalance` to weight buys toward assets with lower P/E or higher Dividend Yield.
+Users can apply a `portfolio_config.json` to enforce structural discipline:
+- **MER Caps**: Cap the weighted average expense ratio.
+- **Geo Limits**: Limit exposure to a single region (e.g., max 60% US).
+- **Valuation Overlay**: Use the `--config` flag during `allocate` or `rebalance` to factor in P/E or Dividend Yield.
 
 ## Interpreting Your Results
 
 ### Portfolio Analytics
-- **Sharpe Ratio**: The primary efficiency metric. A higher Sharpe means better risk-adjusted returns. Target > 1.0 where possible.
+- **Sharpe Ratio**: A measure of risk-adjusted return efficiency. A higher value indicates better returns per unit of risk.
 - **Annual Volatility**: A measure of the "bumpiness" of the ride. Use this to ensure the portfolio aligns with your risk tolerance.
-- **Expected Return (EMA)**: By default, PySharpe uses an Exponential Moving Average for returns, which weights recent history more heavily. This makes the model more responsive to current market regimes.
+- **Expected Return (EMA)**: By default, PySharpe uses an Exponential Moving Average for returns, which weights recent history more heavily.
 
 ### Rebalancing Metrics
 - **Drift (Underweight %)**: The percentage points an asset is below its target. Higher drift indicates a stronger "need" to buy.
 - **Valuation Score (0-1)**: A multi-factor score blending P/E, P/B, Dividend Yield, and Momentum. A score of 1.0 represents a "perfect" fundamental setup.
-- **Opportunity Score**: The final ranking tool. It blends **Drift** (60%) and **Valuation** (40%).
-    - **Score > 0.8**: Strong Buy. The asset is significantly underweight and fundamentals are attractive.
-    - **Score < 0.3**: Low Priority. The asset is likely near its target or fundamentals are poor.
+- **Opportunity Score**: A configurable ranking tool that can blend drift and valuation signals when explicit factor weights are provided.
 
 ## Usage
 
@@ -94,18 +93,24 @@ uv pip install -e .[gui]
 uv run streamlit run app.py
 ```
 
-Upload your own CSV or enter a comma-separated list of tickers. The dashboard will download prices, compute metrics, optimise weights, and plot DCA projections with downloadable CSV exports.
+Upload your own CSV or enter a comma-separated list of tickers. The dashboard will download prices, compute metrics, optimise weights, plot DCA projections, and run historical backtests with configurable rebalancing strategies — all with downloadable CSV exports.
+
+**Tabs available:**
+- **Backtest** — Simulate historical portfolio performance with calendar (monthly/quarterly/annual) or drift-band rebalancing, transaction fees, and slippage. Compare against Canadian ETF benchmarks and export results as CSV.
+- **Analytics** — View optimised weights, expected returns, volatility, and Sharpe ratios.
+- **Data** — Inspect raw price history and collated portfolio data.
+- **DCA** — Project dollar-cost averaging outcomes over custom time horizons.
 
 ### CLI Example
 
 ```bash
 pysharpe optimise \
   --portfolio tests/data/sample_portfolio.csv \
-  --export-dir outputs/ \
+  --export-dir data/exports/ \
   --risk-free-rate 0.02
 ```
 
-The command writes optimised weights, summary metrics, and diagnostic plots to the specified export directory. Run `pysharpe --help` for the full list of subcommands and options.
+The command writes optimised weights, summary metrics, and diagnostic plots to the specified export directory. If you omit `--export-dir`, PySharpe uses `data/exports/` by default. Run `pysharpe --help` for the full list of subcommands and options.
 
 ### Category Grouping
 
@@ -151,7 +156,7 @@ pysharpe optimise --portfolio my_portfolio --return-model mean
 
 ### Smart Contribution Allocation
 
-If you have fresh capital to invest, PySharpe can recommend how to deploy it. The logic prioritizes assets that have drifted below their target weights, and can optionally factor in fundamental valuation (e.g. buying the "cheaper" underweight assets first).
+If you have fresh capital to invest, PySharpe can recommend how to deploy it. The logic prioritizes assets that have drifted below their target weights, and can optionally factor in fundamental valuation.
 
 ```bash
 pysharpe allocate --portfolio data/portfolio/current_state.csv --amount 1000.0
@@ -164,7 +169,7 @@ If you don’t yet have a CSV, the bundled script `scripts/export_current_state.
 ```bash
 scripts/export_current_state.py \
   --holdings-json '{"AAPL": 2, "MSFT": 1}' \
-  --weights outputs/demo_weights.txt \
+  --weights data/exports/demo_weights.txt \
   --output current_state.csv
 pysharpe allocate --portfolio current_state.csv --amount 1000
 ```
@@ -184,7 +189,7 @@ Use `pysharpe rebalance` when you want a user-facing buy plan that starts from s
 Run the optimiser first so the export directory contains the required artefacts:
 
 ```bash
-pysharpe optimise --portfolio demo --export-dir outputs/
+pysharpe optimise --portfolio demo --export-dir data/exports/
 ```
 
 Then provide your current holdings as either a CSV or a JSON mapping.
@@ -202,7 +207,7 @@ pysharpe rebalance \
   --portfolio demo \
   --holdings-csv holdings.csv \
   --new-cash 1000 \
-  --export-dir outputs/
+  --export-dir data/exports/
 ```
 
 Inline JSON example:
@@ -213,7 +218,7 @@ pysharpe rebalance \
   --holdings-json '{"AAPL": 2, "MSFT": 1}' \
   --holdings-kind shares \
   --new-cash 1000 \
-  --export-dir outputs/
+  --export-dir data/exports/
 ```
 
 If your holdings are already in dollars instead of shares, either use a CSV with a `current_value` or `total_value` column, or pass JSON with `--holdings-kind value`.

@@ -13,7 +13,12 @@ from pandas.errors import EmptyDataError
 
 from pysharpe.config import PySharpeSettings, get_settings
 
-from .fetcher import DuckDBCachedPriceFetcher, PriceFetcher, PriceHistoryError, YFinancePriceFetcher
+from .fetcher import (
+    DuckDBCachedPriceFetcher,
+    PriceFetcher,
+    PriceHistoryError,
+    YFinancePriceFetcher,
+)
 from .linkage import HistoryLinker
 
 logger = logging.getLogger(__name__)

@@ -17,11 +17,15 @@ class _NoopFetcher(PriceFetcher):
     """Stub fetcher that should never be invoked in these tests."""
 
     def fetch_history(self, *args, **kwargs):  # type: ignore[override]
-        raise AssertionError("fetch_history should not be called in collation-only tests")
+        raise AssertionError(
+            "fetch_history should not be called in collation-only tests"
+        )
 
 
 def _write_price_history(path: Path, rows: list[tuple[str, float | None]]) -> None:
-    frame = pd.DataFrame({"Date": [row[0] for row in rows], "Close": [row[1] for row in rows]})
+    frame = pd.DataFrame(
+        {"Date": [row[0] for row in rows], "Close": [row[1] for row in rows]}
+    )
     frame.to_csv(path, index=False)
 
 
@@ -77,7 +81,9 @@ def test_collate_portfolio_filters_invalid_columns(tmp_path):
     frame = service.collate_portfolio("demo", ("AAA", "BBB"))
 
     assert list(frame.columns) == ["AAA"]
-    metadata = json.loads((export_dir / "demo_metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (export_dir / "demo_metadata.json").read_text(encoding="utf-8")
+    )
     assert metadata["included_tickers"] == ["AAA"]
     assert metadata["dropped_tickers"] == ["BBB"]
     # Change: Added regression test ensuring performance tweak keeps metadata consistent.
@@ -125,7 +131,9 @@ def test_download_portfolio_prices_writes_csv(tmp_path):
         export_dir=export_dir,
     )
 
-    result = service.download_portfolio_prices(["AAA"], period="1mo", interval="1d", start=None, end=None)
+    result = service.download_portfolio_prices(
+        ["AAA"], period="1mo", interval="1d", start=None, end=None
+    )
     assert "AAA" in result
     assert (price_dir / "AAA_hist.csv").exists()
 
@@ -146,7 +154,9 @@ def test_download_portfolio_prices_skips_errors(tmp_path):
         export_dir=export_dir,
     )
 
-    result = service.download_portfolio_prices(["BAD", "GOOD"], period="1mo", interval="1d", start=None, end=None)
+    result = service.download_portfolio_prices(
+        ["BAD", "GOOD"], period="1mo", interval="1d", start=None, end=None
+    )
     assert "GOOD" in result and "BAD" not in result
     assert (price_dir / "GOOD_hist.csv").exists()
 
@@ -171,7 +181,9 @@ def test_load_price_frame_invalid_columns(tmp_path, caplog):
     price_dir.mkdir()
     export_dir.mkdir()
 
-    pd.DataFrame({"Date": ["2024-01-01"], "Value": [1.0]}).to_csv(price_dir / "AAA_hist.csv", index=False)
+    pd.DataFrame({"Date": ["2024-01-01"], "Value": [1.0]}).to_csv(
+        price_dir / "AAA_hist.csv", index=False
+    )
 
     service = CollationService(
         _NoopFetcher(),
@@ -192,7 +204,9 @@ def test_load_price_frame_invalid_dates(tmp_path, caplog):
     price_dir.mkdir()
     export_dir.mkdir()
 
-    pd.DataFrame({"Date": ["not-a-date"], "Close": [1.0]}).to_csv(price_dir / "AAA_hist.csv", index=False)
+    pd.DataFrame({"Date": ["not-a-date"], "Close": [1.0]}).to_csv(
+        price_dir / "AAA_hist.csv", index=False
+    )
 
     service = CollationService(
         _NoopFetcher(),

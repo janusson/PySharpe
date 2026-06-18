@@ -38,7 +38,9 @@ def test_fetch_history_builds_payload(monkeypatch: pytest.MonkeyPatch):
     fetcher = YFinancePriceFetcher({"auto_adjust": True})
     monkeypatch.setattr(fetcher, "_lazy_module", lambda: module)
 
-    frame = fetcher.fetch_history("AAPL", period="1y", interval="1d", start=None, end=None)
+    frame = fetcher.fetch_history(
+        "AAPL", period="1y", interval="1d", start=None, end=None
+    )
 
     assert not frame.empty
     payload = calls["kwargs"]
@@ -59,7 +61,9 @@ def test_fetch_history_prefers_explicit_dates(monkeypatch: pytest.MonkeyPatch):
     fetcher = YFinancePriceFetcher()
     monkeypatch.setattr(fetcher, "_lazy_module", lambda: module)
 
-    fetcher.fetch_history("AAPL", period="1y", interval="1d", start="2024-01-01", end="2024-02-01")
+    fetcher.fetch_history(
+        "AAPL", period="1y", interval="1d", start="2024-01-01", end="2024-02-01"
+    )
 
     payload = calls["kwargs"]
     assert "period" not in payload
@@ -73,7 +77,11 @@ def test_fetch_history_raises_on_empty(monkeypatch: pytest.MonkeyPatch):
             return pd.DataFrame()
 
     fetcher = YFinancePriceFetcher()
-    monkeypatch.setattr(fetcher, "_lazy_module", lambda: SimpleNamespace(Ticker=lambda symbol: DummyTicker()))
+    monkeypatch.setattr(
+        fetcher,
+        "_lazy_module",
+        lambda: SimpleNamespace(Ticker=lambda symbol: DummyTicker()),
+    )
 
     with pytest.raises(PriceHistoryError):
         fetcher.fetch_history("AAPL", period="1y", interval="1d", start=None, end=None)
@@ -85,7 +93,11 @@ def test_fetch_history_wraps_exceptions(monkeypatch: pytest.MonkeyPatch):
             raise RuntimeError("boom")
 
     fetcher = YFinancePriceFetcher()
-    monkeypatch.setattr(fetcher, "_lazy_module", lambda: SimpleNamespace(Ticker=lambda symbol: DummyTicker()))
+    monkeypatch.setattr(
+        fetcher,
+        "_lazy_module",
+        lambda: SimpleNamespace(Ticker=lambda symbol: DummyTicker()),
+    )
 
     with pytest.raises(PriceHistoryError):
         fetcher.fetch_history("AAPL", period="1y", interval="1d", start=None, end=None)

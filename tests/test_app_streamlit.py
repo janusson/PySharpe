@@ -6,6 +6,11 @@ import pandas as pd
 import pytest
 
 import app
+from pysharpe.optimization.models import (
+    OptimisationPerformance,
+    OptimisationResult,
+    PortfolioWeights,
+)
 
 
 class ColumnContext:
@@ -551,10 +556,15 @@ def test_main_renders_dashboard(
         "plot_cumulative_returns",
         lambda df: plot_calls.update({"returns": df.copy()}),
     )
+    fake_opt_result = OptimisationResult(
+        name="",
+        weights=PortfolioWeights({"AAPL": 0.6, "MSFT": 0.4}),
+        performance=OptimisationPerformance(0.1, 0.15, 0.8, "2024-01-01", "2024-01-03"),
+    )
     monkeypatch.setattr(
         app,
-        "optimise_weights",
-        lambda result: SimpleNamespace(allocations={"AAPL": 0.6, "MSFT": 0.4}),
+        "optimise_from_prices",
+        lambda *args, **kwargs: fake_opt_result,
     )
     monkeypatch.setattr(
         app,

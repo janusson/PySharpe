@@ -50,6 +50,9 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
         include_unmapped_categories,
         return_model,
         base_currency,
+        max_weight,
+        shrinkage_floor,
+        **kwargs,
     ):
         captured["optimise"] = {
             "portfolio_names": tuple(portfolio_names),
@@ -61,6 +64,8 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
             "include_unmapped": include_unmapped_categories,
             "return_model": return_model,
             "base_currency": base_currency,
+            "max_weight": max_weight,
+            "shrinkage_floor": shrinkage_floor,
         }
         return {
             "demo": OptimisationResult(
@@ -94,6 +99,8 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     assert captured["optimise"]["category_map"] is None
     assert captured["optimise"]["include_unmapped"] is True
     assert captured["optimise"]["base_currency"] == "CAD"
+    assert captured["optimise"]["max_weight"] == 0.20
+    assert captured["optimise"]["shrinkage_floor"] == 0.3
     output = capsys.readouterr().out
     assert "Artefacts written" in output
 
@@ -104,6 +111,7 @@ def _settings_stub(base_dir: Path):
             self.portfolio_dir = base_dir / "defaults" / "portfolios"
             self.price_history_dir = base_dir / "defaults" / "prices"
             self.export_dir = base_dir / "defaults" / "exports"
+            self.proxy_map: dict = {}
 
         def ensure_directories(self) -> None:
             self.portfolio_dir.mkdir(parents=True, exist_ok=True)
@@ -308,6 +316,7 @@ def test_rebalance_subcommand_builds_buy_plan(tmp_path, capsys):
             "100",
             "--export-dir",
             str(export_dir),
+            "--allow-fractional",
         ]
     )
 

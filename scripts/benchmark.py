@@ -87,12 +87,16 @@ def _simulate_dca_reference(
     contributions[0] = initial_investment
     for month in range(1, months):
         contributions[month] = contributions[month - 1] + monthly_contribution
-        balances[month] = (balances[month - 1] + monthly_contribution) * (1 + monthly_rate)
+        balances[month] = (balances[month - 1] + monthly_contribution) * (
+            1 + monthly_rate
+        )
     months_index = np.arange(months, dtype=int)
     return months_index, contributions, balances
 
 
-def benchmark_metrics(portfolio_sizes: Iterable[int], repeats: int) -> list[BenchmarkResult]:
+def benchmark_metrics(
+    portfolio_sizes: Iterable[int], repeats: int
+) -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
     for size in portfolio_sizes:
         prices = _generate_prices(size)
@@ -126,7 +130,9 @@ def benchmark_metrics(portfolio_sizes: Iterable[int], repeats: int) -> list[Benc
             atol=1e-12,
             rtol=0,
         )
-        results.append(BenchmarkResult("metrics", size, "annualize_volatility", duration))
+        results.append(
+            BenchmarkResult("metrics", size, "annualize_volatility", duration)
+        )
 
         duration, sharpe = _timeit(metrics.sharpe_ratio, returns, repeats=repeats)
         manual_sharpe = (expected - 0.0) / volatility
@@ -153,13 +159,19 @@ def benchmark_dca(month_counts: Iterable[int], repeats: int) -> list[BenchmarkRe
         duration, projection = _timeit(simulate_dca, repeats=repeats, **args)
         ref_months, ref_contrib, ref_balances = _simulate_dca_reference(**args)
         np.testing.assert_allclose(projection.months, ref_months, rtol=0, atol=0)
-        np.testing.assert_allclose(projection.contributions, ref_contrib, rtol=0, atol=1e-12)
-        np.testing.assert_allclose(projection.balances, ref_balances, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(
+            projection.contributions, ref_contrib, rtol=0, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            projection.balances, ref_balances, rtol=0, atol=1e-12
+        )
         results.append(BenchmarkResult("dca", months, "simulate_dca", duration))
     return results
 
 
-def benchmark_optimisation(portfolio_sizes: Iterable[int], repeats: int) -> list[BenchmarkResult]:
+def benchmark_optimisation(
+    portfolio_sizes: Iterable[int], repeats: int
+) -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
     for size in portfolio_sizes:
         prices = _generate_prices(size)
@@ -241,7 +253,9 @@ def _results_to_dict(results: Iterable[BenchmarkResult]) -> dict[str, dict[str, 
     return table
 
 
-def _print_table(results: Iterable[BenchmarkResult], baseline: dict[str, dict[str, float]] | None) -> None:
+def _print_table(
+    results: Iterable[BenchmarkResult], baseline: dict[str, dict[str, float]] | None
+) -> None:
     headers = ["Scenario", "Size", "Metric", "Seconds", "Δ vs baseline", "Speed-up"]
     rows: list[list[str]] = []
     for record in sorted(results, key=lambda r: (r.scenario, r.size, r.metric)):
@@ -265,7 +279,9 @@ def _print_table(results: Iterable[BenchmarkResult], baseline: dict[str, dict[st
             ]
         )
 
-    widths = [max(len(row[col]) for row in [headers, *rows]) for col in range(len(headers))]
+    widths = [
+        max(len(row[col]) for row in [headers, *rows]) for col in range(len(headers))
+    ]
 
     def _format(row: list[str]) -> str:
         return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(row))
@@ -278,9 +294,20 @@ def _print_table(results: Iterable[BenchmarkResult], baseline: dict[str, dict[st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark PySharpe primitives.")
-    parser.add_argument("--repeats", type=int, default=3, help="Number of timed repetitions per scenario (default: 3).")
-    parser.add_argument("--baseline", type=Path, help="JSON file containing baseline timings to compare against.")
-    parser.add_argument("--output", type=Path, help="Optional path to write benchmark results as JSON.")
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=3,
+        help="Number of timed repetitions per scenario (default: 3).",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        help="JSON file containing baseline timings to compare against.",
+    )
+    parser.add_argument(
+        "--output", type=Path, help="Optional path to write benchmark results as JSON."
+    )
     args = parser.parse_args()
 
     baseline_data: dict[str, dict[str, float]] | None = None
@@ -292,7 +319,9 @@ def main() -> None:
 
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        json.dump(_results_to_dict(results), args.output.open("w", encoding="utf-8"), indent=2)
+        json.dump(
+            _results_to_dict(results), args.output.open("w", encoding="utf-8"), indent=2
+        )
 
 
 if __name__ == "__main__":

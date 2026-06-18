@@ -18,7 +18,9 @@ def test_simulate_dca_returns_expected_series():
 
     assert isinstance(projection, DCAProjection)
     assert len(projection.months) == 3
-    np.testing.assert_array_equal(projection.contributions, np.array([1000.0, 1100.0, 1200.0]))
+    np.testing.assert_array_equal(
+        projection.contributions, np.array([1000.0, 1100.0, 1200.0])
+    )
 
     monthly_rate = (1 + 0.12) ** (1 / 12) - 1
     expected_balance_month_1 = (1000.0 + 100.0) * (1 + monthly_rate)

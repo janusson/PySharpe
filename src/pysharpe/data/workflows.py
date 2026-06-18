@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict
 
 import pandas as pd
 
@@ -40,7 +39,9 @@ class PortfolioDownloadWorkflow:
         portfolio_dir: Path | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.repository = repository or PortfolioRepository(self.settings, directory=portfolio_dir)
+        self.repository = repository or PortfolioRepository(
+            self.settings, directory=portfolio_dir
+        )
         self.fetcher = fetcher or YFinancePriceFetcher()
         self.collation = collation or CollationService(
             self.fetcher,
@@ -98,7 +99,7 @@ class PortfolioDownloadWorkflow:
         interval: str,
         start: str | None,
         end: str | None,
-    ) -> Dict[str, pd.DataFrame]:
+    ) -> dict[str, pd.DataFrame]:
         """Batch process one or more portfolio definitions.
 
         Args:

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+
+from pysharpe.exceptions import ExecutionConfigError
 
 from .base import OptimizationResult
 
@@ -22,25 +23,32 @@ class SharpeOptimizerConfig:
     Attributes
     ----------
     risk_free_rate : float, optional
-        The annual risk-free rate. Default is 0.00 (0%).
+        The annual risk-free rate. Default is 0.025 (2.5%).
     target_return : float, optional
         Target portfolio return for optimization. Not used in simple Sharpe
         maximization, but can be useful for other optimization types.
         Default is None.
     mer_by_ticker : Dict[str, float], optional
         Dictionary where keys are ticker symbols and values are their annual
-        Management Expense Ratios (MERs) as a percentage (e.g., 0.17 for 0.17%).
+        Management Expense Ratios (MERs) as decimal fractions (e.g., 0.0017 for 0.17%).
         These will be deducted from expected returns.
         Default is an empty dictionary, meaning no MER deductions.
+    max_portfolio_mer : float, optional
+        Maximum allowable aggregate portfolio Management Expense Ratio, expressed
+        as a decimal fraction (e.g., 0.015 for 1.5%).  When set alongside
+        ``mer_by_ticker``, an inequality constraint ensures
+        ``sum(w_i * MER_i) <= max_portfolio_mer`` during numerical optimisation.
+        Default is None, meaning no aggregate MER cap is enforced.
     num_portfolios_monte_carlo : int, optional
         Number of random portfolios to generate for Monte Carlo simulation
         to find a good starting point for numerical optimization.
         Default is 10000.
     """
 
-    risk_free_rate: float = 0.00
-    target_return: Optional[float] = None
-    mer_by_ticker: Dict[str, float] = field(default_factory=dict)
+    risk_free_rate: float = 0.025
+    target_return: float | None = None
+    mer_by_ticker: dict[str, float] = field(default_factory=dict)
+    max_portfolio_mer: float | None = None
     num_portfolios_monte_carlo: int = 10000
     max_weight: float = 0.20
 
@@ -51,7 +59,7 @@ class SharpeOptimizer:
     def __init__(
         self,
         prices: pd.DataFrame,
-        config: Optional[SharpeOptimizerConfig] = None,
+        config: SharpeOptimizerConfig | None = None,
     ) -> None:
         """Initialize the optimizer with price data and configuration.
 
@@ -120,7 +128,7 @@ class SharpeOptimizer:
 
     def calculate_portfolio_performance(
         self, weights: np.ndarray
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """Calculates portfolio return, volatility, and Sharpe ratio.
 
         Parameters
@@ -150,11 +158,9 @@ class SharpeOptimizer:
             )
         )
 
-        # Apply MER deductions
+        # Apply MER deductions (values are already decimal fractions, e.g. 0.0017 for 0.17%)
         for i, ticker in enumerate(self.assets):
-            mer_annual = (
-                self.config.mer_by_ticker.get(ticker, 0.0) / 100.0
-            )  # Convert % to decimal
+            mer_annual = self.config.mer_by_ticker.get(ticker, 0.0)
             portfolio_return -= weights[i] * mer_annual
 
         if portfolio_volatility == 0:
@@ -214,8 +220,36 @@ class SharpeOptimizer:
             )
 
         # Constraints and Bounds
-        constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+        constraints_list = [{"type": "eq", "fun": lambda x: np.sum(x) - 1}]
         bounds = tuple((0.0, self.config.max_weight) for _ in range(num_assets))
+
+        # --- Aggregate MER constraint ---
+        if self.config.max_portfolio_mer is not None and self.config.mer_by_ticker:
+            mer_array = np.array(
+                [self.config.mer_by_ticker.get(a, 0.0) for a in self.assets]
+            )
+
+            min_individual_mer = float(mer_array.min())
+            if min_individual_mer > self.config.max_portfolio_mer:
+                raise ExecutionConfigError(
+                    f"max_portfolio_mer ({self.config.max_portfolio_mer:.4%}) is "
+                    f"infeasible: the lowest individual MER is "
+                    f"{min_individual_mer:.4%}. "
+                    "No combination of weights can satisfy this constraint."
+                )
+
+            constraints_list.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda x, mer=mer_array: (
+                        self.config.max_portfolio_mer - np.dot(x, mer)
+                    ),
+                }
+            )
+            logger.info(
+                "Enforcing max portfolio MER constraint: sum(w_i * MER_i) <= %.4f%%",
+                self.config.max_portfolio_mer * 100,
+            )
 
         # Initial guess: equal weighting or best from Monte Carlo
         initial_guess = np.array([1.0 / num_assets] * num_assets)
@@ -234,13 +268,31 @@ class SharpeOptimizer:
             )  # idx is (portfolio_num, weights_tuple)
 
         logger.info("Starting numerical optimization for Sharpe ratio maximization.")
-        optimal_results = minimize(
-            self._objective_function,
-            initial_guess,
-            method="SLSQP",
-            bounds=bounds,
-            constraints=constraints,
-        )
+        try:
+            optimal_results = minimize(
+                self._objective_function,
+                initial_guess,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=constraints_list,
+            )
+        except np.linalg.LinAlgError as exc:
+            logger.error(
+                "Linear algebra error during optimisation: %s. "
+                "Falling back to equal weighting.",
+                exc,
+            )
+            optimal_weights_array = np.array([1.0 / num_assets] * num_assets)
+            optimal_weights = dict(zip(self.assets, optimal_weights_array))
+            p_return, p_volatility, p_sharpe = self.calculate_portfolio_performance(
+                optimal_weights_array
+            )
+            return OptimizationResult(
+                weights=optimal_weights,
+                expected_return=p_return,
+                volatility=p_volatility,
+                sharpe_ratio=p_sharpe,
+            )
 
         if not optimal_results.success:
             logger.error(f"Optimization failed: {optimal_results.message}")

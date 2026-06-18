@@ -14,6 +14,7 @@ from pysharpe.optimization.models import (
     PortfolioWeights,
 )
 from pysharpe.optimization.sharpe_optimizer import SharpeOptimizer
+from pysharpe.portfolio_optimization import optimise_from_prices
 from pysharpe.visualization import (
     generate_efficient_frontier,
     plot_portfolio_comparison,
@@ -163,8 +164,8 @@ def render_frontier_comparison(
             performance=user_perf,
         )
 
-        # Prepare Optimized Portfolio
-        opt_result = optimizer.optimize()
+        # Prepare Optimized Portfolio using the canonical engine
+        opt_result = optimise_from_prices(price_data, base_currency="CAD")
 
         # Fetch Benchmarks
         start_str = str(price_data.index.min().date())

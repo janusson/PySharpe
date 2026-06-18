@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 import pandas as pd
-from pypfopt import EfficientFrontier
 
 from pysharpe import metrics
-from pysharpe.optimization import PortfolioWeights
 
-WarningHandler = Callable[[str], None]
+WarningHandler = None  # retained for any external callers that import the name
 
 
 @dataclass
@@ -54,32 +51,7 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
     )
 
 
-def optimise_weights(
-    metrics_result: MetricResults, on_warning: WarningHandler | None = None
-) -> PortfolioWeights | None:
-    """Optimise portfolio weights using EfficientFrontier."""
-
-    if metrics_result.returns.empty:
-        return None
-
-    mu = metrics_result.expected
-    cov = metrics_result.returns.cov() * 252
-
-    try:
-        frontier = EfficientFrontier(mu, cov)
-        frontier.max_sharpe()
-        cleaned = frontier.clean_weights()
-    except Exception as exc:  # pragma: no cover - shown in UI
-        message = f"Optimisation failed: {exc}"
-        if on_warning:
-            on_warning(message)
-        return None
-
-    return PortfolioWeights(cleaned)
-
-
 __all__ = [
     "MetricResults",
     "compute_metrics",
-    "optimise_weights",
 ]

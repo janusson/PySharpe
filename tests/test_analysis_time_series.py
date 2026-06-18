@@ -102,6 +102,8 @@ def test_var_unfitted_error():
     modeler = VARModeler()
     with pytest.raises(RuntimeError):
         modeler.forecast()
+
+
 # Append these tests to the file
 def test_garch_invalid_input():
     forecaster = GARCHVolatilityForecaster()

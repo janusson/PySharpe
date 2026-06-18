@@ -9,6 +9,48 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# ---------------------------------------------------------------------------
+# PyMC / PyTensor compile‑mode guard
+# ---------------------------------------------------------------------------
+try:
+    import pytensor
+
+    _PYTENSOR_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _PYTENSOR_AVAILABLE = False
+
+
+def pymc_sampling_works() -> bool:
+    """Return ``True`` when the environment can actually compile & sample.
+
+    PyTensor's C-compilation backend requires a working C++ toolchain
+    (g++ or clang++) with the correct linker flags.  On macOS with
+    Python 3.13 this is frequently unavailable unless Xcode CLI tools are
+    installed.  Tests that exercise the real sampler are skipped when
+    the toolchain is missing.
+    """
+    if not _PYTENSOR_AVAILABLE:
+        return False
+    try:
+        import pytensor.tensor as pt
+
+        x = pt.scalar("x")
+        f = pytensor.function([x], x + 1, mode=pytensor.compile.mode.FAST_RUN)
+        f(0)
+        return True
+    except Exception:
+        return False
+
+
+_SAMPLING_SKIP_REASON = (
+    "PyMC sampling requires a working C-compiler toolchain; "
+    "skipping real-sampler integration test."
+)
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def sample_price_series() -> pd.Series:
@@ -54,4 +96,3 @@ def ensure_directory(tmp_path: Path):
                 if child.is_file():
                     child.unlink()
             path.rmdir()
-

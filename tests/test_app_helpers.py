@@ -10,7 +10,6 @@ from app import (
     _select_price_data,
     compute_metrics,
 )
-from pysharpe.optimization import PortfolioWeights
 
 
 def call_cached(func, *args, **kwargs):
@@ -178,7 +177,10 @@ def test_load_prices_extracts_adj_close(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         app._STREAMLIT_SERVICE,
         "download_portfolio_prices",
-        lambda tickers, **kwargs: {"AAPL": data.iloc[:, [0, 1]], "MSFT": data.iloc[:, [2, 3]]},
+        lambda tickers, **kwargs: {
+            "AAPL": data.iloc[:, [0, 1]],
+            "MSFT": data.iloc[:, [2, 3]],
+        },
     )
     portfolio_name = app._make_portfolio_name(("AAPL", "MSFT"))
     collated_path = app._STREAMLIT_SERVICE.export_dir / f"{portfolio_name}_collated.csv"
@@ -211,7 +213,9 @@ def test_load_prices_extracts_adj_close(monkeypatch: pytest.MonkeyPatch):
 
 def test_load_prices_returns_empty_when_no_numeric(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(app, "_load_collated_from_disk", lambda path: None)
-    monkeypatch.setattr(app._STREAMLIT_SERVICE, "download_portfolio_prices", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        app._STREAMLIT_SERVICE, "download_portfolio_prices", lambda *args, **kwargs: {}
+    )
 
     with pytest.raises(RuntimeError):
         call_cached(app.load_prices, ["AAPL"], "2024-01-01", "2024-02-01")
@@ -220,7 +224,11 @@ def test_load_prices_returns_empty_when_no_numeric(monkeypatch: pytest.MonkeyPat
 def test_gather_metadata_handles_success(monkeypatch: pytest.MonkeyPatch):
     class DummyTicker:
         def __init__(self, symbol: str) -> None:
-            self.info = {"shortName": f"{symbol} Inc", "exchange": "NASDAQ", "currency": "USD"}
+            self.info = {
+                "shortName": f"{symbol} Inc",
+                "exchange": "NASDAQ",
+                "currency": "USD",
+            }
 
     monkeypatch.setattr(app.yf, "Ticker", lambda ticker: DummyTicker(ticker))
 
@@ -252,57 +260,18 @@ def test_load_preview_data_combines_volume(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(app.yf, "download", lambda *args, **kwargs: data)
 
-    preview = call_cached(app.load_preview_data, ["AAPL", "MSFT"], pd.Timestamp("2024-03-01"))
+    preview = call_cached(
+        app.load_preview_data, ["AAPL", "MSFT"], pd.Timestamp("2024-03-01")
+    )
 
     assert any(col.endswith("Volume") for col in preview.columns)
 
 
-def test_load_preview_data_returns_empty_when_download_empty(monkeypatch: pytest.MonkeyPatch):
+def test_load_preview_data_returns_empty_when_download_empty(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(app.yf, "download", lambda *args, **kwargs: pd.DataFrame())
 
     preview = call_cached(app.load_preview_data, ["AAPL"], pd.Timestamp("2024-03-01"))
 
     assert preview.empty
-
-
-def test_optimise_weights_returns_none_for_empty_returns():
-    metrics_result = MetricResults(
-        returns=pd.DataFrame(),
-        expected=pd.Series(dtype=float),
-        volatility=pd.Series(dtype=float),
-        sharpe=pd.Series(dtype=float),
-    )
-
-    assert app.optimise_weights(metrics_result) is None
-
-
-def test_optimise_weights_invokes_frontier(monkeypatch: pytest.MonkeyPatch):
-    metrics_result = MetricResults(
-        returns=pd.DataFrame(
-            {
-                "AAPL": [0.01, 0.02],
-                "MSFT": [0.015, -0.01],
-            }
-        ),
-        expected=pd.Series({"AAPL": 0.1, "MSFT": 0.2}),
-        volatility=pd.Series({"AAPL": 0.15, "MSFT": 0.2}),
-        sharpe=pd.Series({"AAPL": 0.6, "MSFT": 0.7}),
-    )
-
-    class DummyFrontier:
-        def __init__(self, mu, cov_matrix) -> None:
-            self.mu = mu
-            self.cov_matrix = cov_matrix
-
-        def max_sharpe(self):
-            return {"AAPL": 0.5, "MSFT": 0.5}
-
-        def clean_weights(self):
-            return {"AAPL": 0.6, "MSFT": 0.4}
-
-    monkeypatch.setattr(app, "EfficientFrontier", DummyFrontier)
-
-    weights = app.optimise_weights(metrics_result)
-
-    assert isinstance(weights, PortfolioWeights)
-    assert pytest.approx(weights.allocations["AAPL"]) == 0.6

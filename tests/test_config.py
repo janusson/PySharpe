@@ -27,6 +27,7 @@ def test_build_settings_from_environment(monkeypatch, tmp_path):
     settings = config.build_settings()
 
     assert settings.data_dir == data_dir.resolve()
+    assert settings.cache_dir == data_dir.resolve() / "cache"
     assert settings.log_dir == log_dir.expanduser()
     assert settings.log_level == "debug"
     assert settings.artifact_version == "test"
@@ -41,10 +42,26 @@ def test_get_settings_returns_cached_instance(tmp_path, monkeypatch):
     assert isinstance(first.data_dir, Path)
 
 
+def test_default_mer_by_ticker_values_are_decimal_fractions():
+    """Default MER values must be decimal fractions, not percentage points.
+
+    A real ETF MER expressed as a decimal fraction is always well below 0.10
+    (i.e. below 10%). A value of 0.17 would indicate 17% MER — impossible for
+    a listed ETF — which signals the old percentage-point convention.
+    """
+    settings = config.build_settings()
+    for ticker, mer in settings.mer_by_ticker.items():
+        assert mer < 0.10, (
+            f"MER for {ticker} is {mer}, which looks like a percentage point "
+            f"({mer * 100:.2f}%). Use decimal fractions (e.g. 0.0017 for 0.17%)."
+        )
+
+
 def test_ensure_directories_create_all(tmp_path):
     settings = config.build_settings(base_dir=tmp_path)
     # Ensure directories do not exist beforehand
     for path in (
+        settings.cache_dir,
         settings.portfolio_dir,
         settings.price_history_dir,
         settings.export_dir,
@@ -56,6 +73,7 @@ def test_ensure_directories_create_all(tmp_path):
     settings.ensure_directories()
 
     for path in (
+        settings.cache_dir,
         settings.portfolio_dir,
         settings.price_history_dir,
         settings.export_dir,

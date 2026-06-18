@@ -44,7 +44,7 @@ def setup_logging(level: str = "INFO"):
 def generate_signals(prices_df: pd.DataFrame) -> pd.DataFrame:
     """Use DuckDB to generate trend signals for each ticker in the prices DataFrame.
 
-    Returns a DataFrame with columns ['ticker', 'ma_crossover_signal', 'volatility_penalty'] for the latest date.
+    Returns a DataFrame with columns ['ticker', 'ma_crossover_signal', 'volatility_ratio'] for the latest date.
     """
     linker = DataLinker()
     signals = []
@@ -92,18 +92,11 @@ def generate_signals(prices_df: pd.DataFrame) -> pd.DataFrame:
                     (vol_30d / vol_hist) if pd.notna(vol_hist) and vol_hist > 0 else 1.0
                 )
 
-                # Proportional penalty based on how much current volatility exceeds historical
-                penalty = max(0.0, min(1.0, vol_ratio - 1.0))
-
-                # Reduce signal proportionally if it's positive to prevent buying falling knives
-                if signal > 0:
-                    signal *= 1.0 - penalty
-
                 signals.append(
                     {
                         "ticker": ticker,
                         "ma_crossover_signal": signal,
-                        "volatility_penalty": -penalty,  # Negative score for the allocation factor
+                        "volatility_ratio": vol_ratio,
                     }
                 )
 
@@ -188,10 +181,12 @@ def main():
     merged["ma_crossover_signal"] = merged["ma_crossover_signal"].fillna(
         0
     )  # Neutral if missing
-    merged["volatility_penalty"] = merged["volatility_penalty"].fillna(0)
+    merged["volatility_ratio"] = merged["volatility_ratio"].fillna(1.0)
 
     config = AllocationConfig(
-        trend_factors={"ma_crossover_signal": 0.2, "volatility_penalty": 0.1}
+        weight_underweight=1.0,
+        weight_valuation=0.0,
+        trend_factors={"ma_crossover_signal": 0.2, "volatility_ratio": 0.1},
     )
 
     scored = score_opportunities(merged, config=config)

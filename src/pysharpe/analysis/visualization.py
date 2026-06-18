@@ -11,9 +11,9 @@ import seaborn as sns
 
 def plot_score_distribution(
     df: pd.DataFrame,
-    score_col: str = 'CompositeScore',
+    score_col: str = "CompositeScore",
     title: Optional[str] = None,
-    figsize: tuple = (10, 6)
+    figsize: tuple = (10, 6),
 ) -> None:
     """
     Plot the distribution of scores.
@@ -37,11 +37,12 @@ def plot_score_distribution(
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
+
 def plot_score_comparison(
     df: pd.DataFrame,
-    x_score: str = 'TechScore',
-    y_score: str = 'DivScore',
-    figsize: tuple = (12, 8)
+    x_score: str = "TechScore",
+    y_score: str = "DivScore",
+    figsize: tuple = (12, 8),
 ) -> None:
     """
     Create a scatter plot comparing two different scores.
@@ -58,18 +59,16 @@ def plot_score_comparison(
         Figure size (width, height)
     """
     plt.figure(figsize=figsize)
-    sns.scatterplot(data=df, x=x_score, y=y_score, hue='Ticker', s=100)
+    sns.scatterplot(data=df, x=x_score, y=y_score, hue="Ticker", s=100)
     plt.title(f"{x_score} vs {y_score}")
     plt.xlabel(x_score)
     plt.ylabel(y_score)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
+
 def plot_backtest_results(
-    portfolio_values: list,
-    periods: int,
-    initial_value: float,
-    figsize: tuple = (10, 6)
+    portfolio_values: list, periods: int, initial_value: float, figsize: tuple = (10, 6)
 ) -> None:
     """
     Plot backtest results showing portfolio value over time.
@@ -86,20 +85,24 @@ def plot_backtest_results(
         Figure size (width, height)
     """
     plt.figure(figsize=figsize)
-    plt.plot(range(periods + 1), portfolio_values, marker='o')
+    plt.plot(range(periods + 1), portfolio_values, marker="o")
     plt.title("Backtest: Portfolio Performance")
     plt.xlabel("Period (months)")
     plt.ylabel("Portfolio Value ($)")
     plt.grid(True)
-    
+
     # Add annotations for start and end values
-    plt.annotate(f"Start: ${initial_value:,.0f}", 
-                (0, initial_value),
-                xytext=(10, 10),
-                textcoords='offset points')
-    plt.annotate(f"End: ${portfolio_values[-1]:,.0f}",
-                (periods, portfolio_values[-1]),
-                xytext=(10, 10),
-                textcoords='offset points')
-    
+    plt.annotate(
+        f"Start: ${initial_value:,.0f}",
+        (0, initial_value),
+        xytext=(10, 10),
+        textcoords="offset points",
+    )
+    plt.annotate(
+        f"End: ${portfolio_values[-1]:,.0f}",
+        (periods, portfolio_values[-1]),
+        xytext=(10, 10),
+        textcoords="offset points",
+    )
+
     plt.tight_layout()

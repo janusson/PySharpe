@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -15,9 +15,9 @@ if TYPE_CHECKING:  # pragma: no cover
 def plot_correlation_heatmap(
     prices: pd.DataFrame,
     *,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     show: bool = False,
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> plt.Axes:
     """Generate a correlation heatmap from a price DataFrame.
 

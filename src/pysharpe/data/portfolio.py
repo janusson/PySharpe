@@ -6,7 +6,6 @@ import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Set
 
 from pysharpe.config import PySharpeSettings, get_settings
 
@@ -39,7 +38,7 @@ class PortfolioDefinition:
             raise ValueError(f"Portfolio {self.name} has no tickers")
 
     @property
-    def ticker_set(self) -> Set[str]:
+    def ticker_set(self) -> set[str]:
         """Return the unique tickers in the portfolio.
 
         Example:
@@ -55,7 +54,7 @@ class PortfolioDefinition:
 import csv
 
 
-def read_tickers(path: Path) -> List[str]:
+def read_tickers(path: Path) -> list[str]:
     """Read tickers from a newline-delimited file or a structured CSV.
 
     If the file is a structured CSV, it attempts to extract the 'ticker' or
@@ -190,7 +189,7 @@ class PortfolioRepository:
             )
             self._portfolios[definition.name] = definition
 
-    def list_portfolios(self) -> List[PortfolioDefinition]:
+    def list_portfolios(self) -> list[PortfolioDefinition]:
         """Return all discovered portfolio definitions sorted by name.
 
         Example:

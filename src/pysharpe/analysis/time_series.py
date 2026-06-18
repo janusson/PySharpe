@@ -5,7 +5,7 @@ including stationarity testing, GARCH volatility forecasting, and Vector Autoreg
 """
 
 import logging
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 import pandas as pd
 from arch import arch_model
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def check_stationarity(
     series: pd.Series, significance_level: float = 0.05
-) -> Dict[str, Union[float, bool, dict]]:
+) -> dict[str, Union[float, bool, dict]]:
     """Perform the Augmented Dickey-Fuller test for stationarity.
 
     Args:

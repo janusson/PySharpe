@@ -20,6 +20,7 @@ def test_get_csv_file_paths(tmp_path):
     files = data_collector.get_csv_file_paths(tmp_path)
     assert [path.name for path in files] == ["alpha.csv", "gamma.csv"]
 
+
 def test_download_and_collate_prices(monkeypatch, tmp_path):
     history = pd.DataFrame(
         {
@@ -163,7 +164,9 @@ def test_security_data_collector_requires_symbol():
 
 
 def test_download_portfolio_prices_skips_failures_and_deduplicates(tmp_path):
-    history = pd.DataFrame({"Date": ["2024-01-01", "2024-01-02"], "Close": [10.0, 11.0]})
+    history = pd.DataFrame(
+        {"Date": ["2024-01-01", "2024-01-02"], "Close": [10.0, 11.0]}
+    )
 
     class _Fetcher:
         def __init__(self) -> None:
@@ -198,10 +201,12 @@ def test_process_all_portfolios_uses_repository(monkeypatch, tmp_path):
     target_csv = portfolio_dir / "sample.csv"
     target_csv.write_text(sample_csv.read_text(encoding="utf-8"), encoding="utf-8")
 
-    history = pd.DataFrame({
-        "Date": ["2024-01-01", "2024-01-02"],
-        "Close": [50.0, 51.0],
-    })
+    history = pd.DataFrame(
+        {
+            "Date": ["2024-01-01", "2024-01-02"],
+            "Close": [50.0, 51.0],
+        }
+    )
 
     class _Fetcher:
         def fetch_history(self, *_args, **_kwargs):

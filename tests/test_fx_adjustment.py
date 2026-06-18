@@ -92,8 +92,14 @@ def test_apply_fx_conversion_fails_on_empty_fx(monkeypatch: pytest.MonkeyPatch):
         apply_fx_conversion(prices, base_currency="CAD")
 
 
-def test_apply_fx_conversion_fills_missing_fx_dates(monkeypatch: pytest.MonkeyPatch):
-    """Test that missing FX dates are filled using ffill and bfill."""
+def test_apply_fx_conversion_excludes_rows_with_no_fx_data(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Rows where FX data is not yet available must be dropped, not bfilled.
+
+    Using a future rate to convert a historical price (bfill) is lookahead bias.
+    The correct fix is to trim the price history to start when FX data exists.
+    """
     import yfinance as yf
 
     mock_ticker = MagicMock()
@@ -101,7 +107,7 @@ def test_apply_fx_conversion_fills_missing_fx_dates(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(yf, "Ticker", lambda _: mock_ticker)
 
     mock_fetcher = MagicMock()
-    # FX data only for Jan 2
+    # FX data only available from Jan 2 — Jan 1 is genuinely unknown
     fx_data = pd.DataFrame(
         {"Close": [1.35]},
         index=pd.to_datetime(["2023-01-02"]),
@@ -111,18 +117,70 @@ def test_apply_fx_conversion_fills_missing_fx_dates(monkeypatch: pytest.MonkeyPa
         "pysharpe.data.fetcher.YFinancePriceFetcher", lambda: mock_fetcher
     )
 
-    # Prices for Jan 1 and Jan 2
     prices = pd.DataFrame(
         {"USD_ASSET": [100.0, 100.0]},
         index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
     )
 
-    # Jan 1 should be bfilled from Jan 2
     adjusted = apply_fx_conversion(prices, base_currency="CAD")
 
-    expected = pd.DataFrame(
-        {"USD_ASSET": [135.0, 135.0]},
-        index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
+    # Jan 1 must be excluded — its FX rate was unknown; Jan 2 is converted correctly
+    assert pd.Timestamp("2023-01-01") not in adjusted.index, (
+        "Jan 1 should be excluded because FX data was not yet available (bfill is lookahead bias)."
+    )
+    assert pd.Timestamp("2023-01-02") in adjusted.index
+    assert adjusted.loc[pd.Timestamp("2023-01-02"), "USD_ASSET"] == pytest.approx(135.0)
+
+
+def test_apply_fx_conversion_trims_to_common_fx_window(monkeypatch: pytest.MonkeyPatch):
+    """When two foreign tickers have different FX start dates, the output is trimmed
+    to the latest common start — ensuring no row uses a bfilled rate for any ticker."""
+    import yfinance as yf
+
+    def mock_ticker_init(ticker: str):
+        m = MagicMock()
+        m.info = {"currency": "USD"}  # both assets are USD
+        return m
+
+    monkeypatch.setattr(yf, "Ticker", mock_ticker_init)
+
+    # Two sequential FX fetches for the same USDCAD=X ticker but with different data windows
+    call_count = {"n": 0}
+
+    def mock_fetch(ticker, *, period, interval, start, end):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # First call (for USD_A): FX available Jan 2 and Jan 3
+            return pd.DataFrame(
+                {"Close": [1.35, 1.36]},
+                index=pd.to_datetime(["2023-01-02", "2023-01-03"]),
+            )
+        else:
+            # Second call (for USD_B): FX only available Jan 3
+            return pd.DataFrame(
+                {"Close": [1.36]},
+                index=pd.to_datetime(["2023-01-03"]),
+            )
+
+    mock_fetcher = MagicMock()
+    mock_fetcher.fetch_history.side_effect = mock_fetch
+    monkeypatch.setattr(
+        "pysharpe.data.fetcher.YFinancePriceFetcher", lambda: mock_fetcher
     )
 
-    pd.testing.assert_frame_equal(adjusted, expected)
+    prices = pd.DataFrame(
+        {
+            "USD_A": [100.0, 100.0, 100.0],
+            "USD_B": [200.0, 200.0, 200.0],
+        },
+        index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+    )
+
+    adjusted = apply_fx_conversion(prices, base_currency="CAD")
+
+    # Only Jan 3 is valid for both tickers — Jan 1 and Jan 2 must be excluded
+    assert list(adjusted.index) == [pd.Timestamp("2023-01-03")], (
+        f"Expected only Jan 3 in output, got {list(adjusted.index)}"
+    )
+    assert adjusted.loc[pd.Timestamp("2023-01-03"), "USD_A"] == pytest.approx(136.0)
+    assert adjusted.loc[pd.Timestamp("2023-01-03"), "USD_B"] == pytest.approx(272.0)

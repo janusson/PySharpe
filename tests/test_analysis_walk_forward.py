@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from pysharpe.analysis.backtest_engine import BacktestResult, WalkForwardBacktester
-from pysharpe.optimization.base import OptimizationResult, PortfolioOptimizer
+from pysharpe.optimization.base import OptimizationResult
 
 
 class DummyOptimizer:

@@ -111,25 +111,17 @@ def render_backtest_tab(prices: pd.DataFrame) -> None:
         fee_per_trade = st.number_input(
             "Fee per trade ($)", value=0.0, min_value=0.0, step=1.0
         )
-        slippage_pct = (
-            st.slider("Slippage (%)", 0.0, 1.0, 0.0, step=0.05) / 100.0
-        )
+        slippage_pct = st.slider("Slippage (%)", 0.0, 1.0, 0.0, step=0.05) / 100.0
 
     # Drift band controls — only shown when relevant
     abs_band = None
     rel_band = None
     if strategy == "Drift band (absolute)":
-        abs_band = st.slider(
-            "Absolute drift threshold", 0.01, 0.30, 0.05, step=0.01
-        )
+        abs_band = st.slider("Absolute drift threshold", 0.01, 0.30, 0.05, step=0.01)
     elif strategy == "Drift band (relative)":
-        rel_band = st.slider(
-            "Relative drift threshold", 0.05, 1.0, 0.20, step=0.05
-        )
+        rel_band = st.slider("Relative drift threshold", 0.05, 1.0, 0.20, step=0.05)
 
-    st.markdown(
-        "**Portfolio weights** (format: `TICKER=weight, TICKER=weight`)"
-    )
+    st.markdown("**Portfolio weights** (format: `TICKER=weight, TICKER=weight`)")
     default_weights = ", ".join(
         f"{col}={1 / len(prices.columns):.2f}" for col in prices.columns
     )
@@ -267,9 +259,7 @@ def _run_and_display(
                     )
                 )
         except Exception:
-            st.warning(
-                f"Could not fetch benchmark data for {benchmark_ticker}."
-            )
+            st.warning(f"Could not fetch benchmark data for {benchmark_ticker}.")
 
     # Rebalance markers (strip tz to match the tz-naive portfolio index)
     for dt in result.rebalance_events:

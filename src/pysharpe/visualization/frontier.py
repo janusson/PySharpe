@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -75,7 +75,7 @@ def plot_portfolio_comparison(
     user_portfolio: OptimisationResult,
     optimized_portfolio: OptimisationResult,
     benchmarks_df: pd.DataFrame,
-    prices: Optional[pd.DataFrame] = None,
+    prices: pd.DataFrame | None = None,
     frequency: int = 252,
 ) -> plt.Figure:
     """Plot the Efficient Frontier curve overlaid with portfolios and benchmarks.

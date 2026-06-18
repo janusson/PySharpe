@@ -14,8 +14,6 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     alt = None  # type: ignore[assignment]
 
-from pypfopt import EfficientFrontier  # noqa: F401 - re-exported for tests
-
 import pysharpe.app.charts as _charts
 import pysharpe.app.data as _data
 import pysharpe.app.dca as _dca
@@ -38,7 +36,7 @@ from pysharpe.app.data import (
     select_price_data,
 )
 from pysharpe.app.dca import render_dca_projection as _render_dca_projection
-from pysharpe.optimization import PortfolioWeights
+from pysharpe.portfolio_optimization import optimise_from_prices
 from pysharpe.visualization import simulate_dca  # noqa: F401 - re-exported for tests
 
 _prepare_weight_chart_data = _charts._prepare_weight_chart_data  # noqa: F401
@@ -73,29 +71,6 @@ def render_metrics_table(metrics_result):
 
     _charts.st = st
     return _charts.render_metrics_table(metrics_result)
-
-
-def optimise_weights(
-    metrics_result: MetricResults, on_warning=None
-) -> PortfolioWeights | None:
-    """Optimise portfolio weights using the (monkeypatchable) frontier class."""
-
-    if metrics_result.returns.empty:
-        return None
-
-    mu = metrics_result.expected
-    cov = metrics_result.returns.cov() * 252
-
-    try:
-        frontier = EfficientFrontier(mu, cov)
-        frontier.max_sharpe()
-        cleaned = frontier.clean_weights()
-    except Exception as exc:  # pragma: no cover - surfaced in UI/tests
-        if on_warning:
-            on_warning(f"Optimisation failed: {exc}")
-        return None
-
-    return PortfolioWeights(cleaned)
 
 
 def render_dca_projection(months: int, initial: float, monthly: float, rate: float):
@@ -428,8 +403,12 @@ def main() -> None:
             if price_data.empty or price_data.select_dtypes("number").empty:
                 st.warning("Cannot optimise without Close/Adj Close price history.")
             else:
-                metrics_result = compute_metrics(price_data)
-                weights = optimise_weights(metrics_result)
+                try:
+                    opt_result = optimise_from_prices(price_data, base_currency="CAD")
+                    weights = opt_result.weights
+                except Exception as exc:
+                    st.warning(f"Optimisation failed: {exc}")
+                    weights = None
                 if weights:
                     with weights_placeholder.container():
                         st.subheader("Portfolio Weights")

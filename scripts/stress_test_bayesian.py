@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bayesian_stress_test")
 
-# Proxies defined from Proxies.md to represent CAD-denominated and global ETFs
+# Proxies defined from docs/proxies.md to represent CAD-denominated and global ETFs
 # with sufficient historical data for robust Bayesian sampling.
 PROXY_MAPPING = {
     "VFV.TO": "VOO",  # U.S. Large Cap
@@ -89,7 +89,7 @@ def run_stress_test():
     try:
         # Using a moderately high number of draws/tunes to stress the system
         # without causing an outright timeout.
-        trace = optimizer.fit_returns_model(
+        optimizer.fit_returns_model(
             monthly_returns,
             draws=400,
             tune=200,
@@ -198,8 +198,8 @@ def run_stress_test():
         plt.legend()
 
         # Save the plot
-        output_dir = ROOT / "outputs"
-        output_dir.mkdir(exist_ok=True)
+        output_dir = ROOT / "data" / "exports"
+        output_dir.mkdir(parents=True, exist_ok=True)
         plot_path = output_dir / "bayesian_mc_sharpe_distribution.png"
         plt.savefig(plot_path)
         plt.close()

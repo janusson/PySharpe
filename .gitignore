@@ -1,13 +1,18 @@
 # Project-specific ignores
 original_program/
 
-# Python.gitignore
+# Runtime artefacts
 logs/
+outputs/
+pysharpe_cache.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Distribution / packaging
 build/
@@ -27,7 +32,18 @@ dist/
 *.swp
 
 # Data and cache files
-/data/
+/data/cache/*
+!/data/cache/.gitkeep
+/data/exports/*
+!/data/exports/.gitkeep
+/data/info/*
+!/data/info/.gitkeep
+/data/logs/*
+!/data/logs/.gitkeep
+/data/portfolio/*
+!/data/portfolio/.gitkeep
+/data/price_hist/*
+!/data/price_hist/.gitkeep
 .cache/
 
 # macOS
@@ -36,4 +52,5 @@ dist/
 
 # Development
 repomix-output.xml
-docs/
+notes/
+docs/superpowers/plans/

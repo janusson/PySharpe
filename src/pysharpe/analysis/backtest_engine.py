@@ -148,8 +148,17 @@ class HistoricalBacktester:
         if self.rebalance_freq:
             # Translate newer pandas offset aliases (ME/QE/YE) to period aliases (M/Q/Y)
             # `to_period` requires the older aliases on pandas >= 2.2
-            _PERIOD_ALIAS_MAP = {"ME": "M", "QE": "Q", "YE": "Y", "MS": "M", "QS": "Q", "YS": "Y"}
-            period_freq = _PERIOD_ALIAS_MAP.get(self.rebalance_freq, self.rebalance_freq)
+            _PERIOD_ALIAS_MAP = {
+                "ME": "M",
+                "QE": "Q",
+                "YE": "Y",
+                "MS": "M",
+                "QS": "Q",
+                "YS": "Y",
+            }
+            period_freq = _PERIOD_ALIAS_MAP.get(
+                self.rebalance_freq, self.rebalance_freq
+            )
             # Group by period and mark the last day of each period
             period_idx = dates.to_period(period_freq)
             is_period_end = np.zeros(n_days, dtype=bool)

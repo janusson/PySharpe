@@ -161,7 +161,8 @@ class PortfolioTickerReader:
 
         self.repo.refresh()
         self.portfolio_tickers = {
-            definition.name: set(definition.tickers) for definition in self.repo.list_portfolios()
+            definition.name: set(definition.tickers)
+            for definition in self.repo.list_portfolios()
         }
 
     def get_portfolio_tickers(self, portfolio_name: str) -> set[str]:
@@ -424,7 +425,9 @@ class SecurityDataCollector:
         info = self.get_company_info()
         destination = _as_path(destination)
         destination.mkdir(parents=True, exist_ok=True)
-        file_path = destination / f"{self.get_company_name().replace(' ', '_')}_summary.json"
+        file_path = (
+            destination / f"{self.get_company_name().replace(' ', '_')}_summary.json"
+        )
         file_path.write_text(json.dumps(info, indent=4), encoding="utf-8")
         return file_path
 
@@ -494,7 +497,9 @@ class SecurityDataCollector:
             "dividends": getattr(self._yf, "dividends", None),
             "splits": getattr(self._yf, "splits", None),
             "capital_gains": getattr(self._yf, "capital_gains", None),
-            "shares_history": self._yf.get_shares_full() if hasattr(self._yf, "get_shares_full") else None,
+            "shares_history": self._yf.get_shares_full()
+            if hasattr(self._yf, "get_shares_full")
+            else None,
         }
 
     def get_summary(self) -> dict:
@@ -563,7 +568,9 @@ class SecurityDataCollector:
         try:
             frame = self._yf.history(**payload)
         except Exception as exc:  # pragma: no cover - network/HTTP failures
-            raise PriceHistoryError(f"Failed to download history for {self.ticker}: {exc}") from exc
+            raise PriceHistoryError(
+                f"Failed to download history for {self.ticker}: {exc}"
+            ) from exc
 
         if frame.empty:
             raise PriceHistoryError(f"No price data returned for {self.ticker}.")
@@ -580,7 +587,9 @@ def main() -> None:  # pragma: no cover - script entry point
     csv_files = get_csv_file_paths(PORTFOLIO_DIR)
     for portfolio_path in csv_files:
         tickers = read_tickers_from_file(portfolio_path)
-        logger.info("Tickers for %s: %s", portfolio_path.stem, ", ".join(sorted(tickers)))
+        logger.info(
+            "Tickers for %s: %s", portfolio_path.stem, ", ".join(sorted(tickers))
+        )
         process_portfolio(portfolio_path)
 
 

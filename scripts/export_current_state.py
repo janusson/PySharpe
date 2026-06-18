@@ -58,7 +58,9 @@ def _load_weights(path: Path) -> pd.Series:
             raise ValueError("Weights file must include target_weight or weight.")
     return (
         frame[["ticker", "target_weight"]]
-        .assign(target_weight=lambda x: pd.to_numeric(x["target_weight"], errors="coerce"))
+        .assign(
+            target_weight=lambda x: pd.to_numeric(x["target_weight"], errors="coerce")
+        )
         .dropna(subset=["target_weight"])
         .set_index("ticker")["target_weight"]
     )
@@ -69,9 +71,13 @@ def main() -> int:
         prog="export_current_state.py",
         description="Export ticker/current_value/target_weight CSV for pysharpe allocate.",
     )
-    parser.add_argument("--holdings-csv", type=Path, help="Holdings CSV with ticker and shares.")
+    parser.add_argument(
+        "--holdings-csv", type=Path, help="Holdings CSV with ticker and shares."
+    )
     parser.add_argument("--holdings-json", help="JSON mapping ticker -> shares.")
-    parser.add_argument("--weights", required=True, type=Path, help="Optimiser weights file.")
+    parser.add_argument(
+        "--weights", required=True, type=Path, help="Optimiser weights file."
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -106,9 +112,7 @@ def main() -> int:
         }
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    frame[["ticker", "current_value", "target_weight"]].to_csv(
-        args.output, index=False
-    )
+    frame[["ticker", "current_value", "target_weight"]].to_csv(args.output, index=False)
     print(f"Wrote {args.output}")
     return 0
 

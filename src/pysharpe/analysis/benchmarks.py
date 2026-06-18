@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -28,7 +27,7 @@ CANADIAN_BENCHMARKS = {
 
 
 def fetch_benchmark_metrics(
-    tickers: List[str],
+    tickers: list[str],
     start_date: str,
     end_date: str,
     base_currency: str = "CAD",
@@ -57,7 +56,7 @@ def fetch_benchmark_metrics(
 
     fetcher = DuckDBCachedPriceFetcher(YFinancePriceFetcher())
 
-    price_data: Dict[str, pd.Series] = {}
+    price_data: dict[str, pd.Series] = {}
 
     for ticker in tickers:
         try:

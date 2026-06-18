@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -72,7 +72,9 @@ def simulate_dca(
         raise ValueError("annual_return_rate must be greater than -100%")
 
     month_index = np.arange(months, dtype=int)
-    contributions = initial_investment + monthly_contribution * month_index.astype(float)
+    contributions = initial_investment + monthly_contribution * month_index.astype(
+        float
+    )
 
     monthly_rate = (1 + annual_return_rate) ** (1 / 12) - 1
     growth_factor = 1.0 + monthly_rate
@@ -87,15 +89,17 @@ def simulate_dca(
 
     balances = balances.astype(float)
 
-    return DCAProjection(months=month_index, contributions=contributions, balances=balances)
+    return DCAProjection(
+        months=month_index, contributions=contributions, balances=balances
+    )
 
 
 def plot_dca_projection(
     projection: DCAProjection,
     *,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     show: bool = False,
-    title: Optional[str] = None,
+    title: str | None = None,
 ):
     """Plot the cumulative balance and contributions for a DCA projection.
 

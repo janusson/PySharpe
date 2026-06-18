@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Optional, Protocol
+from typing import Protocol
 
 import cvxpy as cp
 import numpy as np
@@ -16,8 +16,16 @@ from pypfopt.expected_returns import ema_historical_return, mean_historical_retu
 from pypfopt.risk_models import CovarianceShrinkage
 
 from pysharpe.analysis import apply_category_mapping
-from pysharpe.config import get_settings
-from pysharpe.data.fetcher import YFinancePriceFetcher, apply_fx_conversion
+from pysharpe.config import (
+    ExecutionConfig,
+    get_settings,
+    get_ticker_metadata,
+)
+from pysharpe.data.fetcher import apply_fx_conversion
+from pysharpe.optimization.expected_returns import (
+    constant_expected_return,
+    shrinkage_expected_return,
+)
 from pysharpe.optimization.models import (
     OptimisationPerformance,
     OptimisationResult,
@@ -192,9 +200,12 @@ def optimise_portfolio(
     make_plot: bool = True,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
-    return_model: str = "ema",
+    return_model: str = "shrinkage",
     base_currency: str = "CAD",
     max_weight: float = 0.20,
+    shrinkage_floor: float = 0.3,
+    execution_config: ExecutionConfig | None = None,
+    proxy_map: dict[str, dict[str, object]] | None = None,
 ) -> OptimisationResult:
     """Optimise a portfolio using the PyPortfolioOpt max Sharpe workflow.
 
@@ -251,6 +262,9 @@ def optimise_portfolio(
         return_model=return_model,
         base_currency=base_currency,
         max_weight=max_weight,
+        shrinkage_floor=shrinkage_floor,
+        execution_config=execution_config,
+        proxy_map=proxy_map,
     )
 
 
@@ -260,31 +274,56 @@ class ConfigurationError(ValueError):
     pass
 
 
-def _optimise_portfolio_impl(
+def optimise_from_prices(
+    prices: pd.DataFrame,
     *,
-    portfolio_name: str,
-    collated_dir: Path,
-    output_dir: Path,
-    time_constraint: str | None,
-    asset_constraints: dict[str, float] | None,
-    mer_mapping: dict[str, float] | None,
-    max_portfolio_mer: float | None,
-    geo_mapping: dict[str, str] | None,
-    geo_lower_bounds: dict[str, float] | None,
-    geo_upper_bounds: dict[str, float] | None,
-    category_map: Mapping[str, str] | None,
-    include_unmapped_categories: bool,
-    plot_strategy: AllocationPlotStrategy,
-    return_model: str,
-    base_currency: str,
+    name: str = "",
+    asset_constraints: dict[str, float] | None = None,
+    mer_mapping: dict[str, float] | None = None,
+    max_portfolio_mer: float | None = None,
+    geo_mapping: dict[str, str] | None = None,
+    geo_lower_bounds: dict[str, float] | None = None,
+    geo_upper_bounds: dict[str, float] | None = None,
+    category_map: Mapping[str, str] | None = None,
+    include_unmapped_categories: bool = True,
+    return_model: str = "shrinkage",
+    base_currency: str = "CAD",
     max_weight: float = 0.20,
+    shrinkage_floor: float = 0.3,
+    execution_config: ExecutionConfig | None = None,
+    proxy_map: dict[str, dict[str, object]] | None = None,
 ) -> OptimisationResult:
-    """Implementation detail powering :func:`optimise_portfolio`."""
+    """Canonical optimization kernel operating on an in-memory price DataFrame.
 
-    prices = _load_collated_prices(
-        portfolio_name, collated_dir, time_constraint=time_constraint
-    )
+    No disk I/O — callers decide what to do with the result.  Both the CLI
+    (via :func:`optimise_portfolio`) and the Streamlit dashboard call this
+    function so the algorithm is always identical.
 
+    Args:
+        prices: Historical price DataFrame (rows = dates, columns = tickers).
+        name: Portfolio label used in error messages and the result.
+        asset_constraints: Optional dict with ``min_weight``/``max_weight`` keys
+            applied as linear constraints.
+        mer_mapping: Optional mapping of ticker to its MER (decimal).
+        max_portfolio_mer: Maximum allowable weighted MER for the portfolio.
+        geo_mapping: Optional mapping of ticker to geographic region.
+        geo_lower_bounds: Minimum weight per region.
+        geo_upper_bounds: Maximum weight per region.
+        category_map: Optional mapping of ticker -> category label used to
+            collapse highly correlated exposures before optimisation.
+        include_unmapped_categories: When ``True`` retain tickers that do not
+            appear in ``category_map`` as standalone categories.
+        return_model: Expected return calculation method. 'ema' or 'mean'.
+        base_currency: FX target currency applied before optimisation.
+        max_weight: Maximum allowable weight for any single asset (default 0.20).
+        execution_config: Optional execution settings controlling tax drag
+            during expected-return estimation.
+        proxy_map: Optional proxy metadata used to determine US domicile and
+            CAD denomination per ticker.
+
+    Returns:
+        :class:`OptimisationResult` with weights and performance metrics.
+    """
     if len(prices.columns) < MIN_ASSETS:
         raise ValueError(
             f"Portfolio optimization requires a minimum of {MIN_ASSETS} assets to ensure basic diversification. "
@@ -310,8 +349,7 @@ def _optimise_portfolio_impl(
             if missing_geo:
                 errors.append(f"Geographic data missing for: {', '.join(missing_geo)}")
             raise ConfigurationError(
-                f"Configuration missing for portfolio '{portfolio_name}'. "
-                + "; ".join(errors)
+                f"Configuration missing for portfolio '{name}'. " + "; ".join(errors)
             )
 
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
@@ -330,13 +368,13 @@ def _optimise_portfolio_impl(
             )
         except ValueError as exc:
             raise ValueError(
-                f"No data available for {portfolio_name} after applying category mapping."
+                f"No data available for {name} after applying category mapping."
             ) from exc
 
         if aggregation.dropped:
             logger.warning(
                 "Dropping tickers for %s without category assignment: %s",
-                portfolio_name,
+                name,
                 ", ".join(sorted(aggregation.dropped)),
             )
 
@@ -352,8 +390,28 @@ def _optimise_portfolio_impl(
 
     if return_model.lower() == "ema":
         mu = ema_historical_return(prices)
+    elif return_model.lower() == "shrinkage":
+        mu = shrinkage_expected_return(prices, shrinkage_floor=shrinkage_floor)
+    elif return_model.lower() == "constant":
+        mu = constant_expected_return(prices)
     else:
         mu = mean_historical_return(prices)
+
+    # --- Tax Drag: reduce expected returns for US-domiciled assets in TFSA/FHSA ---
+    if execution_config is not None and execution_config.tax_drag_applies:
+        drag = execution_config.annual_tax_drag
+        tickers_affected: list[str] = []
+        for ticker in mu.index:
+            meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
+            if meta["is_us_domiciled"]:
+                mu[ticker] -= drag
+                tickers_affected.append(ticker)
+        if tickers_affected:
+            logger.info(
+                "Applied %.2f%% tax drag to US-domiciled assets: %s",
+                drag * 100,
+                ", ".join(tickers_affected),
+            )
 
     try:
         cov = CovarianceShrinkage(prices).ledoit_wolf()
@@ -363,7 +421,6 @@ def _optimise_portfolio_impl(
         )
         cov = prices.pct_change().dropna().cov()
 
-    # Apply max_weight bounds to EfficientFrontier
     ef = EfficientFrontier(mu, cov, weight_bounds=(0.0, max_weight))
 
     if asset_constraints:
@@ -382,7 +439,7 @@ def _optimise_portfolio_impl(
             else:
                 logger.warning(
                     "Portfolio %s lacks assets in sector '%s'; ignoring lower bound constraint.",
-                    portfolio_name,
+                    name,
                     k,
                 )
 
@@ -436,8 +493,8 @@ def _optimise_portfolio_impl(
             for ticker, weight in cleaned_weights.items()
         )
 
-    result = OptimisationResult(
-        name=portfolio_name,
+    return OptimisationResult(
+        name=name,
         weights=PortfolioWeights(cleaned_weights),
         performance=OptimisationPerformance(
             expected,
@@ -448,6 +505,54 @@ def _optimise_portfolio_impl(
             limiting_ticker=str(limiting_ticker),
             portfolio_mer=portfolio_mer,
         ),
+    )
+
+
+def _optimise_portfolio_impl(
+    *,
+    portfolio_name: str,
+    collated_dir: Path,
+    output_dir: Path,
+    time_constraint: str | None,
+    asset_constraints: dict[str, float] | None,
+    mer_mapping: dict[str, float] | None,
+    max_portfolio_mer: float | None,
+    geo_mapping: dict[str, str] | None,
+    geo_lower_bounds: dict[str, float] | None,
+    geo_upper_bounds: dict[str, float] | None,
+    category_map: Mapping[str, str] | None,
+    include_unmapped_categories: bool,
+    plot_strategy: AllocationPlotStrategy,
+    return_model: str,
+    base_currency: str,
+    max_weight: float = 0.20,
+    shrinkage_floor: float = 0.3,
+    execution_config: ExecutionConfig | None = None,
+    proxy_map: dict[str, dict[str, object]] | None = None,
+) -> OptimisationResult:
+    """Implementation detail powering :func:`optimise_portfolio`."""
+
+    prices = _load_collated_prices(
+        portfolio_name, collated_dir, time_constraint=time_constraint
+    )
+
+    result = optimise_from_prices(
+        prices,
+        name=portfolio_name,
+        asset_constraints=asset_constraints,
+        mer_mapping=mer_mapping,
+        max_portfolio_mer=max_portfolio_mer,
+        geo_mapping=geo_mapping,
+        geo_lower_bounds=geo_lower_bounds,
+        geo_upper_bounds=geo_upper_bounds,
+        category_map=category_map,
+        include_unmapped_categories=include_unmapped_categories,
+        return_model=return_model,
+        base_currency=base_currency,
+        max_weight=max_weight,
+        shrinkage_floor=shrinkage_floor,
+        execution_config=execution_config,
+        proxy_map=proxy_map,
     )
 
     _save_weights(result, output_dir)
@@ -462,8 +567,10 @@ def optimise_portfolio_for_sharpe(
     *,
     collated_dir: Path = EXPORT_DIR,
     output_dir: Path = EXPORT_DIR,
-    time_constraint: Optional[str] = None,
-    config: Optional[SharpeOptimizerConfig] = None,
+    time_constraint: str | None = None,
+    config: SharpeOptimizerConfig | None = None,
+    mer_mapping: dict[str, float] | None = None,
+    max_portfolio_mer: float | None = None,
     make_plot: bool = True,
     base_currency: str = "CAD",
     max_weight: float = 0.20,
@@ -476,6 +583,8 @@ def optimise_portfolio_for_sharpe(
         output_dir: Directory where optimisation artefacts are written.
         time_constraint: Optional ISO date to filter the collated history.
         config: Configuration for the SharpeOptimizer. If None, default settings are used.
+        mer_mapping: Optional mapping of ticker to its MER (decimal).
+        max_portfolio_mer: Maximum allowable weighted MER for the portfolio.
         make_plot: When ``True`` generate a pie chart of positive weights.
         base_currency: The target currency for all assets (default "CAD").
         max_weight: The maximum allowable weight for any single asset. Defaults to 0.20 (20%).
@@ -521,9 +630,17 @@ def optimise_portfolio_for_sharpe(
 
     # Initialize and run the SharpeOptimizer
     if config is None:
-        config = SharpeOptimizerConfig(max_weight=max_weight)
+        config = SharpeOptimizerConfig(
+            max_weight=max_weight,
+            mer_by_ticker=mer_mapping or {},
+            max_portfolio_mer=max_portfolio_mer,
+        )
     else:
         config.max_weight = max_weight
+        if mer_mapping:
+            config.mer_by_ticker = mer_mapping
+        if max_portfolio_mer is not None:
+            config.max_portfolio_mer = max_portfolio_mer
 
     sharpe_optimizer = SharpeOptimizer(prices=prices, config=config)
     optimization_result = sharpe_optimizer.optimize()
@@ -569,8 +686,8 @@ def optimise_all_portfolios(
     geo_upper_bounds: dict[str, float] | None = None,
     category_map: Mapping[str, str] | None = None,
     include_unmapped_categories: bool = True,
-    return_model: str = "ema",
-    sharpe_optimizer_config: Optional[SharpeOptimizerConfig] = None,
+    return_model: str = "shrinkage",
+    sharpe_optimizer_config: SharpeOptimizerConfig | None = None,
     base_currency: str = "CAD",
     max_weight: float = 0.20,
 ) -> dict[str, OptimisationResult]:
@@ -605,7 +722,7 @@ def optimise_all_portfolios(
         {'demo': OptimisationResult(...)}
     """
 
-    results: Dict[str, OptimisationResult] = {}
+    results: dict[str, OptimisationResult] = {}
 
     for path in Path(collated_dir).glob("*_collated.csv"):
         name = path.stem.replace("_collated", "")

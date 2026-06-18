@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from pysharpe.config import get_settings
+from pysharpe.config import ExecutionConfig, get_settings
 from pysharpe.data import PortfolioDownloadWorkflow
+from pysharpe.exceptions import PySharpeError
 from pysharpe.optimization.models import OptimisationResult
 from pysharpe.portfolio_optimization import optimise_all_portfolios, optimise_portfolio
 
@@ -82,8 +83,12 @@ def optimise_portfolios(
     make_plot: bool = True,
     category_map: dict[str, str] | None = None,
     include_unmapped_categories: bool = True,
-    return_model: str = "ema",
+    return_model: str = "shrinkage",
     base_currency: str = "CAD",
+    max_weight: float = 0.20,
+    shrinkage_floor: float = 0.3,
+    execution_config: ExecutionConfig | None = None,
+    proxy_map: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, OptimisationResult]:
     """Optimise one or more portfolios and persist artefacts.
 
@@ -105,6 +110,10 @@ def optimise_portfolios(
             present in ``category_map`` as standalone categories.
         return_model: Expected return calculation method. 'ema' or 'mean'. Defaults to 'ema'.
         base_currency: The target currency for all assets (default "CAD").
+        max_weight: Maximum allowable weight for any single asset (default 0.20).
+        shrinkage_floor: Minimum shrinkage intensity for 'shrinkage' return model
+            (0.0-1.0, default 0.3). Higher values pull estimates more aggressively
+            toward the grand mean, reducing recency bias.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult` objects.
@@ -148,10 +157,12 @@ def optimise_portfolios(
                 include_unmapped_categories=include_unmapped_categories,
                 return_model=return_model,
                 base_currency=base_currency,
+                max_weight=max_weight,
+                shrinkage_floor=shrinkage_floor,
+                execution_config=execution_config,
+                proxy_map=proxy_map,
             )
-        except FileNotFoundError as exc:
-            logger.warning("Skipping %s: %s", name, exc)
-        except ValueError as exc:
+        except (FileNotFoundError, ValueError, PySharpeError) as exc:
             logger.warning("Skipping %s: %s", name, exc)
 
     if not results:

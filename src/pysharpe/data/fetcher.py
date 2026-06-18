@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
 
 import pandas as pd
 import yfinance as yf
@@ -25,7 +24,7 @@ def _default_duckdb_cache_path() -> str:
 def apply_fx_conversion(
     prices: pd.DataFrame,
     base_currency: str = "CAD",
-    fetcher: Optional[PriceFetcher] = None,
+    fetcher: PriceFetcher | None = None,
 ) -> pd.DataFrame:
     """Adjust price data for foreign exchange rates.
 
@@ -152,8 +151,8 @@ class PriceFetcher(ABC):
         *,
         period: str,
         interval: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """Return a price history for ``ticker``.
 
@@ -183,9 +182,7 @@ class DuckDBCachedPriceFetcher(PriceFetcher):
     ``data/cache/pysharpe_cache.db``.
     """
 
-    def __init__(
-        self, fetcher: PriceFetcher, db_path: str | None = None
-    ) -> None:
+    def __init__(self, fetcher: PriceFetcher, db_path: str | None = None) -> None:
         self.fetcher = fetcher
         self.db_path = db_path or _default_duckdb_cache_path()
         self._init_db()
@@ -228,8 +225,8 @@ class DuckDBCachedPriceFetcher(PriceFetcher):
         ticker: str,
         period: str,
         interval: str,
-        start: Optional[str],
-        end: Optional[str],
+        start: str | None,
+        end: str | None,
     ) -> str:
         params = {
             "ticker": ticker,
@@ -247,8 +244,8 @@ class DuckDBCachedPriceFetcher(PriceFetcher):
         *,
         period: str,
         interval: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         duckdb = self._lazy_module()
         cache_key = self._generate_key(ticker, period, interval, start, end)
@@ -366,7 +363,7 @@ class YFinancePriceFetcher(PriceFetcher):
         True
     """
 
-    def __init__(self, history_kwargs: Optional[Dict[str, object]] = None) -> None:
+    def __init__(self, history_kwargs: dict[str, object] | None = None) -> None:
         self._history_overrides = history_kwargs or {}
 
     def _lazy_module(self):
@@ -384,8 +381,8 @@ class YFinancePriceFetcher(PriceFetcher):
         *,
         period: str,
         interval: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """Download price data for ``ticker`` using yfinance.
 
@@ -411,7 +408,7 @@ class YFinancePriceFetcher(PriceFetcher):
         """
 
         yf = self._lazy_module()
-        request_payload: Dict[str, object] = {"interval": interval}
+        request_payload: dict[str, object] = {"interval": interval}
         if start:
             request_payload["start"] = start
         if end:

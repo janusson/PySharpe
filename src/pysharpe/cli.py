@@ -12,8 +12,9 @@ import pandas as pd
 
 from pysharpe import data_collector, workflows
 from pysharpe.analysis import load_category_map
-from pysharpe.config import get_settings
+from pysharpe.config import ExecutionConfig, get_settings, load_execution_config
 from pysharpe.data import PortfolioRepository
+from pysharpe.exceptions import PySharpeError
 from pysharpe.execution.allocator import (
     AllocationConfig,
     allocate_contribution,
@@ -31,6 +32,21 @@ def _resolve(path: Path | str | None, default: Path) -> Path:
     if path is None:
         return default
     return Path(path).expanduser().resolve()
+
+
+def _load_execution_config_optional(args: argparse.Namespace) -> ExecutionConfig:
+    """Load execution config from file, overriding with CLI flags when provided."""
+    from dataclasses import replace
+
+    config_path = None
+    if hasattr(args, "config") and args.config:
+        config_path = args.config
+    config = load_execution_config(config_path)
+
+    # Allow CLI override of allow_fractional
+    if hasattr(args, "allow_fractional") and args.allow_fractional is not None:
+        config = replace(config, allow_fractional=args.allow_fractional)
+    return config
 
 
 def _summarise_results(results: Iterable[OptimisationResult]) -> None:
@@ -54,115 +70,128 @@ def _handle_optimise(args: argparse.Namespace) -> int:
     price_dir.mkdir(parents=True, exist_ok=True)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.log_dir:
-        data_collector.setup_logging(Path(args.log_dir))
+    try:
+        if args.log_dir:
+            data_collector.setup_logging(Path(args.log_dir))
 
-    repo = PortfolioRepository(settings, directory=portfolio_dir)
-    available = {definition.name: definition for definition in repo.list_portfolios()}
-    if not available:
-        print("No portfolios discovered. Add CSV files to the portfolio directory.")
-        return 1
+        repo = PortfolioRepository(settings, directory=portfolio_dir)
+        available = {
+            definition.name: definition for definition in repo.list_portfolios()
+        }
+        if not available:
+            print("No portfolios discovered. Add CSV files to the portfolio directory.")
+            return 1
 
-    if args.portfolios:
-        missing = [name for name in args.portfolios if name not in available]
-        if missing:
-            print("Unknown portfolio names:")
-            for item in missing:
-                print(f"  - {item}")
-        targets = [available[name] for name in args.portfolios if name in available]
-    else:
-        targets = list(available.values())
+        if args.portfolios:
+            missing = [name for name in args.portfolios if name not in available]
+            if missing:
+                print("Unknown portfolio names:")
+                for item in missing:
+                    print(f"  - {item}")
+            targets = [available[name] for name in args.portfolios if name in available]
+        else:
+            targets = list(available.values())
 
-    if not targets:
-        print("No valid portfolios selected.")
-        return 1
+        if not targets:
+            print("No valid portfolios selected.")
+            return 1
 
-    target_names = [definition.name for definition in targets]
+        target_names = [definition.name for definition in targets]
 
-    if not args.skip_download:
-        workflows.download_portfolios(
+        if not args.skip_download:
+            workflows.download_portfolios(
+                portfolio_names=target_names,
+                portfolio_dir=portfolio_dir,
+                price_history_dir=price_dir,
+                export_dir=export_dir,
+                period=args.period,
+                interval=args.interval,
+                start=args.start,
+                end=args.end,
+            )
+
+        # Optimization configuration
+        mer_mapping: dict[str, float] | None = None
+        geo_mapping: dict[str, str] | None = None
+        max_portfolio_mer: float | None = None
+        geo_upper_bounds: dict[str, float] | None = None
+        geo_lower_bounds: dict[str, float] | None = None
+
+        config_path = None
+        if args.config:
+            config_path = Path(args.config).expanduser()
+            if not config_path.exists():
+                print(f"Configuration file not found: {config_path}")
+                return 1
+        else:
+            default_config = Path("portfolio_config.json")
+            if default_config.exists():
+                config_path = default_config
+
+        if config_path:
+            try:
+                with config_path.open("r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+
+                mer_mapping = config_data.get("mer_mapping")
+                geo_mapping = config_data.get("geo_mapping")
+
+                constraints = config_data.get("constraints", {})
+                max_portfolio_mer = constraints.get("max_portfolio_mer")
+                geo_upper_bounds = constraints.get("geo_upper_bounds")
+                geo_lower_bounds = constraints.get("geo_lower_bounds")
+
+            except json.JSONDecodeError as exc:
+                print(f"Error parsing configuration file: {exc}")
+                return 1
+            except Exception as exc:
+                print(f"Unexpected error loading configuration: {exc}")
+                return 1
+        include_unmapped = not args.drop_unmapped_categories
+        category_map: dict[str, str] | None = None
+        if args.category_map:
+            try:
+                category_map = load_category_map(args.category_map)
+            except ValueError as exc:
+                print(f"Unable to load category map: {exc}")
+                return 1
+        elif args.use_default_categories:
+            category_map = load_category_map()
+
+        execution_config = load_execution_config(config_path)
+        proxy_map = get_settings().proxy_map
+
+        results = workflows.optimise_portfolios(
             portfolio_names=target_names,
-            portfolio_dir=portfolio_dir,
-            price_history_dir=price_dir,
-            export_dir=export_dir,
-            period=args.period,
-            interval=args.interval,
-            start=args.start,
-            end=args.end,
+            collated_dir=export_dir,
+            output_dir=export_dir,
+            time_constraint=args.time_constraint,
+            mer_mapping=mer_mapping,
+            max_portfolio_mer=max_portfolio_mer,
+            geo_mapping=geo_mapping,
+            geo_lower_bounds=geo_lower_bounds,
+            geo_upper_bounds=geo_upper_bounds,
+            make_plot=not args.no_plot,
+            category_map=category_map,
+            include_unmapped_categories=include_unmapped,
+            return_model=args.return_model,
+            base_currency=args.base_currency,
+            max_weight=args.max_weight,
+            shrinkage_floor=args.shrinkage_floor,
+            execution_config=execution_config,
+            proxy_map=proxy_map,
         )
 
-    # Optimization configuration
-    mer_mapping: dict[str, float] | None = None
-    geo_mapping: dict[str, str] | None = None
-    max_portfolio_mer: float | None = None
-    geo_upper_bounds: dict[str, float] | None = None
-    geo_lower_bounds: dict[str, float] | None = None
-
-    config_path = None
-    if args.config:
-        config_path = Path(args.config).expanduser()
-        if not config_path.exists():
-            print(f"Configuration file not found: {config_path}")
+        if not results:
+            print("No optimisation results produced. Ensure collated data exists.")
             return 1
-    else:
-        default_config = Path("portfolio_config.json")
-        if default_config.exists():
-            config_path = default_config
 
-    if config_path:
-        try:
-            with config_path.open("r", encoding="utf-8") as f:
-                config_data = json.load(f)
-
-            mer_mapping = config_data.get("mer_mapping")
-            geo_mapping = config_data.get("geo_mapping")
-
-            constraints = config_data.get("constraints", {})
-            max_portfolio_mer = constraints.get("max_portfolio_mer")
-            geo_upper_bounds = constraints.get("geo_upper_bounds")
-            geo_lower_bounds = constraints.get("geo_lower_bounds")
-
-        except json.JSONDecodeError as exc:
-            print(f"Error parsing configuration file: {exc}")
-            return 1
-        except Exception as exc:
-            print(f"Unexpected error loading configuration: {exc}")
-            return 1
-    include_unmapped = not args.drop_unmapped_categories
-    category_map: dict[str, str] | None = None
-    if args.category_map:
-        try:
-            category_map = load_category_map(args.category_map)
-        except ValueError as exc:
-            print(f"Unable to load category map: {exc}")
-            return 1
-    elif args.use_default_categories:
-        category_map = load_category_map()
-
-    results = workflows.optimise_portfolios(
-        portfolio_names=target_names,
-        collated_dir=export_dir,
-        output_dir=export_dir,
-        time_constraint=args.time_constraint,
-        mer_mapping=mer_mapping,
-        max_portfolio_mer=max_portfolio_mer,
-        geo_mapping=geo_mapping,
-        geo_lower_bounds=geo_lower_bounds,
-        geo_upper_bounds=geo_upper_bounds,
-        make_plot=not args.no_plot,
-        category_map=category_map,
-        include_unmapped_categories=include_unmapped,
-        return_model=args.return_model,
-        base_currency=args.base_currency,
-    )
-
-    if not results:
-        print("No optimisation results produced. Ensure collated data exists.")
+        _summarise_results(results.values())
+        print(f"Artefacts written to {export_dir}")
+        return 0
+    except PySharpeError as exc:
+        print(f"Error: {exc}")
         return 1
-
-    _summarise_results(results.values())
-    print(f"Artefacts written to {export_dir}")
-    return 0
 
 
 def _handle_allocate(args: argparse.Namespace) -> int:
@@ -194,7 +223,10 @@ def _handle_allocate(args: argparse.Namespace) -> int:
                 with config_path.open("r", encoding="utf-8") as f:
                     config_data = json.load(f)
 
-                alloc_cfg_kwargs = {}
+                alloc_cfg_kwargs: dict = {
+                    "weight_underweight": 0.0,
+                    "weight_valuation": 0.0,
+                }
                 if "allocation_weights" in config_data:
                     weights = config_data["allocation_weights"]
                     alloc_cfg_kwargs.update(
@@ -217,7 +249,7 @@ def _handle_allocate(args: argparse.Namespace) -> int:
 
             except Exception as exc:
                 print(f"Warning: Failed to load config {config_path}: {exc}")
-                print("Proceeding with default allocation config.")
+                print("Proceeding without allocation config.")
 
     # Ensure required valuation columns exist even if empty
     for col in ["pe_ratio", "pb_ratio", "div_yield", "momentum_6m"]:
@@ -386,6 +418,9 @@ def _handle_rebalance(args: argparse.Namespace) -> int:
             print(f"Error: {exc}")
             return 1
 
+    execution_config = _load_execution_config_optional(args)
+    proxy_map = get_settings().proxy_map
+
     try:
         plan = build_rebalance_plan(
             args.portfolio,
@@ -395,8 +430,10 @@ def _handle_rebalance(args: argparse.Namespace) -> int:
             holdings_kind=args.holdings_kind,
             export_dir=args.export_dir,
             config_path=args.config,
+            execution_config=execution_config,
+            proxy_map=proxy_map,
         )
-    except (FileNotFoundError, OSError, ValueError) as exc:
+    except (FileNotFoundError, OSError, ValueError, PySharpeError) as exc:
         print(f"Error: {exc}")
         return 1
 
@@ -493,6 +530,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "positive buy recommendations."
         ),
     )
+    rebalance.add_argument(
+        "--allow-fractional",
+        action="store_true",
+        default=None,
+        help=(
+            "Allow fractional share purchases. When set, overrides "
+            "the portfolio_config.json setting to True."
+        ),
+    )
 
     # optimise
     optimise = subparsers.add_parser(
@@ -557,14 +603,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     optimise.add_argument(
         "--return-model",
-        choices=["ema", "mean"],
-        default="ema",
-        help="Expected return calculation method (default: ema).",
+        choices=["ema", "mean", "shrinkage", "constant"],
+        default="shrinkage",
+        help="Expected return calculation method (default: shrinkage).",
+    )
+    optimise.add_argument(
+        "--shrinkage-floor",
+        type=float,
+        default=0.3,
+        help="Minimum shrinkage intensity for 'shrinkage' return model (0.0-1.0, default: 0.3).",
     )
     optimise.add_argument(
         "--base-currency",
         default="CAD",
         help="The target currency for all assets (default: CAD).",
+    )
+    optimise.add_argument(
+        "--max-weight",
+        type=float,
+        default=0.20,
+        help="Maximum allowable weight for any single asset (default: 0.20).",
     )
 
     # simulate-dca
@@ -635,19 +693,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "optimise":
-        return _handle_optimise(args)
-    if args.command == "allocate":
-        return _handle_allocate(args)
-    if args.command == "rebalance":
-        return _handle_rebalance(args)
-    if args.command == "simulate-dca":
-        return _handle_simulate_dca(args)
-    if args.command == "plot":
-        return _handle_plot(args)
+    try:
+        if args.command == "optimise":
+            return _handle_optimise(args)
+        if args.command == "allocate":
+            return _handle_allocate(args)
+        if args.command == "rebalance":
+            return _handle_rebalance(args)
+        if args.command == "simulate-dca":
+            return _handle_simulate_dca(args)
+        if args.command == "plot":
+            return _handle_plot(args)
 
-    parser.print_help()
-    return 1
+        parser.print_help()
+        return 1
+    except PySharpeError as exc:
+        print(f"Error: {exc}")
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover

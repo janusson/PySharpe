@@ -1,14 +1,9 @@
-import json
-import logging
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
 from pysharpe.config import PySharpeSettings
 from pysharpe.data.collation import CollationService
 from pysharpe.data.fetcher import PriceFetcher
-from pysharpe.data.linkage import HistoryLinker
 
 
 class MockFetcher(PriceFetcher):

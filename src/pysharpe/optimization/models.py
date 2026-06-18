@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict
 
 from .weights import normalize_weights
 
@@ -22,16 +21,16 @@ class PortfolioWeights:
         {'AAPL': 0.6, 'MSFT': 0.4}
     """
 
-    allocations: Dict[str, float]
+    allocations: dict[str, float]
 
-    def non_zero(self) -> Dict[str, float]:
+    def non_zero(self) -> dict[str, float]:
         """Return strictly positive allocations."""
 
         return {
             ticker: weight for ticker, weight in self.allocations.items() if weight > 0
         }
 
-    def normalized(self) -> Dict[str, float]:
+    def normalized(self) -> dict[str, float]:
         """Return a normalized copy of the allocations."""
 
         return normalize_weights(self.allocations)

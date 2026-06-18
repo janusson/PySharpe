@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from pysharpe.config import ExecutionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +22,12 @@ class AllocationConfig:
 
     Attributes
     ----------
-    weight_underweight : float, optional
+    weight_underweight : float
         How much weight to give to portfolio drift (underweight vs target) in
-        the final opportunity score. Default is 0.6.
-    weight_valuation : float, optional
+        the final opportunity score. Must be explicitly provided.
+    weight_valuation : float
         How much weight to give to fundamental valuation in the final
-        opportunity score. Default is 0.4.
+        opportunity score. Must be explicitly provided.
     weight_pe : float, optional
         Weight of the P/E ratio within the valuation score. Default is 0.4.
     weight_pb : float, optional
@@ -41,10 +45,10 @@ class AllocationConfig:
         underweight. Default is 0.1.
     """
 
-    weight_underweight: float = 0.6
-    weight_valuation: float = 0.4
+    weight_underweight: float
+    weight_valuation: float
 
-    time_series_factors: Dict[str, Tuple[float, Literal["positive", "negative"]]] = (
+    time_series_factors: dict[str, tuple[float, Literal["positive", "negative"]]] = (
         field(
             default_factory=lambda: {
                 "pe_ratio": (0.4, "negative"),
@@ -57,7 +61,7 @@ class AllocationConfig:
 
     min_allocation_dollars: float = 25.0
     valuation_epsilon: float = 0.1
-    trend_factors: Dict[str, float] = field(
+    trend_factors: dict[str, float] = field(
         default_factory=lambda: {
             "ma_crossover_signal": 0.2,
         }
@@ -110,7 +114,7 @@ def _minmax_01(series: pd.Series) -> pd.Series:
 
 def score_opportunities(
     df: pd.DataFrame,
-    config: Optional[AllocationConfig] = None,
+    config: AllocationConfig | None = None,
 ) -> pd.DataFrame:
     """Evaluate and rank investment opportunities based on drift and valuation.
 
@@ -140,7 +144,7 @@ def score_opportunities(
         - 'opportunity_score': Final blended ranking score.
     """
     if config is None:
-        config = AllocationConfig()
+        config = AllocationConfig(weight_underweight=0.0, weight_valuation=0.0)
 
     df = df.copy()
 
@@ -213,8 +217,6 @@ def score_opportunities(
     # 3) Final opportunity score
     wu = config.weight_underweight
     wv = config.weight_valuation
-    if wu + wv == 0:
-        wu, wv = 0.5, 0.5
 
     df["opportunity_score"] = wu * df["underweight_score"] + wv * df["valuation_score"]
 
@@ -223,10 +225,123 @@ def score_opportunities(
     return df
 
 
+@dataclass
+class FxRoutingResult:
+    """Result of an FX routing decision between standard conversion and
+    Norbert's Gambit.
+
+    Attributes
+    ----------
+    use_norberts_gambit : bool
+        ``True`` when Norbert's Gambit is cheaper than the standard
+        percentage-based currency conversion.
+    standard_cost : float
+        Estimated cost of the standard conversion in CAD.
+    norberts_gambit_cost : float
+        Estimated cost of Norbert's Gambit in CAD.
+    savings : float
+        Dollar amount saved by using the recommended method (always ≥ 0).
+    execution_steps : list[str]
+        Ordered checklist for the investor.
+    """
+
+    use_norberts_gambit: bool
+    standard_cost: float
+    norberts_gambit_cost: float
+    savings: float
+    execution_steps: list[str]
+
+
+def determine_fx_routing(
+    transaction_value: float,
+    config: ExecutionConfig,
+) -> FxRoutingResult:
+    """Decide whether to use Norbert's Gambit for a US-asset purchase.
+
+    Compares the standard percentage-based FX conversion fee against the
+    fixed-commission cost of Norbert's Gambit (buy DLR.TO → journal to
+    DLR-U.TO → sell for USD).
+
+    Parameters
+    ----------
+    transaction_value : float
+        Size of the transaction in CAD that requires currency conversion.
+    config : ExecutionConfig
+        Execution settings containing ``fx_fee_bps``,
+        ``norberts_commission``, ``norberts_spread_bps``, and
+        ``norberts_drift_risk_bps``.
+
+    Returns
+    -------
+    FxRoutingResult
+    """
+    if transaction_value <= 0:
+        return FxRoutingResult(
+            use_norberts_gambit=False,
+            standard_cost=0.0,
+            norberts_gambit_cost=0.0,
+            savings=0.0,
+            execution_steps=[],
+        )
+
+    fee = config.fx_fee_decimal
+    commission = config.norberts_commission
+    spread_pct = config.norberts_spread_decimal
+    drift_pct = config.norberts_drift_decimal
+    dlr_price = config.norberts_dlr_price_cad
+
+    # Standard FX cost: T * f
+    standard_cost = transaction_value * fee
+
+    # Norbert's Gambit cost: 2*C + T*spread + T*drift
+    ng_cost = 2 * commission + transaction_value * (spread_pct + drift_pct)
+
+    use_ng = ng_cost < standard_cost
+    savings = abs(standard_cost - ng_cost)
+
+    # Build execution checklist when Norbert's Gambit is recommended
+    steps: list[str] = []
+    if use_ng:
+        shares = math.floor(transaction_value / dlr_price) if dlr_price > 0 else 0
+        if shares > 0:
+            dlr_cost = shares * dlr_price
+            steps.append(
+                f"Step 1: Buy {shares} shares of DLR.TO at ~${dlr_price:.2f}/share "
+                f"(≈${dlr_cost:,.2f} CAD + ${commission:.2f} commission)"
+            )
+        else:
+            steps.append(
+                f"Step 1: Buy DLR.TO with ~${transaction_value:,.2f} CAD "
+                f"(+ ${commission:.2f} commission)"
+            )
+        steps.append(
+            "Step 2: Request journaling of DLR.TO → DLR-U.TO (takes 2–3 business days)"
+        )
+        if shares > 0:
+            steps.append(
+                f"Step 3: Sell {shares} shares of DLR-U.TO to receive USD "
+                f"(− ${commission:.2f} commission)"
+            )
+        else:
+            steps.append(
+                f"Step 3: Sell DLR-U.TO shares to receive USD "
+                f"(− ${commission:.2f} commission)"
+            )
+        steps.append("Step 4: Use USD proceeds to purchase the target US security")
+
+    return FxRoutingResult(
+        use_norberts_gambit=use_ng,
+        standard_cost=round(standard_cost, 2),
+        norberts_gambit_cost=round(ng_cost, 2),
+        savings=round(savings, 2),
+        execution_steps=steps,
+    )
+
+
 def allocate_contribution(
     scored_df: pd.DataFrame,
     contribution_dollars: float,
-    config: Optional[AllocationConfig] = None,
+    config: AllocationConfig | None = None,
 ) -> pd.DataFrame:
     """Distribute a cash contribution based on opportunity scores.
 
@@ -261,7 +376,7 @@ def allocate_contribution(
         If `contribution_dollars` is not strictly positive.
     """
     if config is None:
-        config = AllocationConfig()
+        config = AllocationConfig(weight_underweight=0.0, weight_valuation=0.0)
 
     if contribution_dollars <= 0:
         raise ValueError("contribution_dollars must be positive.")

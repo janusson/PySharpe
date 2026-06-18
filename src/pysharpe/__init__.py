@@ -46,6 +46,15 @@ INFO_DIR: Final[str] = _SETTINGS.info_dir
 LOG_DIR: Final[str] = _SETTINGS.log_dir
 
 _EXPORT_MAP: dict[str, tuple[str, str]] = {
+    # Exceptions
+    "PySharpeError": ("pysharpe.exceptions", "PySharpeError"),
+    "DataIngestionError": ("pysharpe.exceptions", "DataIngestionError"),
+    "DataValidationError": ("pysharpe.exceptions", "DataValidationError"),
+    "ExecutionConfigError": ("pysharpe.exceptions", "ExecutionConfigError"),
+    # Configuration
+    "ExecutionConfig": ("pysharpe.config", "ExecutionConfig"),
+    "load_execution_config": ("pysharpe.config", "load_execution_config"),
+    "get_ticker_metadata": ("pysharpe.config", "get_ticker_metadata"),
     # Data collection helpers
     "PortfolioTickerReader": ("pysharpe.data_collector", "PortfolioTickerReader"),
     "SecurityDataCollector": ("pysharpe.data_collector", "SecurityDataCollector"),
@@ -83,6 +92,50 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "OptimisationPerformance",
     ),
     "OptimisationResult": ("pysharpe.optimization", "OptimisationResult"),
+    # Tax location engine
+    "AccountType": ("pysharpe.optimization.tax_location", "AccountType"),
+    "AssetLocationEngine": (
+        "pysharpe.optimization.tax_location",
+        "AssetLocationEngine",
+    ),
+    "AssetTaxCharacteristics": (
+        "pysharpe.optimization.tax_location",
+        "AssetTaxCharacteristics",
+    ),
+    "TaxProfile": ("pysharpe.optimization.tax_location", "TaxProfile"),
+    "build_asset_characteristics": (
+        "pysharpe.optimization.tax_location",
+        "build_asset_characteristics",
+    ),
+    "build_asset_characteristics_batch": (
+        "pysharpe.optimization.tax_location",
+        "build_asset_characteristics_batch",
+    ),
+    # Execution / rebalancing
+    "RebalancePlan": ("pysharpe.execution.rebalance", "RebalancePlan"),
+    "build_rebalance_plan": ("pysharpe.execution.rebalance", "build_rebalance_plan"),
+    "format_rebalance_plan": ("pysharpe.execution.rebalance", "format_rebalance_plan"),
+    # Allocator
+    "AllocationConfig": ("pysharpe.execution.allocator", "AllocationConfig"),
+    "FxRoutingResult": ("pysharpe.execution.allocator", "FxRoutingResult"),
+    "allocate_contribution": ("pysharpe.execution.allocator", "allocate_contribution"),
+    "determine_fx_routing": ("pysharpe.execution.allocator", "determine_fx_routing"),
+    "score_opportunities": ("pysharpe.execution.allocator", "score_opportunities"),
+    # Tax tracker / TLH
+    "ACBPosition": ("pysharpe.execution.tax_tracker", "ACBPosition"),
+    "ACBTracker": ("pysharpe.execution.tax_tracker", "ACBTracker"),
+    "TLHEngine": ("pysharpe.execution.tax_tracker", "TLHEngine"),
+    "TLHRebalanceResult": ("pysharpe.execution.tax_tracker", "TLHRebalanceResult"),
+    "TLHTrade": ("pysharpe.execution.tax_tracker", "TLHTrade"),
+    "TradeRecord": ("pysharpe.execution.tax_tracker", "TradeRecord"),
+    "analyze_tlh_opportunities": (
+        "pysharpe.execution.tax_tracker",
+        "analyze_tlh_opportunities",
+    ),
+    "format_tlh_rebalance_result": (
+        "pysharpe.execution.tax_tracker",
+        "format_tlh_rebalance_result",
+    ),
     # Analysis helpers
     "apply_category_mapping": (
         "pysharpe.analysis",
@@ -137,6 +190,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         apply_category_mapping,
         load_category_map,
     )
+    from pysharpe.config import (  # noqa: F401
+        ExecutionConfig,
+        get_ticker_metadata,
+        load_execution_config,
+    )
     from pysharpe.data_collector import (  # noqa: F401
         PortfolioTickerReader,
         SecurityDataCollector,
@@ -147,6 +205,34 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         process_portfolio,
         read_tickers_from_file,
         setup_logging,
+    )
+    from pysharpe.exceptions import (  # noqa: F401
+        DataIngestionError,
+        DataValidationError,
+        ExecutionConfigError,
+        PySharpeError,
+    )
+    from pysharpe.execution.allocator import (  # noqa: F401
+        AllocationConfig,
+        FxRoutingResult,
+        allocate_contribution,
+        determine_fx_routing,
+        score_opportunities,
+    )
+    from pysharpe.execution.rebalance import (  # noqa: F401
+        RebalancePlan,
+        build_rebalance_plan,
+        format_rebalance_plan,
+    )
+    from pysharpe.execution.tax_tracker import (  # noqa: F401
+        ACBPosition,
+        ACBTracker,
+        TLHEngine,
+        TLHRebalanceResult,
+        TLHTrade,
+        TradeRecord,
+        analyze_tlh_opportunities,
+        format_tlh_rebalance_result,
     )
     from pysharpe.metrics import (  # noqa: F401
         annualize_return,
@@ -160,6 +246,14 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         OptimisationPerformance,
         OptimisationResult,
         PortfolioWeights,
+    )
+    from pysharpe.optimization.tax_location import (  # noqa: F401
+        AccountType,
+        AssetLocationEngine,
+        AssetTaxCharacteristics,
+        TaxProfile,
+        build_asset_characteristics,
+        build_asset_characteristics_batch,
     )
     from pysharpe.portfolio_optimization import (  # noqa: F401
         optimise_all_portfolios,

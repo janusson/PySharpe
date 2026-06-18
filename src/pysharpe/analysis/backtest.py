@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
-
 import numpy as np
 import pandas as pd
 from pypfopt import EfficientFrontier
@@ -23,7 +21,7 @@ def prepare_backtest_data(
     score_col: str = "CompositeScore",
     scaling_factor: float = 0.05,
     random_state: np.random.Generator | int | None = None,
-) -> Tuple[pd.Series, pd.DataFrame]:
+) -> tuple[pd.Series, pd.DataFrame]:
     """
     Prepare data for backtesting by converting scores to expected returns.
 
@@ -67,7 +65,7 @@ def prepare_backtest_data(
 def optimize_portfolio(
     expected_returns: pd.Series,
     cov_matrix: pd.DataFrame,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Optimize portfolio weights using the efficient frontier.
 
@@ -90,13 +88,13 @@ def optimize_portfolio(
 
 def simulate_returns(
     df: pd.DataFrame,
-    weights: Dict[str, float],
+    weights: dict[str, float],
     cov_matrix: pd.DataFrame,
     periods: int = 12,
     initial_value: float = 100000,
     scaling_factor: float = 0.05,
     random_state: np.random.Generator | int | None = None,
-) -> List[float]:
+) -> list[float]:
     """
     Simulate portfolio returns using a multivariate normal distribution.
 

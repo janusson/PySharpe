@@ -47,7 +47,9 @@ def test_apply_category_mapping_drop_unmapped():
 
 def test_load_category_map_from_path(tmp_path: Path):
     mapping_path = tmp_path / "categories.json"
-    mapping_path.write_text('{"AAA": "Equity", "BBB": "Fixed Income"}', encoding="utf-8")
+    mapping_path.write_text(
+        '{"AAA": "Equity", "BBB": "Fixed Income"}', encoding="utf-8"
+    )
 
     mapping = load_category_map(mapping_path)
     assert mapping == {"AAA": "Equity", "BBB": "Fixed Income"}

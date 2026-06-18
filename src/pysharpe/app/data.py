@@ -316,9 +316,7 @@ def load_prices(
             portfolio_name, ordered_valid_tickers
         )
     except Exception as exc:
-        LOGGER.exception(
-            "Collation failed for tickers: %s", ", ".join(tickers_tuple)
-        )
+        LOGGER.exception("Collation failed for tickers: %s", ", ".join(tickers_tuple))
         raise RuntimeError(f"Error collating portfolio files: {exc}") from exc
 
     _normalize_datetime_index(collated_df)

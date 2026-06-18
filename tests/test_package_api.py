@@ -29,4 +29,3 @@ def test_unknown_attribute_raises_helpful_error():
     with pytest.raises(AttributeError) as exc:
         pysharpe.does_not_exist
     assert "Available exports" in str(exc.value)
-

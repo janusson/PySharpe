@@ -6,6 +6,7 @@
     "VDY.TO": 0.0022,
     "VMO.TO": 0.0031,
     "VIU.TO": 0.0023,
+    "VEE.TO": 0.0022,
     "FCUV.TO": 0.0038,
     "FCUQ.TO": 0.0039,
     "INAI.TO": 0.0039,
@@ -20,6 +21,7 @@
     "VA.TO": "INT",
     "VE.TO": "INT",
     "VIU.TO": "INT",
+    "VEE.TO": "EM",
     "FCUV.TO": "US",
     "FCUQ.TO": "US",
     "INAI.TO": "US",
@@ -27,16 +29,21 @@
     "ZGLD.TO": "GOLD"
   },
   "constraints": {
-    "max_portfolio_mer": 0.002,
+    "max_portfolio_mer": 1.0,
     "geo_upper_bounds": {
-      "US": 0.6,
-      "CA": 0.3,
-      "INT": 0.3,
-      "GOLD": 0.2
+      "US": 1.0,
+      "CA": 1.0,
+      "INT": 1.0,
+      "EM": 1.0,
+      "GOLD": 1.0
     },
     "geo_lower_bounds": {
       "US": 0.2,
-      "CA": 0.1
+      "CA": 0.1,
+      "EM": 0.05
     }
-  }
+  },
+  "account_type": "TFSA",
+  "allow_fractional": false,
+  "fx_fee_bps": 150
 }
