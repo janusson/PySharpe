@@ -188,6 +188,33 @@ def _handle_optimise(args: argparse.Namespace) -> int:
 
         _summarise_results(results.values())
         print(f"Artefacts written to {export_dir}")
+
+        if args.plot_holdings_history:
+            from pysharpe.visualization import plot_holdings_history
+
+            for name in target_names:
+                collated_path = export_dir / f"{name}_collated.csv"
+                if not collated_path.exists():
+                    print(f"Collated data not found for '{name}', skipping.")
+                    continue
+
+                try:
+                    frame = pd.read_csv(
+                        collated_path, parse_dates=True, index_col="Date"
+                    )
+                    ax = plot_holdings_history(
+                        frame,
+                        min_trading_days=20,
+                        show=args.holdings_history_output is None,
+                    )
+                    if args.holdings_history_output:
+                        output = Path(args.holdings_history_output).expanduser()
+                        output.parent.mkdir(parents=True, exist_ok=True)
+                        ax.figure.savefig(output, dpi=150, bbox_inches="tight")
+                        print(f"Holdings history plot saved to {output}")
+                except PySharpeError as exc:
+                    print(f"Error plotting holdings history for '{name}': {exc}")
+
         return 0
     except PySharpeError as exc:
         print(f"Error: {exc}")
@@ -623,6 +650,16 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.20,
         help="Maximum allowable weight for any single asset (default: 0.20).",
+    )
+    optimise.add_argument(
+        "--plot-holdings-history",
+        action="store_true",
+        help="Plot cumulative returns of every holding from collated price data.",
+    )
+    optimise.add_argument(
+        "--holdings-history-output",
+        type=Path,
+        help="Optional file path to save the holdings history plot.",
     )
 
     # simulate-dca

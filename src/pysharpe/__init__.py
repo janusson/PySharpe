@@ -77,6 +77,7 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     # High-level workflows
     "download_portfolios": ("pysharpe.workflows", "download_portfolios"),
     "optimise_portfolios": ("pysharpe.workflows", "optimise_portfolios"),
+    "plot_holdings_history": ("pysharpe.workflows", "plot_holdings_history"),
     # Optimisation helpers
     "optimise_portfolio": (
         "pysharpe.portfolio_optimization",
@@ -148,6 +149,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "plot_dca_projection": (
         "pysharpe.visualization",
         "plot_dca_projection",
+    ),
+    "plot_comparative_returns": (
+        "pysharpe.visualization",
+        "plot_comparative_returns",
     ),
     "plot_equity_curves": (
         "pysharpe.visualization",
@@ -261,6 +266,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     )
     from pysharpe.visualization import (  # noqa: F401
         DCAProjection,
+        plot_comparative_returns,
         plot_dca_projection,
         plot_equity_curves,
         simulate_dca,
@@ -268,4 +274,5 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.workflows import (  # noqa: F401
         download_portfolios,
         optimise_portfolios,
+        plot_holdings_history,
     )
