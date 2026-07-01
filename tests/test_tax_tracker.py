@@ -224,27 +224,31 @@ class TestACBTrackerROC:
         tracker = ACBTracker(
             initial_positions={"VCN.TO": (100.0, 3500.0)}  # ACB/sh = 35.0
         )
-        pos = tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
+        pos, gain = tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
         assert pos.total_cost == 3400.0
         assert pos.total_shares == 100.0
         assert pos.acb_per_share == 34.0
+        assert gain == 0.0
         assert len(tracker.trades) == 1
 
-    def test_roc_cannot_drop_below_zero(self):
+    def test_roc_excess_becomes_capital_gain(self):
+        """ROC exceeding ACB resets cost to zero and realizes a capital gain."""
         tracker = ACBTracker(initial_positions={"VCN.TO": (100.0, 50.0)})
-        pos = tracker.record_roc("VCN.TO", 200.0, date(2024, 6, 15))
+        pos, gain = tracker.record_roc("VCN.TO", 200.0, date(2024, 6, 15))
         assert pos.total_cost == 0.0
         assert pos.acb_per_share == 0.0
+        assert gain == 150.0  # 200 ROC - 50 ACB = 150 realized gain
 
     def test_roc_on_empty_position_logs_warning(self, caplog):
         import logging
 
         tracker = ACBTracker()
         with caplog.at_level(logging.WARNING):
-            pos = tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
+            pos, gain = tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
         assert "no shares are held" in caplog.text
         assert pos.total_shares == 0.0
         assert pos.total_cost == 0.0
+        assert gain == 0.0
 
     def test_roc_negative_amount_raises(self):
         tracker = ACBTracker(initial_positions={"VCN.TO": (100.0, 3500.0)})
@@ -258,12 +262,26 @@ class TestACBTrackerROC:
 
     def test_roc_trade_record(self):
         tracker = ACBTracker(initial_positions={"VCN.TO": (100.0, 3500.0)})
-        tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
+        pos, gain = tracker.record_roc("VCN.TO", 100.0, date(2024, 6, 15))
+        assert gain == 0.0
         trade = tracker.trades[0]
         assert trade.action == "ROC"
         assert trade.shares == 0.0
         assert trade.price_per_share == 0.0
         assert trade.total_amount == 100.0
+        assert trade.realized_gain_loss == 0.0
+
+    def test_roc_trade_record_with_excess_gain(self):
+        """TradeRecord captures the realized gain when ROC exceeds ACB."""
+        tracker = ACBTracker(initial_positions={"VCN.TO": (100.0, 50.0)})
+        pos, gain = tracker.record_roc("VCN.TO", 200.0, date(2024, 6, 15))
+        assert gain == 150.0
+        trade = tracker.trades[0]
+        assert trade.action == "ROC"
+        assert trade.shares == 0.0
+        assert trade.price_per_share == 0.0
+        assert trade.total_amount == 200.0
+        assert trade.realized_gain_loss == 150.0
 
 
 # ---------------------------------------------------------------------------
@@ -460,8 +478,9 @@ class TestACBTrackerEdgeCases:
     def test_zero_cost_after_roc_then_buy(self):
         """After ROC drives cost to zero, new buys should restart pooling."""
         tracker = ACBTracker(initial_positions={"VCN.TO": (10.0, 500.0)})
-        tracker.record_roc("VCN.TO", 600.0, date(2024, 1, 15))
+        pos, gain = tracker.record_roc("VCN.TO", 600.0, date(2024, 1, 15))
         assert tracker.get_acb("VCN.TO") == 0.0
+        assert gain == 100.0  # 600 ROC - 500 ACB = 100 realized gain
 
         tracker.record_buy("VCN.TO", 10.0, 40.0, date(2024, 2, 1))
         assert tracker.get_acb_per_share("VCN.TO") == pytest.approx(
@@ -489,11 +508,11 @@ class TestACBTrackerEdgeCases:
 
 
 class TestSettlementDate:
-    def test_settlement_date_t2(self):
-        assert _settlement_date(date(2024, 6, 3)) == date(2024, 6, 5)
+    def test_settlement_date_t1(self):
+        assert _settlement_date(date(2024, 6, 3)) == date(2024, 6, 4)
 
     def test_settlement_date_month_end(self):
-        assert _settlement_date(date(2024, 1, 31)) == date(2024, 2, 2)
+        assert _settlement_date(date(2024, 1, 31)) == date(2024, 2, 1)
 
 
 class TestSuperficialWindow:
@@ -911,7 +930,8 @@ class TestTLHEngineSuperficialLoss:
         assert is_sl is False
 
     def test_full_buy_back_total_superficial(self):
-        """If all shares were bought within the window, the entire loss is superficial."""
+        """If all shares were bought within the window, the entire loss is
+        superficial."""
         acb = ACBTracker()
         # All shares bought within 30 days before disposition
         acb.record_buy("VCN.TO", 100.0, 40.0, date(2024, 6, 10))
@@ -1296,7 +1316,8 @@ class TestEndToEndTLHScenario:
         assert gl_before == -500.0
 
         # ROC distribution of $2/share
-        tracker.record_roc("VCN.TO", 200.0, date(2024, 6, 15))
+        pos, gain = tracker.record_roc("VCN.TO", 200.0, date(2024, 6, 15))
+        assert gain == 0.0
         assert tracker.get_acb_per_share("VCN.TO") == 38.0
 
         # Now the unrealized loss is different

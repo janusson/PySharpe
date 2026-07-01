@@ -40,13 +40,12 @@ class TestTaxProfile:
     def test_eligible_dividend_effective_rate_standard(self):
         """Ontario top bracket (~53.5% MTR) effective dividend rate ~39.34%."""
         profile = TaxProfile(marginal_tax_rate=0.5353)
-        # Grossed-up: 0.5353 * 1.38 = 0.7387
-        # Minus DTC: 0.7387 - (0.150198 + 0.10) = 0.4885...
-        # But the formula uses the given DTC rates. Let's compute expected:
-        grossed = 0.5353 * 1.38  # = 0.738714
-        dtc_total = 0.150198 + 0.10  # = 0.250198
-        expected = max(0.0, grossed - dtc_total)  # ~0.4885
-        assert profile.eligible_dividend_effective_rate == pytest.approx(expected)
+        # Grossed-up tax: 0.5353 * 1.38 = 0.738714
+        # DTC applied to grossed-up amount: (0.150198 + 0.10) * 1.38 = 0.345273
+        # Effective = 0.738714 - 0.345273 = 0.3934
+        assert profile.eligible_dividend_effective_rate == pytest.approx(
+            0.39344, rel=1e-4
+        )
 
     def test_capital_gains_effective_rate(self):
         profile = TaxProfile(marginal_tax_rate=0.50)
@@ -64,9 +63,9 @@ class TestTaxProfile:
             eligible_dividend_tax_credit_federal=0.20,
             eligible_dividend_tax_credit_provincial=0.10,
         )
-        # grossed: 0.10 * 1.38 = 0.138
-        # dtc_total: 0.20 + 0.10 = 0.30
-        # effective = max(0, 0.138 - 0.30) = 0.0
+        # grossed_up_tax: 0.10 * 1.38 = 0.138
+        # dtc_total (applied to grossed-up): (0.20 + 0.10) * 1.38 = 0.414
+        # effective = max(0, 0.138 - 0.414) = 0.0
         assert profile.eligible_dividend_effective_rate == 0.0
 
     def test_frozen(self):
@@ -854,10 +853,9 @@ class TestRebalanceIntegration:
         assert "RRSP" in plan.accounts
 
         # Check that allocations exist per account
-        tfsa_alloc = plan.account_allocations.get("TFSA")
-        rrsp_alloc = plan.account_allocations.get("RRSP")
-        assert tfsa_alloc is not None
-        assert rrsp_alloc is not None
+        assert plan.account_allocations is not None
+        tfsa_alloc = plan.account_allocations["TFSA"]
+        rrsp_alloc = plan.account_allocations["RRSP"]
 
         # VOO should be preferentially allocated more to RRSP than TFSA
         # because RRSP has no FWT drag for directly held US assets
@@ -955,6 +953,7 @@ class TestRebalanceIntegration:
 
         # VOO should preferentially go to RRSP (no FWT)
         # VCN should preferentially go to TFSA or Non-Reg
+        assert plan.account_allocations is not None
         tfsa = plan.account_allocations["TFSA"]
         rrsp = plan.account_allocations["RRSP"]
 
@@ -1019,6 +1018,7 @@ class TestRebalanceIntegration:
             tax_weight=0.3,
         )
 
+        assert plan.account_allocations is not None
         tfsa = plan.account_allocations["TFSA"]
         rrsp = plan.account_allocations["RRSP"]
 

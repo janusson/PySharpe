@@ -147,7 +147,7 @@ class TaxProfile:
         total_dtc = (
             self.eligible_dividend_tax_credit_federal
             + self.eligible_dividend_tax_credit_provincial
-        )
+        ) * self.eligible_dividend_gross_up
         return max(0.0, grossed_up_tax - total_dtc)
 
 

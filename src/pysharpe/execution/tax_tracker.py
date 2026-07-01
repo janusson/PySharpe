@@ -58,6 +58,7 @@ class TradeRecord:
     shares: float
     price_per_share: float
     total_amount: float
+    realized_gain_loss: float = 0.0
 
 
 @dataclass
@@ -496,12 +497,16 @@ class ACBTracker:
         ticker: str,
         amount: float,
         date: date,
-    ) -> ACBPosition:
+    ) -> tuple[ACBPosition, float]:
         """Record a Return of Capital (ROC) distribution that reduces ACB.
 
         When an ETF or trust distributes ROC, the total cost base is reduced
-        by the distribution amount (but never below zero).  ROC does **not**
-        change the share count; it only lowers the ACB per share.
+        by the distribution amount.  If the ROC exceeds the remaining ACB, the
+        excess is realized immediately as a capital gain per CRA rules, and the
+        ACB is reset to zero.
+
+        ROC does **not** change the share count; it only lowers the ACB per
+        share.
 
         Parameters
         ----------
@@ -514,8 +519,9 @@ class ACBTracker:
 
         Returns
         -------
-        ACBPosition
-            The updated position after the ROC adjustment.
+        tuple[ACBPosition, float]
+            A ``(position, realized_capital_gain)`` pair.  The realized gain is
+            zero unless the ROC amount exceeds the remaining ACB.
 
         Raises
         ------
@@ -531,9 +537,10 @@ class ACBTracker:
                 "ROC recorded for '%s' but no shares are held; ignoring.",
                 ticker,
             )
-            return pos
+            return pos, 0.0
 
-        # ACB cannot go below zero
+        # CRA: ROC in excess of ACB is realized as a capital gain
+        realized_gain = max(0.0, amount - pos.total_cost)
         pos.total_cost = max(0.0, pos.total_cost - amount)
 
         self._trades.append(
@@ -544,17 +551,19 @@ class ACBTracker:
                 shares=0.0,
                 price_per_share=0.0,
                 total_amount=amount,
+                realized_gain_loss=realized_gain,
             )
         )
 
         logger.debug(
-            "ROC  %s: -%.4f → total cost %.4f, ACB/sh %.4f",
+            "ROC  %s: -%.4f → total cost %.4f, ACB/sh %.4f, realized gain %.4f",
             ticker,
             amount,
             pos.total_cost,
             pos.acb_per_share,
+            realized_gain,
         )
-        return pos
+        return pos, realized_gain
 
     # -- Bulk operations -----------------------------------------------------
 
@@ -597,12 +606,11 @@ class ACBTracker:
 
 
 def _settlement_date(trade_date: date) -> date:
-    """Return the approximate settlement date for a Canadian-listed trade.
+    """Return the approximate settlement date for a listed trade.
 
-    Canadian equities typically settle T+2; US equities T+1.  This function
-    conservatively uses T+2 for all securities, which is safe because the
-    CRA's 61-day window is measured from settlement date, and using a slightly
-    later date errs on the side of flagging more potential superficial losses.
+    US and Canadian equities moved to T+1 settlement in May 2024.  This
+    function uses T+1 for all securities.  The CRA's 61-day superficial-loss
+    window is measured from settlement date.
 
     Parameters
     ----------
@@ -612,10 +620,10 @@ def _settlement_date(trade_date: date) -> date:
     Returns
     -------
     date
-        Settlement date (trade date + 2 business days, approximated as +2
-        calendar days for simplicity).
+        Settlement date (trade date + 1 calendar day, which approximates
+        T+1 business-day settlement for simplicity).
     """
-    return trade_date + timedelta(days=2)
+    return trade_date + timedelta(days=1)
 
 
 def _superficial_window(settlement_date: date) -> tuple[date, date]:
@@ -947,7 +955,7 @@ class TLHEngine:
 
         all_proposals: list[dict] = []
         for _, row in opportunities.iterrows():
-            ticker = row["ticker"]
+            ticker: str = row["ticker"]  # type: ignore[assignment]
             proposals = self.generate_tlh_pairs(ticker, as_of_date=as_of_date)
             for p in proposals:
                 all_proposals.append(
