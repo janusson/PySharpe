@@ -1,4 +1,9 @@
-"""Module for Sharpe ratio portfolio optimization."""
+"""Module for Sharpe ratio portfolio optimization with asset-location awareness.
+
+Optimises across an N-asset × M-account matrix, using tax-adjusted expected
+returns from the :class:`AssetLocationEngine` to simultaneously solve the
+asset allocation **and** asset location problems.
+"""
 
 from __future__ import annotations
 
@@ -9,88 +14,83 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from pysharpe.config import (
-    AccountType,
-    AssetTaxProfile,
-    calculate_withholding_tax_rate,
-)
 from pysharpe.exceptions import ExecutionConfigError
+from pysharpe.optimization.tax_location import (
+    AccountType,
+    AssetLocationEngine,
+    AssetTaxCharacteristics,
+    TaxProfile,
+)
 
 from .base import OptimizationResult
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for "no net-return difference across accounts" (backward compat).
+_UNCONSTRAINED_ACCOUNT = "__unconstrained__"
+
 
 @dataclass
 class SharpeOptimizerConfig:
-    """Configuration for the SharpeOptimizer.
+    """Configuration for the SharpeOptimizer with 2D asset-location support.
 
     Attributes
     ----------
-    risk_free_rate : float, optional
-        The annual risk-free rate. Default is 0.025 (2.5%).
-    target_return : float, optional
-        Target portfolio return for optimization. Not used in simple Sharpe
-        maximization, but can be useful for other optimization types.
-        Default is None.
-    mer_by_ticker : Dict[str, float], optional
-        Dictionary where keys are ticker symbols and values are their annual
-        Management Expense Ratios (MERs) as decimal fractions (e.g., 0.0017 for 0.17%).
-        These will be deducted from expected returns.
-        Default is an empty dictionary, meaning no MER deductions.
-    max_portfolio_mer : float, optional
-        Maximum allowable aggregate portfolio Management Expense Ratio, expressed
-        as a decimal fraction (e.g., 0.015 for 1.5%).  When set alongside
-        ``mer_by_ticker``, an inequality constraint ensures
-        ``sum(w_i * MER_i) <= max_portfolio_mer`` during numerical optimisation.
-        Default is None, meaning no aggregate MER cap is enforced.
-    account_type : AccountType, optional
-        The Canadian registered account type for which the portfolio is being
-        optimised. When provided, the optimiser deducts account-specific US
-        withholding-tax drag from gross expected returns, steering allocation
-        toward tax-efficient asset location (e.g., US-listed dividend payers
-        toward RRSP). When ``None`` (the default), no tax drag is applied and
-        the optimiser behaves as a standard unconstrained Sharpe maximiser.
-    asset_tax_profiles : dict[str, AssetTaxProfile], optional
-        Mapping of ticker symbols to their :class:`AssetTaxProfile` instances.
-        Used in conjunction with ``account_type`` to compute the
-        withholding-tax drag for each asset. Tickers not present in this
-        mapping are assumed to have no US equity exposure and zero dividend
-        yield. Default is an empty dictionary.
-    num_portfolios_monte_carlo : int, optional
-        Number of random portfolios to generate for Monte Carlo simulation
-        to find a good starting point for numerical optimization.
-        Default is 10000.
+    risk_free_rate : float
+        Annual risk-free rate. Default is 0.025 (2.5 %).
+    mer_by_ticker : dict[str, float]
+        Ticker → annual MER decimal (e.g. ``0.0017``).  When
+        ``asset_characteristics`` includes MER values those take precedence.
+    max_portfolio_mer : float or None
+        Maximum allowable weighted MER for the entire portfolio.
+    tax_profile : TaxProfile
+        Investor's marginal tax profile for the :class:`AssetLocationEngine`.
+    asset_characteristics : dict[str, AssetTaxCharacteristics]
+        Ticker → detailed tax characteristics (domicile, income fractions,
+        MER, dividend yield).  Used by the engine to compute tax-adjusted
+        returns per (asset, account) pair.
+    account_capacities : dict[AccountType, float]
+        Fractional capacity per account (e.g. ``{TFSA: 0.20, RRSP: 0.50,
+        NON_REG: 0.30}``).  Must sum to ≤ 1.0.  When empty the optimiser
+        falls back to classic 1-D (asset-only) behaviour.
+    num_portfolios_monte_carlo : int
+        Random portfolios to generate for the initial guess. Default 10 000.
+    max_weight : float
+        Per-asset maximum weight (applied across all accounts for that
+        asset).  Default 0.20.
     """
 
     risk_free_rate: float = 0.025
-    target_return: float | None = None
     mer_by_ticker: dict[str, float] = field(default_factory=dict)
     max_portfolio_mer: float | None = None
-    account_type: AccountType | None = None
-    asset_tax_profiles: dict[str, AssetTaxProfile] = field(default_factory=dict)
+    tax_profile: TaxProfile = field(
+        default_factory=lambda: TaxProfile(marginal_tax_rate=0.40)
+    )
+    asset_characteristics: dict[str, AssetTaxCharacteristics] = field(
+        default_factory=dict
+    )
+    account_capacities: dict[AccountType, float] = field(default_factory=dict)
     num_portfolios_monte_carlo: int = 10000
     max_weight: float = 0.20
 
 
 class SharpeOptimizer:
-    """Optimizes portfolio weights to maximize the Sharpe ratio."""
+    """Optimizes (asset × account) weights to maximise the Sharpe ratio.
+
+    When ``account_capacities`` is non-empty the solver operates on an
+    **N × M** variable space — one weight per (asset, account) pair — and
+    enforces per-account capacity constraints.  Tax-adjusted net returns
+    are computed by the :class:`AssetLocationEngine` for each pair.
+
+    With an empty ``account_capacities`` the optimiser delegates to the
+    classic 1-D path for backward compatibility.
+    """
 
     def __init__(
         self,
         prices: pd.DataFrame,
         config: SharpeOptimizerConfig | None = None,
     ) -> None:
-        """Initialize the optimizer with price data and configuration.
-
-        Parameters
-        ----------
-        prices : pd.DataFrame
-            Historical asset prices where rows are dates (DatetimeIndex)
-            and columns are asset tickers.
-        config : SharpeOptimizerConfig, optional
-            Configuration for the optimizer. If None, default settings are used.
-        """
         if prices.empty:
             raise ValueError("Prices DataFrame cannot be empty.")
         if not isinstance(prices.index, pd.DatetimeIndex):
@@ -103,7 +103,6 @@ class SharpeOptimizer:
         if not self.assets:
             raise ValueError("No assets found in the prices DataFrame.")
 
-        # Calculate daily returns
         self.returns = self.prices.pct_change().dropna()
         if self.returns.empty:
             raise ValueError(
@@ -111,106 +110,182 @@ class SharpeOptimizer:
             )
 
         self.num_periods_per_year = self._estimate_periods_per_year(self.prices.index)
-        self.annualized_risk_free_rate = (
-            self.config.risk_free_rate / self.num_periods_per_year
-        )
+        self._rf_period = self.config.risk_free_rate / self.num_periods_per_year
+
+        # ------------------------------------------------------------------
+        # Build the 2-D variable layout
+        # ------------------------------------------------------------------
+        capacities = self.config.account_capacities
+        if capacities:
+            # Validate capacities
+            total_cap = sum(capacities.values())
+            if total_cap > 1.0 + 1e-9:
+                raise ValueError(
+                    f"Account capacities sum to {total_cap:.4f} (> 1.0). "
+                    "They must be fractional and sum to ≤ 1.0."
+                )
+            self._accounts: list[AccountType] = list(capacities.keys())
+            self._account_values: list[str] = [a.value for a in self._accounts]
+            self._capacity_array = np.array(
+                [capacities[a] for a in self._accounts], dtype=float
+            )
+        else:
+            # Backward-compat: single synthetic account
+            self._accounts = []
+            self._account_values = [_UNCONSTRAINED_ACCOUNT]
+            self._capacity_array = np.array([1.0])
+
+        self._num_assets = len(self.assets)
+        self._num_accounts = len(self._account_values)
+        self._num_vars = self._num_assets * self._num_accounts
+
+        # ------------------------------------------------------------------
+        # Gross expected returns (asset-level, annualised)
+        # ------------------------------------------------------------------
+        self._gross_returns = np.array(
+            self.returns.mean() * self.num_periods_per_year
+        )  # shape (N,)
+
+        # ------------------------------------------------------------------
+        # 2-D net-return matrix  (N × M)
+        # ------------------------------------------------------------------
+        self._net_returns = self._build_net_return_matrix()
+
+        # ------------------------------------------------------------------
+        # Asset-level covariance (N × N)
+        # ------------------------------------------------------------------
+        self._cov = self.returns.cov().values * self.num_periods_per_year
 
         logger.info(
-            f"SharpeOptimizer initialized with {len(self.assets)} assets. "
-            f"Annual Risk-Free Rate: {self.config.risk_free_rate:.2%}. "
-            f"Periods per year: {self.num_periods_per_year}."
+            "SharpeOptimizer initialised: %d assets × %d accounts = %d variables. "
+            "Risk-free rate: %.2f%%. Periods/year: %.0f.",
+            self._num_assets,
+            self._num_accounts,
+            self._num_vars,
+            self.config.risk_free_rate * 100,
+            self.num_periods_per_year,
         )
 
-    def _estimate_periods_per_year(self, index: pd.DatetimeIndex) -> float:
-        """Estimate the number of periods per year based on the frequency of the index."""
-        if len(index) < 2:
-            return 252.0  # Default to daily if not enough data
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-        # Calculate the median difference in days between consecutive dates
+    def _build_net_return_matrix(self) -> np.ndarray:
+        """Build (N × M) matrix of tax-adjusted annualised expected returns.
+
+        When no accounts are configured the single-column result is the
+        gross return less any configured MER.
+        """
+        engine = AssetLocationEngine(self.config.tax_profile)
+
+        if not self._accounts:
+            # Classic 1-D path — deduct MER only
+            net = np.zeros((self._num_assets, 1))
+            for i, ticker in enumerate(self.assets):
+                mer = self.config.mer_by_ticker.get(ticker, 0.0)
+                char = self.config.asset_characteristics.get(ticker)
+                if char is not None:
+                    mer = char.mer
+                net[i, 0] = self._gross_returns[i] - mer
+            return net
+
+        # 2-D path — use AssetLocationEngine
+        net = np.zeros((self._num_assets, self._num_accounts))
+        for i, ticker in enumerate(self.assets):
+            char = self.config.asset_characteristics.get(ticker)
+            gross = self._gross_returns[i]
+            for j, acct in enumerate(self._accounts):
+                if char is not None:
+                    net[i, j] = engine.compute_tax_adjusted_return(
+                        gross, char, acct.value
+                    )
+                else:
+                    # No characteristics → use MER from config only
+                    mer = self.config.mer_by_ticker.get(ticker, 0.0)
+                    net[i, j] = gross - mer
+        return net
+
+    @staticmethod
+    def _estimate_periods_per_year(index: pd.DatetimeIndex) -> float:
+        if len(index) < 2:
+            return 252.0
         diffs = index.to_series().diff().dropna().dt.days
         median_days = diffs.median()
-
-        if median_days <= 1.05:  # Approximately daily
+        if median_days <= 1.05:
             return 252.0
-        elif median_days <= 7.05:  # Approximately weekly
+        elif median_days <= 7.05:
             return 52.0
-        elif median_days <= 31.05:  # Approximately monthly
+        elif median_days <= 31.05:
             return 12.0
-        elif median_days <= 92.05:  # Approximately quarterly
+        elif median_days <= 92.05:
             return 4.0
-        elif median_days <= 366.05:  # Approximately annually
+        elif median_days <= 366.05:
             return 1.0
-        else:
-            logger.warning(
-                "Could not reliably determine data frequency. Assuming 252 periods per year."
-            )
-            return 252.0  # Fallback
+        logger.warning(
+            "Could not reliably determine data frequency. Assuming 252 periods/year."
+        )
+        return 252.0
+
+    # ------------------------------------------------------------------
+    # 2-D → asset-level aggregation
+    # ------------------------------------------------------------------
+
+    def _asset_weights_from_2d(self, weights_2d: np.ndarray) -> np.ndarray:
+        """Sum 2-D weights across accounts to get per-asset weights.  (N,)"""
+        return weights_2d.reshape(self._num_assets, self._num_accounts).sum(axis=1)
+
+    # ------------------------------------------------------------------
+    # Performance calculation
+    # ------------------------------------------------------------------
 
     def calculate_portfolio_performance(
         self, weights: np.ndarray
     ) -> tuple[float, float, float]:
-        """Calculates portfolio return, volatility, and Sharpe ratio.
+        """Compute (return, volatility, Sharpe) for a 2-D weight vector.
 
         Parameters
         ----------
         weights : np.ndarray
-            A NumPy array of asset weights.
+            Flat array of length *N* × *M* (or *N* for classic 1-D).
 
         Returns
         -------
-        Tuple[float, float, float]
+        tuple[float, float, float]
             (annualized_return, annualized_volatility, sharpe_ratio)
         """
-        weights = np.array(weights)  # Ensure it's a numpy array
-        if not np.isclose(weights.sum(), 1.0):
-            logger.warning(
-                f"Weights do not sum to 1.0 ({weights.sum()}). Normalizing weights."
-            )
-            weights = weights / weights.sum()
+        weights = np.asarray(weights, dtype=float)
 
-        portfolio_return = (
-            np.sum(self.returns.mean() * weights) * self.num_periods_per_year
-        )
-        portfolio_volatility = np.sqrt(
-            np.dot(
-                weights.T,
-                np.dot(self.returns.cov() * self.num_periods_per_year, weights),
-            )
-        )
+        # Normalise if needed
+        total = weights.sum()
+        if not np.isclose(total, 1.0) and total > 0:
+            logger.debug("Weights sum to %.6f; normalising.", total)
+            weights = weights / total
 
-        # Apply MER deductions (values are already decimal fractions, e.g. 0.0017 for 0.17%)
-        for i, ticker in enumerate(self.assets):
-            mer_annual = self.config.mer_by_ticker.get(ticker, 0.0)
-            portfolio_return -= weights[i] * mer_annual
-
-        # Apply account-specific withholding-tax drag when an account type is set
-        if self.config.account_type is not None:
+        # --- Expected return (sum-product of 2-D weights × net returns) ---
+        if weights.size == self._num_vars:
+            # 2-D path
+            w2d = weights.reshape(self._num_assets, self._num_accounts)
+            portfolio_return = float(np.sum(w2d * self._net_returns))
+        else:
+            # 1-D fallback
+            portfolio_return = float(np.dot(weights, self._gross_returns))
             for i, ticker in enumerate(self.assets):
-                profile = self.config.asset_tax_profiles.get(ticker)
-                if profile is None:
-                    continue  # No tax profile → assume no US equity exposure
+                mer = self.config.mer_by_ticker.get(ticker, 0.0)
+                char = self.config.asset_characteristics.get(ticker)
+                if char is not None:
+                    mer = char.mer
+                portfolio_return -= weights[i] * mer
 
-                wht_rate = calculate_withholding_tax_rate(
-                    self.config.account_type, profile
-                )
-                tax_drag = profile.dividend_yield * wht_rate
-                portfolio_return -= weights[i] * tax_drag
-
-                # Warn on highly inefficient asset location
-                if tax_drag > 1e-4:  # > 1 bp threshold to avoid noise
-                    logger.debug(
-                        "Tax-inefficient location: %s (yield=%.2f%%, WHT=%.0f%%) "
-                        "in %s account — drag=%.2f bps. "
-                        "Consider holding US-listed assets in RRSP instead.",
-                        ticker,
-                        profile.dividend_yield * 100,
-                        wht_rate * 100,
-                        self.config.account_type.value,
-                        tax_drag * 10000,
-                    )
+        # --- Volatility (asset-level covariance) ---
+        if weights.size == self._num_vars:
+            asset_w = self._asset_weights_from_2d(weights)
+        else:
+            asset_w = weights
+        var = float(asset_w @ self._cov @ asset_w)
+        portfolio_volatility = float(np.sqrt(max(var, 0.0)))
 
         if portfolio_volatility == 0:
-            sharpe_ratio = 0.0  # Avoid division by zero
+            sharpe_ratio = 0.0
         else:
             sharpe_ratio = (
                 portfolio_return - self.config.risk_free_rate
@@ -218,152 +293,180 @@ class SharpeOptimizer:
 
         return portfolio_return, portfolio_volatility, sharpe_ratio
 
+    # ------------------------------------------------------------------
+    # Objective
+    # ------------------------------------------------------------------
+
     def _objective_function(self, weights: np.ndarray) -> float:
-        """Objective function to minimize (negative Sharpe ratio)."""
-        _, _, sharpe_ratio = self.calculate_portfolio_performance(weights)
-        return -sharpe_ratio
+        _, _, sr = self.calculate_portfolio_performance(weights)
+        return -sr
+
+    # ------------------------------------------------------------------
+    # Monte Carlo initial guess
+    # ------------------------------------------------------------------
 
     def _generate_random_portfolios(self, num_portfolios: int) -> pd.DataFrame:
-        """Generates random portfolios for Monte Carlo simulation."""
         results = np.zeros((3, num_portfolios))
         weights_record = []
 
         for i in range(num_portfolios):
-            weights = np.random.random(len(self.assets))
-            weights /= np.sum(weights)
-            weights_record.append(tuple(weights))
-
-            p_return, p_volatility, p_sharpe = self.calculate_portfolio_performance(
-                weights
-            )
-            results[0, i] = p_return
-            results[1, i] = p_volatility
-            results[2, i] = p_sharpe
+            w = np.random.random(self._num_vars)
+            w /= w.sum()
+            weights_record.append(tuple(w))
+            r, v, s = self.calculate_portfolio_performance(w)
+            results[0, i] = r
+            results[1, i] = v
+            results[2, i] = s
 
         return pd.DataFrame(
             {"Return": results[0], "Volatility": results[1], "Sharpe": results[2]},
             index=pd.MultiIndex.from_arrays(
-                [range(num_portfolios), weights_record], names=["Portfolio", "Weights"]
+                [range(num_portfolios), weights_record],
+                names=["Portfolio", "Weights"],
             ),
         )
 
+    # ------------------------------------------------------------------
+    # Optimize
+    # ------------------------------------------------------------------
+
     def optimize(self) -> OptimizationResult:
-        """Optimizes portfolio weights to maximize the Sharpe ratio.
+        """Run the 2-D (or classic 1-D) Sharpe-maximisation.
 
         Returns
         -------
         OptimizationResult
-            Standardized result containing weights and performance metrics.
+            Weights keyed by ``(ticker, account_value)`` tuples in 2-D mode,
+            or by plain ticker in 1-D mode.
         """
-        num_assets = len(self.assets)
-        if num_assets == 0:
+        if self._num_assets == 0:
             return OptimizationResult({}, 0.0, 0.0, 0.0)
 
-        if self.config.max_weight * num_assets < 1.0:
+        if self.config.max_weight * self._num_assets < 1.0:
             raise ValueError(
-                f"The max_weight constraint ({self.config.max_weight}) is too restrictive "
-                f"for {num_assets} assets to sum to 1.0."
+                f"max_weight ({self.config.max_weight}) too restrictive "
+                f"for {self._num_assets} assets."
             )
 
-        # Constraints and Bounds
-        constraints_list = [{"type": "eq", "fun": lambda x: np.sum(x) - 1}]
-        bounds = tuple((0.0, self.config.max_weight) for _ in range(num_assets))
+        # --- Bounds ---
+        bounds = tuple((0.0, self.config.max_weight) for _ in range(self._num_vars))
 
-        # --- Aggregate MER constraint ---
+        # --- Constraints ---
+        constraints: list[dict] = [{"type": "eq", "fun": lambda x: np.sum(x) - 1.0}]
+
+        # Account capacity constraints (only in 2-D mode)
+        if self._accounts:
+            for j in range(self._num_accounts):
+                # Sum of weights for account j across all assets ≤ capacity[j]
+                def _account_constraint(x: np.ndarray, _j: int = j) -> float:
+                    w2d = x.reshape(self._num_assets, self._num_accounts)
+                    return self._capacity_array[_j] - w2d[:, _j].sum()
+
+                constraints.append({"type": "ineq", "fun": _account_constraint})
+
+        # --- Aggregate MER constraint (applied to asset-level weights) ---
         if self.config.max_portfolio_mer is not None and self.config.mer_by_ticker:
             mer_array = np.array(
                 [self.config.mer_by_ticker.get(a, 0.0) for a in self.assets]
             )
+            # Override with characteristics MER when available
+            for i, ticker in enumerate(self.assets):
+                char = self.config.asset_characteristics.get(ticker)
+                if char is not None:
+                    mer_array[i] = char.mer
 
-            min_individual_mer = float(mer_array.min())
-            if min_individual_mer > self.config.max_portfolio_mer:
+            min_mer = float(mer_array.min())
+            if min_mer > self.config.max_portfolio_mer:
                 raise ExecutionConfigError(
-                    f"max_portfolio_mer ({self.config.max_portfolio_mer:.4%}) is "
-                    f"infeasible: the lowest individual MER is "
-                    f"{min_individual_mer:.4%}. "
-                    "No combination of weights can satisfy this constraint."
+                    f"max_portfolio_mer ({self.config.max_portfolio_mer:.4%}) "
+                    f"infeasible: lowest individual MER is {min_mer:.4%}."
                 )
 
-            constraints_list.append(
-                {
-                    "type": "ineq",
-                    "fun": lambda x, mer=mer_array: (
-                        self.config.max_portfolio_mer - np.dot(x, mer)
-                    ),
-                }
-            )
-            logger.info(
-                "Enforcing max portfolio MER constraint: sum(w_i * MER_i) <= %.4f%%",
-                self.config.max_portfolio_mer * 100,
-            )
+            def _mer_constraint(x: np.ndarray) -> float:
+                if x.size == self._num_vars and self._accounts:
+                    asset_w = self._asset_weights_from_2d(x)
+                else:
+                    asset_w = x
+                return self.config.max_portfolio_mer - np.dot(asset_w, mer_array)
 
-        # Initial guess: equal weighting or best from Monte Carlo
-        initial_guess = np.array([1.0 / num_assets] * num_assets)
+            constraints.append({"type": "ineq", "fun": _mer_constraint})
+
+        # --- Initial guess ---
+        initial_guess = np.full(self._num_vars, 1.0 / self._num_vars)
         if self.config.num_portfolios_monte_carlo > 0:
-            logger.debug(
-                f"Generating {self.config.num_portfolios_monte_carlo} random portfolios "
-                "to find a good initial guess."
-            )
-            random_portfolios = self._generate_random_portfolios(
-                self.config.num_portfolios_monte_carlo
-            )
-            # Find the portfolio with the highest Sharpe ratio
-            max_sharpe_idx = random_portfolios["Sharpe"].idxmax()
-            initial_guess = np.array(
-                max_sharpe_idx[1]
-            )  # idx is (portfolio_num, weights_tuple)
+            try:
+                rp = self._generate_random_portfolios(
+                    self.config.num_portfolios_monte_carlo
+                )
+                best_idx = rp["Sharpe"].idxmax()
+                initial_guess = np.array(best_idx[1])
+            except Exception:
+                logger.debug("Monte Carlo initial-guess failed; using equal weights.")
 
-        logger.info("Starting numerical optimization for Sharpe ratio maximization.")
+        # --- Solve ---
         try:
-            optimal_results = minimize(
+            result = minimize(
                 self._objective_function,
                 initial_guess,
                 method="SLSQP",
                 bounds=bounds,
-                constraints=constraints_list,
+                constraints=constraints,
             )
         except np.linalg.LinAlgError as exc:
             logger.error(
-                "Linear algebra error during optimisation: %s. "
-                "Falling back to equal weighting.",
-                exc,
+                "Linear-algebra error: %s. Falling back to equal weights.", exc
             )
-            optimal_weights_array = np.array([1.0 / num_assets] * num_assets)
-            optimal_weights = dict(zip(self.assets, optimal_weights_array))
-            p_return, p_volatility, p_sharpe = self.calculate_portfolio_performance(
-                optimal_weights_array
-            )
-            return OptimizationResult(
-                weights=optimal_weights,
-                expected_return=p_return,
-                volatility=p_volatility,
-                sharpe_ratio=p_sharpe,
-            )
+            return self._fallback_result()
 
-        if not optimal_results.success:
-            logger.error(f"Optimization failed: {optimal_results.message}")
-            # Fallback to equal weighting if optimization fails
-            optimal_weights_array = np.array([1.0 / num_assets] * num_assets)
+        if not result.success:
+            logger.error("Optimisation failed: %s", result.message)
+            return self._fallback_result()
+
+        w_opt = result.x
+        w_opt /= w_opt.sum()  # guard against float drift
+        p_ret, p_vol, p_sr = self.calculate_portfolio_performance(w_opt)
+
+        # --- Format weights ---
+        if self._accounts:
+            w2d = w_opt.reshape(self._num_assets, self._num_accounts)
+            weights_map: dict = {}
+            for i, ticker in enumerate(self.assets):
+                for j, acct_val in enumerate(self._account_values):
+                    key = (ticker, acct_val) if self._accounts else ticker
+                    weights_map[key] = float(w2d[i, j])
         else:
-            optimal_weights_array = optimal_results.x
-            # Normalize to ensure sum to 1.0 due to potential floating point inaccuracies
-            optimal_weights_array /= np.sum(optimal_weights_array)
-
-        optimal_weights = dict(zip(self.assets, optimal_weights_array))
-
-        # Calculate final performance using the optimized weights
-        p_return, p_volatility, p_sharpe = self.calculate_portfolio_performance(
-            optimal_weights_array
-        )
+            weights_map = dict(zip(self.assets, w_opt.tolist()))
 
         logger.info(
-            f"Optimization complete. Max Sharpe: {p_sharpe:.4f} "
-            f"with weights: {optimal_weights}"
+            "Optimisation complete. Sharpe=%.4f, return=%.4f%%, vol=%.4f%%.",
+            p_sr,
+            p_ret * 100,
+            p_vol * 100,
+        )
+        return OptimizationResult(
+            weights=weights_map,
+            expected_return=float(p_ret),
+            volatility=float(p_vol),
+            sharpe_ratio=float(p_sr),
         )
 
+    def _fallback_result(self) -> OptimizationResult:
+        """Equal-weight fallback when optimisation fails."""
+        w = np.full(self._num_vars, 1.0 / self._num_vars)
+        p_ret, p_vol, p_sr = self.calculate_portfolio_performance(w)
+
+        if self._accounts:
+            w2d = w.reshape(self._num_assets, self._num_accounts)
+            weights_map = {}
+            for i, ticker in enumerate(self.assets):
+                for j, acct_val in enumerate(self._account_values):
+                    weights_map[(ticker, acct_val)] = float(w2d[i, j])
+        else:
+            weights_map = dict(zip(self.assets, w.tolist()))
+
         return OptimizationResult(
-            weights=optimal_weights,
-            expected_return=p_return,
-            volatility=p_volatility,
-            sharpe_ratio=p_sharpe,
+            weights=weights_map,
+            expected_return=float(p_ret),
+            volatility=float(p_vol),
+            sharpe_ratio=float(p_sr),
         )

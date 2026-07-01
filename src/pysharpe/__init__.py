@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Final
 from .config import (
     AssetTaxProfile,
     PySharpeSettings,
+    TaxProfile,
     build_settings,
     calculate_withholding_tax_rate,
     get_settings,
@@ -23,6 +24,7 @@ _CONFIG_EXPORTS: tuple[str, ...] = (
     "AccountType",
     "AssetTaxProfile",
     "PySharpeSettings",
+    "TaxProfile",
     "build_settings",
     "calculate_withholding_tax_rate",
     "get_settings",
@@ -213,6 +215,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         AccountType,
         AssetTaxProfile,
         ExecutionConfig,
+        TaxProfile,
         calculate_withholding_tax_rate,
         get_ticker_metadata,
         load_execution_config,
@@ -272,7 +275,6 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.optimization.tax_location import (  # noqa: F401
         AssetLocationEngine,
         AssetTaxCharacteristics,
-        TaxProfile,
         build_asset_characteristics,
         build_asset_characteristics_batch,
     )

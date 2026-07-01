@@ -6,35 +6,18 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import lru_cache
 from pathlib import Path
+
+from pysharpe.optimization.tax_location import (
+    AccountType,
+    TaxProfile,
+)
 
 _DEFAULT_DATA_DIR = Path("data")
 _DEFAULT_PORTFOLIO_CONFIG_PATH = Path("portfolio_config.json")
 
 logger = logging.getLogger(__name__)
-
-
-class AccountType(Enum):
-    """Canadian registered account types with distinct tax treatments.
-
-    Attributes:
-        TFSA: Tax-Free Savings Account — no tax on gains, but no treaty
-            protection for US withholding tax on US-domiciled assets.
-        RRSP: Registered Retirement Savings Plan — exempt from US
-            withholding tax on directly-held US-domiciled assets under the
-            Canada-U.S. tax treaty.
-        FHSA: First Home Savings Account — similar to TFSA for withholding
-            tax purposes (no treaty protection).
-        NON_REGISTERED: Taxable (cash/margin) account — US withholding tax
-            is generally recoverable via the Foreign Tax Credit.
-    """
-
-    TFSA = "TFSA"
-    RRSP = "RRSP"
-    FHSA = "FHSA"
-    NON_REGISTERED = "NON_REGISTERED"
 
 
 @dataclass(frozen=True)
@@ -239,7 +222,7 @@ def calculate_withholding_tax_rate(
         return 0.0  # Treaty-protected
     if account_type in (AccountType.TFSA, AccountType.FHSA):
         return 0.15  # No treaty protection
-    if account_type == AccountType.NON_REGISTERED:
+    if account_type == AccountType.NON_REG:
         return 0.0  # FTC offsets
 
     return 0.0
@@ -323,6 +306,10 @@ class PySharpeSettings:
     proxy_map: dict[str, dict[str, object]] = field(default_factory=dict)
     account_room: dict[AccountType, float] = field(default_factory=dict)
     asset_tax_profiles: dict[str, AssetTaxProfile] = field(default_factory=dict)
+    tax_profile: TaxProfile = field(
+        default_factory=lambda: TaxProfile(marginal_tax_rate=0.40)
+    )
+    account_capacities: dict[AccountType, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # pragma: no cover - dataclass hook
         object.__setattr__(self, "data_dir", self.data_dir.resolve())
@@ -434,9 +421,42 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
         except Exception as e:
             logger.warning(f"Failed to load proxy_map.json: {e}")
 
-    # Load account_room and asset_tax_profiles from portfolio_config.json
+    # Load account_room, asset_tax_profiles, tax_profile, and account_capacities
+    # from portfolio_config.json and environment variables.
     account_room: dict[AccountType, float] = {}
     asset_tax_profiles: dict[str, AssetTaxProfile] = {}
+    tax_profile_kwargs: dict[str, float] = {}
+    account_capacities: dict[AccountType, float] = {}
+
+    # --- Tax profile from env var (JSON string), e.g. {"marginal_tax_rate": 0.45} ---
+    tax_profile_env = os.getenv("PYSHARPE_TAX_PROFILE")
+    if tax_profile_env:
+        try:
+            tax_profile_kwargs.update(json.loads(tax_profile_env))
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "PYSHARPE_TAX_PROFILE is not valid JSON: %s. Using defaults.", exc
+            )
+
+    # --- Account capacities from env var (JSON string), e.g. {"TFSA": 95000, ...} ---
+    capacities_env = os.getenv("PYSHARPE_ACCOUNT_CAPACITIES")
+    if capacities_env:
+        try:
+            raw_capacities = json.loads(capacities_env)
+            if isinstance(raw_capacities, dict):
+                for key, value in raw_capacities.items():
+                    try:
+                        acct = AccountType(key.upper().strip())
+                        account_capacities[acct] = float(value)
+                    except (ValueError, TypeError) as exc:
+                        logger.warning(
+                            "Skipping invalid account_capacity entry '%s': %s", key, exc
+                        )
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "PYSHARPE_ACCOUNT_CAPACITIES is not valid JSON: %s. Using defaults.",
+                exc,
+            )
     portfolio_config_path = Path("portfolio_config.json")
     if portfolio_config_path.exists():
         try:
@@ -491,6 +511,10 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
         proxy_map=proxy_map,
         account_room=account_room,
         asset_tax_profiles=asset_tax_profiles,
+        tax_profile=TaxProfile(**tax_profile_kwargs)
+        if tax_profile_kwargs
+        else TaxProfile(marginal_tax_rate=0.40),
+        account_capacities=account_capacities,
     )
 
 
@@ -517,6 +541,7 @@ __all__ = [
     "AssetTaxProfile",
     "ExecutionConfig",
     "PySharpeSettings",
+    "TaxProfile",
     "build_settings",
     "calculate_withholding_tax_rate",
     "get_settings",
