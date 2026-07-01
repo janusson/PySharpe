@@ -9,6 +9,11 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from pysharpe.config import (
+    AccountType,
+    AssetTaxProfile,
+    calculate_withholding_tax_rate,
+)
 from pysharpe.exceptions import ExecutionConfigError
 
 from .base import OptimizationResult
@@ -39,6 +44,19 @@ class SharpeOptimizerConfig:
         ``mer_by_ticker``, an inequality constraint ensures
         ``sum(w_i * MER_i) <= max_portfolio_mer`` during numerical optimisation.
         Default is None, meaning no aggregate MER cap is enforced.
+    account_type : AccountType, optional
+        The Canadian registered account type for which the portfolio is being
+        optimised. When provided, the optimiser deducts account-specific US
+        withholding-tax drag from gross expected returns, steering allocation
+        toward tax-efficient asset location (e.g., US-listed dividend payers
+        toward RRSP). When ``None`` (the default), no tax drag is applied and
+        the optimiser behaves as a standard unconstrained Sharpe maximiser.
+    asset_tax_profiles : dict[str, AssetTaxProfile], optional
+        Mapping of ticker symbols to their :class:`AssetTaxProfile` instances.
+        Used in conjunction with ``account_type`` to compute the
+        withholding-tax drag for each asset. Tickers not present in this
+        mapping are assumed to have no US equity exposure and zero dividend
+        yield. Default is an empty dictionary.
     num_portfolios_monte_carlo : int, optional
         Number of random portfolios to generate for Monte Carlo simulation
         to find a good starting point for numerical optimization.
@@ -49,6 +67,8 @@ class SharpeOptimizerConfig:
     target_return: float | None = None
     mer_by_ticker: dict[str, float] = field(default_factory=dict)
     max_portfolio_mer: float | None = None
+    account_type: AccountType | None = None
+    asset_tax_profiles: dict[str, AssetTaxProfile] = field(default_factory=dict)
     num_portfolios_monte_carlo: int = 10000
     max_weight: float = 0.20
 
@@ -162,6 +182,32 @@ class SharpeOptimizer:
         for i, ticker in enumerate(self.assets):
             mer_annual = self.config.mer_by_ticker.get(ticker, 0.0)
             portfolio_return -= weights[i] * mer_annual
+
+        # Apply account-specific withholding-tax drag when an account type is set
+        if self.config.account_type is not None:
+            for i, ticker in enumerate(self.assets):
+                profile = self.config.asset_tax_profiles.get(ticker)
+                if profile is None:
+                    continue  # No tax profile → assume no US equity exposure
+
+                wht_rate = calculate_withholding_tax_rate(
+                    self.config.account_type, profile
+                )
+                tax_drag = profile.dividend_yield * wht_rate
+                portfolio_return -= weights[i] * tax_drag
+
+                # Warn on highly inefficient asset location
+                if tax_drag > 1e-4:  # > 1 bp threshold to avoid noise
+                    logger.debug(
+                        "Tax-inefficient location: %s (yield=%.2f%%, WHT=%.0f%%) "
+                        "in %s account — drag=%.2f bps. "
+                        "Consider holding US-listed assets in RRSP instead.",
+                        ticker,
+                        profile.dividend_yield * 100,
+                        wht_rate * 100,
+                        self.config.account_type.value,
+                        tax_drag * 10000,
+                    )
 
         if portfolio_volatility == 0:
             sharpe_ratio = 0.0  # Avoid division by zero

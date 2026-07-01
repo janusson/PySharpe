@@ -10,6 +10,12 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import pandas as pd
 
+from pysharpe.config import (
+    AccountType,
+    AssetTaxProfile,
+    calculate_withholding_tax_rate,
+)
+
 if TYPE_CHECKING:
     from pysharpe.config import ExecutionConfig
 
@@ -24,10 +30,21 @@ class AllocationConfig:
     ----------
     weight_underweight : float
         How much weight to give to portfolio drift (underweight vs target) in
-        the final opportunity score. Must be explicitly provided.
+        the final opportunity score. Default is 0.5 (50 %).
     weight_valuation : float
         How much weight to give to fundamental valuation in the final
-        opportunity score. Must be explicitly provided.
+        opportunity score. Default is 0.3 (30 %).
+    weight_capital_efficiency : float
+        How much weight to give to capital efficiency (tax-advantaged account
+        prioritisation) in the final opportunity score. Default is 0.2 (20 %).
+    account_room : Dict[AccountType, float]
+        Available contribution room per Canadian registered account type.
+        Used to prioritise tax-advantaged accounts during allocation and to
+        enforce contribution caps. Default is an empty dictionary (no caps).
+    asset_tax_profiles : dict[str, AssetTaxProfile]
+        Mapping of ticker symbols to their tax profiles. Used to compute
+        withholding-tax drag on spillover allocations to non-registered
+        accounts. Default is an empty dictionary.
     weight_pe : float, optional
         Weight of the P/E ratio within the valuation score. Default is 0.4.
     weight_pb : float, optional
@@ -45,8 +62,11 @@ class AllocationConfig:
         underweight. Default is 0.1.
     """
 
-    weight_underweight: float
-    weight_valuation: float
+    weight_underweight: float = 0.5
+    weight_valuation: float = 0.3
+    weight_capital_efficiency: float = 0.2
+    account_room: dict[AccountType, float] = field(default_factory=dict)
+    asset_tax_profiles: dict[str, AssetTaxProfile] = field(default_factory=dict)
 
     time_series_factors: dict[str, tuple[float, Literal["positive", "negative"]]] = (
         field(
@@ -116,21 +136,26 @@ def score_opportunities(
     df: pd.DataFrame,
     config: AllocationConfig | None = None,
 ) -> pd.DataFrame:
-    """Evaluate and rank investment opportunities based on drift and valuation.
+    """Evaluate and rank investment opportunities based on drift, valuation,
+    and capital efficiency.
 
     This function calculates a composite "opportunity score" for each asset in
-    a portfolio. It combines how severely an asset is underweight relative to
-    its target allocation with a multi-factor fundamental valuation score.
+    a portfolio. It combines (1) how severely an asset is underweight relative
+    to its target allocation, (2) a multi-factor fundamental valuation score,
+    and (3) a capital-efficiency score that prioritises tax-advantaged accounts
+    (TFSA/RRSP/FHSA) with remaining contribution room.
 
     Parameters
     ----------
     df : pd.DataFrame
         Current portfolio state and optional fundamental data.
         Required columns: 'ticker', 'current_value', 'target_weight'.
-        Optional columns: 'pe_ratio', 'pb_ratio', 'div_yield', 'momentum_6m'.
+        Optional columns: 'target_account' (AccountType or str),
+        'pe_ratio', 'pb_ratio', 'div_yield', 'momentum_6m'.
     config : AllocationConfig, optional
         Configuration dictating the weights of different scoring components.
-        If None, default values are used.
+        If None, default values are used (Drift 0.5, Valuation 0.3,
+        Capital Efficiency 0.2).
 
     Returns
     -------
@@ -141,10 +166,11 @@ def score_opportunities(
         - 'underweight': Percentage points below target (floored at 0).
         - 'underweight_score': Normalized drift score [0, 1].
         - 'valuation_score': Composite fundamental score [0, 1].
+        - 'capital_efficiency_score': Tax-advantaged account priority [0, 1].
         - 'opportunity_score': Final blended ranking score.
     """
     if config is None:
-        config = AllocationConfig(weight_underweight=0.0, weight_valuation=0.0)
+        config = AllocationConfig()
 
     df = df.copy()
 
@@ -214,11 +240,47 @@ def score_opportunities(
 
     df["valuation_score"] = valuation_score
 
-    # 3) Final opportunity score
+    # 3) Capital efficiency score — prioritise tax-advantaged accounts with room
+    account_room = config.account_room
+    if "target_account" in df.columns and account_room:
+        capital_scores = []
+        for _, row in df.iterrows():
+            raw_acct = row.get("target_account")
+            if raw_acct is None or (isinstance(raw_acct, float) and np.isnan(raw_acct)):
+                capital_scores.append(0.5)  # Neutral when no account is specified
+                continue
+
+            try:
+                acct = AccountType(str(raw_acct).upper().strip())
+            except ValueError:
+                capital_scores.append(0.5)
+                continue
+
+            remaining = account_room.get(acct, 0.0)
+            if acct == AccountType.NON_REGISTERED:
+                # Non-registered always has unlimited room; neutral score
+                capital_scores.append(0.5)
+            elif remaining > 0:
+                # Tax-advantaged account with room → high priority
+                capital_scores.append(1.0)
+            else:
+                # Tax-advantaged account with no room left → low priority
+                capital_scores.append(0.0)
+        df["capital_efficiency_score"] = capital_scores
+    else:
+        # No account info or no room data → neutral score for all
+        df["capital_efficiency_score"] = 0.5
+
+    # 4) Final opportunity score — blended from three pillars
     wu = config.weight_underweight
     wv = config.weight_valuation
+    wce = config.weight_capital_efficiency
 
-    df["opportunity_score"] = wu * df["underweight_score"] + wv * df["valuation_score"]
+    df["opportunity_score"] = (
+        wu * df["underweight_score"]
+        + wv * df["valuation_score"]
+        + wce * df["capital_efficiency_score"]
+    )
 
     # Sort for convenience
     df = df.sort_values("opportunity_score", ascending=False).reset_index(drop=True)
@@ -343,18 +405,24 @@ def allocate_contribution(
     contribution_dollars: float,
     config: AllocationConfig | None = None,
 ) -> pd.DataFrame:
-    """Distribute a cash contribution based on opportunity scores.
+    """Distribute a cash contribution based on opportunity scores with
+    account-room awareness.
 
-    This function takes the ranked output from `score_opportunities` and assigns
-    dollar amounts to the most attractive assets. It uses a "need" metric
-    calculated as `underweight * (epsilon + valuation_score)`. The allocator
-    also enforces a minimum buy threshold to avoid generating tiny orders.
+    The allocator prioritises tax-advantaged accounts (TFSA, RRSP, FHSA) up to
+    their contribution limits.  Any cash that exceeds a registered account's
+    remaining room *spills over* into the non-registered allocation, where
+    US withholding-tax drag is reapplied to the affected shares.
+
+    When no ``target_account`` column or ``account_room`` mapping is present,
+    the function falls back to the classic unconstrained allocation behaviour.
 
     Parameters
     ----------
     scored_df : pd.DataFrame
-        The output from `score_opportunities`, containing at minimum the
-        'current_value', 'underweight', and 'valuation_score' columns.
+        The output from :func:`score_opportunities`, containing at minimum the
+        ``'current_value'``, ``'underweight'``, and ``'valuation_score'``
+        columns.  When ``'target_account'`` is present and
+        ``config.account_room`` is non-empty, account caps are enforced.
     contribution_dollars : float
         The total amount of cash to deploy. Must be strictly positive.
     config : AllocationConfig, optional
@@ -365,18 +433,19 @@ def allocate_contribution(
     pd.DataFrame
         The input DataFrame sorted descending by recommended dollar amount,
         with new columns:
-        - 'raw_allocation': Unconstrained theoretical dollar assignment.
-        - 'recommended_allocation': Final dollar amount to buy.
-        - 'recommended_weight_increase': Estimated portfolio weight impact.
-        - 'allocation_rank': Rank of the recommended allocation size.
+        - ``'raw_allocation'``: Unconstrained theoretical dollar assignment.
+        - ``'recommended_allocation'``: Final dollar amount to buy.
+        - ``'spillover_allocation'``: Portion redirected to non-registered.
+        - ``'recommended_weight_increase'``: Estimated portfolio weight impact.
+        - ``'allocation_rank'``: Rank of the recommended allocation size.
 
     Raises
     ------
     ValueError
-        If `contribution_dollars` is not strictly positive.
+        If ``contribution_dollars`` is not strictly positive.
     """
     if config is None:
-        config = AllocationConfig(weight_underweight=0.0, weight_valuation=0.0)
+        config = AllocationConfig()
 
     if contribution_dollars <= 0:
         raise ValueError("contribution_dollars must be positive.")
@@ -402,21 +471,18 @@ def allocate_contribution(
 
     df["raw_allocation"] = alloc_weights * contribution_dollars
 
-    # Enforce minimum allocation per name; re-normalize the rest
-    min_alloc = config.min_allocation_dollars
-    df["recommended_allocation"] = 0.0
+    # --- Account-room-aware allocation ---
+    has_accounts = "target_account" in df.columns and bool(config.account_room)
 
-    # First, assign 0 to very small allocations and mark the "eligible" set
-    eligible = df["raw_allocation"] >= min_alloc
-    if eligible.any():
-        # Work only on eligible names; renormalize
-        sub = df.loc[eligible, "raw_allocation"]
-        sub_weights = sub / sub.sum()
-        df.loc[eligible, "recommended_allocation"] = sub_weights * contribution_dollars
+    df["recommended_allocation"] = 0.0
+    df["spillover_allocation"] = 0.0
+
+    if not has_accounts:
+        # Classic unconstrained path (backward compatible)
+        _apply_min_allocation(df, contribution_dollars, config)
     else:
-        # If no-one clears the min threshold, just give the largest one the whole amount
-        idx_max = df["raw_allocation"].idxmax()
-        df.loc[idx_max, "recommended_allocation"] = contribution_dollars
+        # Account-aware path with spillover
+        _allocate_with_account_room(df, contribution_dollars, config)
 
     # Approximate weight increase (assuming portfolio_value + contribution)
     portfolio_value = df["current_value"].sum()
@@ -436,3 +502,179 @@ def allocate_contribution(
         drop=True
     )
     return df
+
+
+def _apply_min_allocation(
+    df: pd.DataFrame,
+    contribution_dollars: float,
+    config: AllocationConfig,
+    *,
+    source_col: str = "raw_allocation",
+) -> None:
+    """Enforce minimum allocation threshold; re-normalize the rest.
+
+    Operates on the DataFrame in-place, setting ``recommended_allocation``.
+    When ``source_col`` is ``"recommended_allocation"`` (used after
+    account-aware allocation), the thresholds and weights are derived from
+    the already-constrained recommended amounts rather than raw.
+    """
+    min_alloc = config.min_allocation_dollars
+    eligible = df[source_col] >= min_alloc
+    if eligible.any():
+        sub = df.loc[eligible, source_col]
+        sub_weights = sub / sub.sum()
+        df.loc[eligible, "recommended_allocation"] = sub_weights * contribution_dollars
+    else:
+        idx_max = df[source_col].idxmax()
+        df.loc[idx_max, "recommended_allocation"] = contribution_dollars
+
+
+def _apply_min_allocation_by_account(
+    df: pd.DataFrame,
+    contribution_dollars: float,
+    config: AllocationConfig,
+    room: dict[AccountType, float],
+) -> None:
+    """Enforce minimum allocation within each account group, capping at room.
+
+    Unlike the classic ``_apply_min_allocation``, this operates per-account
+    to avoid breaking contribution limits during re-normalization.
+    """
+    min_alloc = config.min_allocation_dollars
+
+    for idx in df.index:
+        rec = df.at[idx, "recommended_allocation"]
+        if rec > 0 and rec < min_alloc:
+            # Tiny allocation — zero it out and return the cash to spillover
+            acct = _resolve_account(df.loc[idx])
+            if acct is not None and acct != AccountType.NON_REGISTERED:
+                room[acct] = room.get(acct, 0.0) + rec
+            df.at[idx, "recommended_allocation"] = 0.0
+
+
+def _resolve_account(row: pd.Series) -> AccountType | None:
+    """Parse the ``target_account`` column into an AccountType, or None."""
+    raw = row.get("target_account")
+    if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+        return None
+    try:
+        return AccountType(str(raw).upper().strip())
+    except ValueError:
+        return None
+
+
+def _allocate_with_account_room(
+    df: pd.DataFrame,
+    contribution_dollars: float,
+    config: AllocationConfig,
+) -> None:
+    """Account-aware allocation that caps registered contributions and
+    redirects spillover to non-registered accounts.
+
+    Operates on the DataFrame in-place, setting ``recommended_allocation``
+    and ``spillover_allocation``.
+    """
+    # Snapshot remaining room per account
+    room: dict[AccountType, float] = dict(config.account_room)
+    spillover = 0.0
+
+    # Sort by opportunity score descending so highest-priority assets get
+    # first access to limited tax-advantaged room.
+    ranked = df.sort_values("opportunity_score", ascending=False)
+
+    for idx in ranked.index:
+        raw = df.at[idx, "raw_allocation"]
+        if raw <= 0:
+            continue
+
+        acct = _resolve_account(df.loc[idx])
+        if acct is None or acct == AccountType.NON_REGISTERED:
+            # Non-reg or unknown → unlimited room; allocate directly
+            df.at[idx, "recommended_allocation"] = raw
+            continue
+
+        # Tax-advantaged account — check remaining room
+        remaining = room.get(acct, 0.0)
+        if remaining >= raw:
+            # Full allocation fits within room
+            df.at[idx, "recommended_allocation"] = raw
+            room[acct] = remaining - raw
+        elif remaining > 0:
+            # Partial allocation: use up remaining room, spillover the rest
+            df.at[idx, "recommended_allocation"] = remaining
+            df.at[idx, "spillover_allocation"] = raw - remaining
+            spillover += raw - remaining
+            room[acct] = 0.0
+
+            ticker_label = df.at[idx, "ticker"] if "ticker" in df.columns else str(idx)
+            logger.info(
+                "%s: %s room exhausted (allocated $%.2f of $%.2f raw). "
+                "$%.2f spills to non-registered.",
+                ticker_label,
+                acct.value,
+                remaining,
+                raw,
+                raw - remaining,
+            )
+        else:
+            # No room left — entire amount spills over
+            df.at[idx, "spillover_allocation"] = raw
+            spillover += raw
+
+            ticker_label = df.at[idx, "ticker"] if "ticker" in df.columns else str(idx)
+            logger.debug(
+                "%s: %s has no remaining room — $%.2f spills to non-registered.",
+                ticker_label,
+                acct.value,
+                raw,
+            )
+
+    # --- Re-allocate spillover to non-registered assets ---
+    if spillover > 0:
+        # Find assets targeted for non-registered (or unknown) accounts
+        nonreg_mask = pd.Series(False, index=df.index)
+        for idx in df.index:
+            acct = _resolve_account(df.loc[idx])
+            nonreg_mask.at[idx] = acct is None or acct == AccountType.NON_REGISTERED
+
+        nonreg_df = df.loc[nonreg_mask]
+
+        if nonreg_df.empty:
+            logger.warning(
+                "$%.2f in spillover but no non-registered assets to absorb it. "
+                "Spillover is left unallocated.",
+                spillover,
+            )
+        else:
+            # Distribute spillover proportionally by opportunity score
+            scores = nonreg_df["opportunity_score"].clip(lower=0.0)
+            if scores.sum() <= 0:
+                weights = pd.Series(1.0 / len(nonreg_df), index=nonreg_df.index)
+            else:
+                weights = scores / scores.sum()
+
+            for idx in nonreg_df.index:
+                extra = weights.at[idx] * spillover
+                df.at[idx, "recommended_allocation"] += extra
+
+                # Apply withholding-tax drag logging for spillover shares
+                ticker = df.at[idx, "ticker"] if "ticker" in df.columns else str(idx)
+                profile = config.asset_tax_profiles.get(ticker)
+                if profile is not None and extra > 1e-4:
+                    wht_rate = calculate_withholding_tax_rate(
+                        AccountType.NON_REGISTERED, profile
+                    )
+                    tax_drag = profile.dividend_yield * wht_rate
+                    if tax_drag > 1e-4:
+                        logger.info(
+                            "Spillover to non-reg: %s receives $%.2f "
+                            "(tax drag=%.2f bps on yield=%.2f%%).",
+                            ticker,
+                            extra,
+                            tax_drag * 10000,
+                            profile.dividend_yield * 100,
+                        )
+
+    # --- Enforce minimum allocation on the final recommended amounts ---
+    # Re-normalize within each account group to preserve room caps.
+    _apply_min_allocation_by_account(df, contribution_dollars, config, room)

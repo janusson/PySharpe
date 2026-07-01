@@ -11,11 +11,20 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Final
 
-from .config import PySharpeSettings, build_settings, get_settings
+from .config import (
+    AssetTaxProfile,
+    PySharpeSettings,
+    build_settings,
+    calculate_withholding_tax_rate,
+    get_settings,
+)
 
 _CONFIG_EXPORTS: tuple[str, ...] = (
+    "AccountType",
+    "AssetTaxProfile",
     "PySharpeSettings",
     "build_settings",
+    "calculate_withholding_tax_rate",
     "get_settings",
 )
 
@@ -52,6 +61,12 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "DataValidationError": ("pysharpe.exceptions", "DataValidationError"),
     "ExecutionConfigError": ("pysharpe.exceptions", "ExecutionConfigError"),
     # Configuration
+    "AccountType": ("pysharpe.config", "AccountType"),
+    "AssetTaxProfile": ("pysharpe.config", "AssetTaxProfile"),
+    "calculate_withholding_tax_rate": (
+        "pysharpe.config",
+        "calculate_withholding_tax_rate",
+    ),
     "ExecutionConfig": ("pysharpe.config", "ExecutionConfig"),
     "load_execution_config": ("pysharpe.config", "load_execution_config"),
     "get_ticker_metadata": ("pysharpe.config", "get_ticker_metadata"),
@@ -94,7 +109,6 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     ),
     "OptimisationResult": ("pysharpe.optimization", "OptimisationResult"),
     # Tax location engine
-    "AccountType": ("pysharpe.optimization.tax_location", "AccountType"),
     "AssetLocationEngine": (
         "pysharpe.optimization.tax_location",
         "AssetLocationEngine",
@@ -196,7 +210,10 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         load_category_map,
     )
     from pysharpe.config import (  # noqa: F401
+        AccountType,
+        AssetTaxProfile,
         ExecutionConfig,
+        calculate_withholding_tax_rate,
         get_ticker_metadata,
         load_execution_config,
     )
@@ -253,7 +270,6 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         PortfolioWeights,
     )
     from pysharpe.optimization.tax_location import (  # noqa: F401
-        AccountType,
         AssetLocationEngine,
         AssetTaxCharacteristics,
         TaxProfile,

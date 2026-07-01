@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 
@@ -13,6 +14,27 @@ _DEFAULT_DATA_DIR = Path("data")
 _DEFAULT_PORTFOLIO_CONFIG_PATH = Path("portfolio_config.json")
 
 logger = logging.getLogger(__name__)
+
+
+class AccountType(Enum):
+    """Canadian registered account types with distinct tax treatments.
+
+    Attributes:
+        TFSA: Tax-Free Savings Account — no tax on gains, but no treaty
+            protection for US withholding tax on US-domiciled assets.
+        RRSP: Registered Retirement Savings Plan — exempt from US
+            withholding tax on directly-held US-domiciled assets under the
+            Canada-U.S. tax treaty.
+        FHSA: First Home Savings Account — similar to TFSA for withholding
+            tax purposes (no treaty protection).
+        NON_REGISTERED: Taxable (cash/margin) account — US withholding tax
+            is generally recoverable via the Foreign Tax Credit.
+    """
+
+    TFSA = "TFSA"
+    RRSP = "RRSP"
+    FHSA = "FHSA"
+    NON_REGISTERED = "NON_REGISTERED"
 
 
 @dataclass(frozen=True)
@@ -141,6 +163,88 @@ def load_execution_config(
     return ExecutionConfig(**kwargs)
 
 
+@dataclass(frozen=True)
+class AssetTaxProfile:
+    """Tax-relevant characteristics of a single investable asset.
+
+    Used in conjunction with :func:`calculate_withholding_tax_rate` to
+    determine the unrecoverable US withholding-tax drag for an asset held
+    in a given Canadian account type.
+
+    Attributes:
+        is_us_listed: ``True`` for US-domiciled ETFs such as VOO or ITOT.
+        is_cad_listed_us_equity: ``True`` for Canadian-listed wrappers of
+            US equities such as VFV.TO (which holds VOO) or QQC.TO.
+        dividend_yield: The trailing 12-month dividend yield expressed as a
+            decimal (e.g. ``0.013`` for 1.3 %).
+
+    Example:
+        >>> voo = AssetTaxProfile(is_us_listed=True, dividend_yield=0.013)
+        >>> vfv = AssetTaxProfile(is_cad_listed_us_equity=True, dividend_yield=0.012)
+    """
+
+    is_us_listed: bool = False
+    is_cad_listed_us_equity: bool = False
+    dividend_yield: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.dividend_yield < 0.0:
+            raise ValueError(
+                f"dividend_yield must be non-negative, got {self.dividend_yield}"
+            )
+
+
+def calculate_withholding_tax_rate(
+    account_type: AccountType,
+    tax_profile: AssetTaxProfile,
+) -> float:
+    """Compute the unrecoverable US withholding-tax rate for an asset in an account.
+
+    Implements the following Canadian tax logic:
+
+    * **RRSP + US-listed**: ``0.0`` — exempt under the Canada-U.S. tax treaty
+      for directly-held US-domiciled assets.
+    * **TFSA / FHSA + US-listed**: ``0.15`` — 15 % withholding tax applies;
+      these accounts have no treaty protection.
+    * **CAD-listed US equity**: ``0.15`` regardless of account type — the
+      foreign withholding tax is lost at the fund level and is unrecoverable.
+    * **Non-registered**: ``0.0`` — assumed fully offset by the Canadian
+      Foreign Tax Credit for the purposes of drag calculation.
+    * **Non-US assets**: ``0.0`` — no US withholding tax applies.
+
+    Parameters:
+        account_type: The Canadian registered account type.
+        tax_profile: The asset's tax-relevant characteristics.
+
+    Returns:
+        The withholding tax rate as a decimal (e.g. ``0.15`` for 15 %).
+
+    Example:
+        >>> voo = AssetTaxProfile(is_us_listed=True, dividend_yield=0.013)
+        >>> calculate_withholding_tax_rate(AccountType.RRSP, voo)
+        0.0
+        >>> calculate_withholding_tax_rate(AccountType.TFSA, voo)
+        0.15
+    """
+    # CAD-listed US equity: withholding is lost at the fund level regardless
+    if tax_profile.is_cad_listed_us_equity:
+        return 0.15
+
+    # Non-US assets: no US withholding tax applies
+    if not tax_profile.is_us_listed:
+        return 0.0
+
+    # US-listed assets — account-type-specific treatment
+    if account_type == AccountType.RRSP:
+        return 0.0  # Treaty-protected
+    if account_type in (AccountType.TFSA, AccountType.FHSA):
+        return 0.15  # No treaty protection
+    if account_type == AccountType.NON_REGISTERED:
+        return 0.0  # FTC offsets
+
+    return 0.0
+
+
 def get_ticker_metadata(
     ticker: str,
     proxy_map: dict[str, dict[str, object]] | None = None,
@@ -217,6 +321,8 @@ class PySharpeSettings:
     artifact_version: str = "v1"
     mer_by_ticker: dict[str, float] = field(default_factory=dict)
     proxy_map: dict[str, dict[str, object]] = field(default_factory=dict)
+    account_room: dict[AccountType, float] = field(default_factory=dict)
+    asset_tax_profiles: dict[str, AssetTaxProfile] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # pragma: no cover - dataclass hook
         object.__setattr__(self, "data_dir", self.data_dir.resolve())
@@ -328,6 +434,54 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
         except Exception as e:
             logger.warning(f"Failed to load proxy_map.json: {e}")
 
+    # Load account_room and asset_tax_profiles from portfolio_config.json
+    account_room: dict[AccountType, float] = {}
+    asset_tax_profiles: dict[str, AssetTaxProfile] = {}
+    portfolio_config_path = Path("portfolio_config.json")
+    if portfolio_config_path.exists():
+        try:
+            with portfolio_config_path.open("r", encoding="utf-8") as f:
+                portfolio_data = json.load(f)
+
+            # account_room: {"TFSA": 7000, "RRSP": 30000, ...}
+            raw_room = portfolio_data.get("account_room")
+            if raw_room and isinstance(raw_room, dict):
+                for key, value in raw_room.items():
+                    try:
+                        acct = AccountType(key.upper())
+                        account_room[acct] = float(value)
+                    except (ValueError, TypeError) as exc:
+                        logger.warning(
+                            "Skipping invalid account_room entry '%s': %s", key, exc
+                        )
+
+            # asset_tax_profiles: {"VOO": {"is_us_listed": true, ...}, ...}
+            raw_profiles = portfolio_data.get("asset_tax_profiles")
+            if raw_profiles and isinstance(raw_profiles, dict):
+                for ticker, profile_data in raw_profiles.items():
+                    try:
+                        asset_tax_profiles[ticker] = AssetTaxProfile(
+                            is_us_listed=bool(profile_data.get("is_us_listed", False)),
+                            is_cad_listed_us_equity=bool(
+                                profile_data.get("is_cad_listed_us_equity", False)
+                            ),
+                            dividend_yield=float(
+                                profile_data.get("dividend_yield", 0.0)
+                            ),
+                        )
+                    except (ValueError, TypeError) as exc:
+                        logger.warning(
+                            "Skipping invalid asset_tax_profile for '%s': %s",
+                            ticker,
+                            exc,
+                        )
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Failed to load account config from %s: %s",
+                portfolio_config_path,
+                exc,
+            )
+
     return PySharpeSettings(
         data_dir=data_dir,
         log_dir=log_dir,
@@ -335,6 +489,8 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
         artifact_version=artifact_version,
         mer_by_ticker=mer_by_ticker,
         proxy_map=proxy_map,
+        account_room=account_room,
+        asset_tax_profiles=asset_tax_profiles,
     )
 
 
@@ -357,9 +513,12 @@ def get_settings() -> PySharpeSettings:
 
 
 __all__ = [
+    "AccountType",
+    "AssetTaxProfile",
     "ExecutionConfig",
     "PySharpeSettings",
     "build_settings",
+    "calculate_withholding_tax_rate",
     "get_settings",
     "get_ticker_metadata",
     "load_execution_config",
