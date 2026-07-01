@@ -270,6 +270,9 @@ def test_simulate_dca_subcommand_uses_projection(monkeypatch, capsys):
             def __init__(self) -> None:
                 self.figure = self
 
+            def get_figure(self):
+                return self
+
             def savefig(self, path):
                 saved["path"] = Path(path)
 
@@ -346,6 +349,9 @@ def test_simulate_dca_subcommand_shows_plot(monkeypatch, capsys):
         def __init__(self) -> None:
             self.figure = self
 
+        def get_figure(self):
+            return self
+
         def savefig(self, *_args, **_kwargs):
             pass
 
@@ -390,6 +396,9 @@ def test_plot_subcommand_reads_csv(monkeypatch, tmp_path):
     class _Axes:
         def __init__(self) -> None:
             self.figure = _Figure()
+
+        def get_figure(self):
+            return self.figure
 
         def set_title(self, *_args, **_kwargs):
             pass
@@ -454,6 +463,9 @@ def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
     class _Axes:
         def __init__(self) -> None:
             self.figure = _Figure()
+
+        def get_figure(self):
+            return self.figure
 
         def set_title(self, *_args, **_kwargs):
             pass

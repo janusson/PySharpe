@@ -12,6 +12,7 @@ from pathlib import Path
 from pysharpe.optimization.tax_location import (
     AccountType,
     TaxProfile,
+    _normalize_account,
 )
 
 _DEFAULT_DATA_DIR = Path("data")
@@ -446,7 +447,7 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
             if isinstance(raw_capacities, dict):
                 for key, value in raw_capacities.items():
                     try:
-                        acct = AccountType(key.upper().strip())
+                        acct = _normalize_account(str(key))
                         account_capacities[acct] = float(value)
                     except (ValueError, TypeError) as exc:
                         logger.warning(
@@ -468,11 +469,43 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
             if raw_room and isinstance(raw_room, dict):
                 for key, value in raw_room.items():
                     try:
-                        acct = AccountType(key.upper())
+                        acct = _normalize_account(str(key))
                         account_room[acct] = float(value)
                     except (ValueError, TypeError) as exc:
                         logger.warning(
                             "Skipping invalid account_room entry '%s': %s", key, exc
+                        )
+
+            # tax_profile from file (overrides env var when present)
+            raw_tax = portfolio_data.get("tax_profile")
+            if raw_tax and isinstance(raw_tax, dict):
+                for k in (
+                    "marginal_tax_rate",
+                    "capital_gains_inclusion_rate",
+                    "eligible_dividend_gross_up",
+                    "eligible_dividend_tax_credit_federal",
+                    "eligible_dividend_tax_credit_provincial",
+                ):
+                    if k in raw_tax:
+                        try:
+                            tax_profile_kwargs[k] = float(raw_tax[k])
+                        except (ValueError, TypeError) as exc:
+                            logger.warning(
+                                "Skipping invalid tax_profile field '%s': %s", k, exc
+                            )
+
+            # account_capacities from file (merged with env-var entries)
+            raw_capacities = portfolio_data.get("account_capacities")
+            if raw_capacities and isinstance(raw_capacities, dict):
+                for key, value in raw_capacities.items():
+                    try:
+                        acct = _normalize_account(str(key))
+                        account_capacities[acct] = float(value)
+                    except (ValueError, TypeError) as exc:
+                        logger.warning(
+                            "Skipping invalid account_capacities entry '%s': %s",
+                            key,
+                            exc,
                         )
 
             # asset_tax_profiles: {"VOO": {"is_us_listed": true, ...}, ...}

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -109,7 +110,9 @@ class SharpeOptimizer:
                 "Insufficient data to calculate returns after dropping NaNs."
             )
 
-        self.num_periods_per_year = self._estimate_periods_per_year(self.prices.index)
+        self.num_periods_per_year = self._estimate_periods_per_year(
+            cast(pd.DatetimeIndex, self.prices.index)
+        )
         self._rf_period = self.config.risk_free_rate / self.num_periods_per_year
 
         # ------------------------------------------------------------------
@@ -399,7 +402,10 @@ class SharpeOptimizer:
                     self.config.num_portfolios_monte_carlo
                 )
                 best_idx = rp["Sharpe"].idxmax()
-                initial_guess = np.array(best_idx[1])
+                # best_idx is a tuple (Portfolio, Weights) from the MultiIndex;
+                # index [1] extracts the weight vector.
+                best_tuple = cast(tuple, best_idx)
+                initial_guess = np.array(best_tuple[1])
             except Exception:
                 logger.debug("Monte Carlo initial-guess failed; using equal weights.")
 
@@ -426,16 +432,19 @@ class SharpeOptimizer:
         w_opt /= w_opt.sum()  # guard against float drift
         p_ret, p_vol, p_sr = self.calculate_portfolio_performance(w_opt)
 
-        # --- Format weights ---
+        # --- Format weights (drop near-zero entries) ---
         if self._accounts:
             w2d = w_opt.reshape(self._num_assets, self._num_accounts)
             weights_map: dict = {}
             for i, ticker in enumerate(self.assets):
                 for j, acct_val in enumerate(self._account_values):
-                    key = (ticker, acct_val) if self._accounts else ticker
-                    weights_map[key] = float(w2d[i, j])
+                    w = float(w2d[i, j])
+                    if w > 1e-8:
+                        weights_map[(ticker, acct_val)] = w
         else:
-            weights_map = dict(zip(self.assets, w_opt.tolist()))
+            weights_map = {
+                t: float(w) for t, w in zip(self.assets, w_opt.tolist()) if w > 1e-8
+            }
 
         logger.info(
             "Optimisation complete. Sharpe=%.4f, return=%.4f%%, vol=%.4f%%.",
@@ -460,9 +469,15 @@ class SharpeOptimizer:
             weights_map = {}
             for i, ticker in enumerate(self.assets):
                 for j, acct_val in enumerate(self._account_values):
-                    weights_map[(ticker, acct_val)] = float(w2d[i, j])
+                    w_val = float(w2d[i, j])
+                    if w_val > 1e-8:
+                        weights_map[(ticker, acct_val)] = w_val
         else:
-            weights_map = dict(zip(self.assets, w.tolist()))
+            weights_map = {
+                t: float(w_val)
+                for t, w_val in zip(self.assets, w.tolist())
+                if w_val > 1e-8
+            }
 
         return OptimizationResult(
             weights=weights_map,

@@ -13,7 +13,8 @@ class OptimizationResult:
     Attributes:
         weights: Mapping of ticker symbol to its optimized weight.
         expected_return: The annualized expected return of the optimized portfolio.
-        volatility: The annualized volatility (standard deviation) of the optimized portfolio.
+        volatility: The annualized volatility (standard deviation) of the
+            optimized portfolio.
         sharpe_ratio: The calculated Sharpe ratio of the optimized portfolio.
     """
 

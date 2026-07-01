@@ -210,7 +210,9 @@ def _handle_optimise(args: argparse.Namespace) -> int:
                     if args.holdings_history_output:
                         output = Path(args.holdings_history_output).expanduser()
                         output.parent.mkdir(parents=True, exist_ok=True)
-                        ax.figure.savefig(output, dpi=150, bbox_inches="tight")
+                        fig = ax.get_figure()
+                        assert fig is not None  # always set after plotting
+                        fig.savefig(output, dpi=150, bbox_inches="tight")  # type: ignore[union-attr]
                         print(f"Holdings history plot saved to {output}")
                 except PySharpeError as exc:
                     print(f"Error plotting holdings history for '{name}': {exc}")
@@ -325,7 +327,9 @@ def _handle_simulate_dca(args: argparse.Namespace) -> int:
         if args.output:
             output_path = Path(args.output).expanduser()
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            ax.figure.savefig(output_path)
+            fig = ax.get_figure()
+            assert fig is not None
+            fig.savefig(output_path)  # type: ignore[union-attr]
             print(f"Plot saved to {output_path}")
         if args.plot:
             viz_utils.require_matplotlib().show()
@@ -356,7 +360,8 @@ def _handle_plot(args: argparse.Namespace) -> int:
     if args.type == "heatmap":
         from pysharpe.visualization.correlation import plot_correlation_heatmap
 
-        ax = plot_correlation_heatmap(frame[columns], title=args.title)
+        subset: pd.DataFrame = frame[columns]  # type: ignore[assignment]
+        ax = plot_correlation_heatmap(subset, title=args.title)
     else:
         ax = frame[columns].plot(figsize=(8, 4))
         ax.set_title(args.title or path.stem)
@@ -366,7 +371,9 @@ def _handle_plot(args: argparse.Namespace) -> int:
     if args.output:
         output = Path(args.output).expanduser()
         output.parent.mkdir(parents=True, exist_ok=True)
-        ax.figure.savefig(output, dpi=300 if args.type == "heatmap" else None)
+        fig = ax.get_figure()
+        assert fig is not None
+        fig.savefig(output, dpi=300 if args.type == "heatmap" else None)  # type: ignore[union-attr]
         print(f"Plot saved to {output}")
 
     if args.show:
@@ -408,7 +415,10 @@ def _parse_holdings_json(raw: str) -> dict[str, float]:
         if not clean_ticker:
             continue
 
-        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        try:
+            numeric = float(value)
+        except (ValueError, TypeError):
+            numeric = float("nan")
         if pd.isna(numeric):
             raise ValueError(f"Invalid holdings value for ticker {clean_ticker}.")
         if numeric < 0:
@@ -483,7 +493,10 @@ def _build_parser() -> argparse.ArgumentParser:
     allocate.add_argument(
         "--portfolio",
         required=True,
-        help="Path to CSV containing current portfolio state (ticker, current_value, target_weight).",
+        help=(
+            "Path to CSV containing current portfolio state "
+            "(ticker, current_value, target_weight)."
+        ),
     )
     allocate.add_argument(
         "--amount",
@@ -494,7 +507,10 @@ def _build_parser() -> argparse.ArgumentParser:
     allocate.add_argument(
         "--config",
         type=Path,
-        help="Optional path to a JSON configuration file defining fundamental valuation mappings.",
+        help=(
+            "Optional path to a JSON configuration file "
+            "defining fundamental valuation mappings."
+        ),
     )
 
     rebalance = subparsers.add_parser(
@@ -621,12 +637,18 @@ def _build_parser() -> argparse.ArgumentParser:
     optimise.add_argument(
         "--drop-unmapped-categories",
         action="store_true",
-        help="Discard tickers missing a category instead of treating them as standalone categories.",
+        help=(
+            "Discard tickers missing a category instead of "
+            "treating them as standalone categories."
+        ),
     )
     optimise.add_argument(
         "--config",
         type=Path,
-        help="Path to a JSON configuration file defining MER, geography, and constraints.",
+        help=(
+            "Path to a JSON configuration file defining "
+            "MER, geography, and constraints."
+        ),
     )
     optimise.add_argument(
         "--return-model",
@@ -638,7 +660,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--shrinkage-floor",
         type=float,
         default=0.3,
-        help="Minimum shrinkage intensity for 'shrinkage' return model (0.0-1.0, default: 0.3).",
+        help=(
+            "Minimum shrinkage intensity for 'shrinkage' return model "
+            "(0.0-1.0, default: 0.3)."
+        ),
     )
     optimise.add_argument(
         "--base-currency",

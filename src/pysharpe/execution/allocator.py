@@ -176,7 +176,8 @@ def score_opportunities(
     for factor_name, (weight, direction) in config.time_series_factors.items():
         if factor_name not in df.columns:
             continue
-        series = df[factor_name]
+        # df[factor_name] is a single column — narrow to Series for the type-checker
+        series: pd.Series = df[factor_name]  # type: ignore[assignment]
         factor_score = -_zscore(series) if direction == "negative" else _zscore(series)
         weighted_normalized_scores.append(weight * _minmax_01(factor_score))
         total_w += weight
@@ -184,7 +185,7 @@ def score_opportunities(
     for factor_name, weight in config.trend_factors.items():
         if factor_name not in df.columns:
             continue
-        series = df[factor_name]
+        series: pd.Series = df[factor_name]  # type: ignore[assignment]
         weighted_normalized_scores.append(weight * (series + 1) / 2)
         total_w += weight
 
@@ -426,59 +427,89 @@ def _allocate_with_dynamic_reroute(
     config: AllocationConfig,
     engine: AssetLocationEngine,
 ) -> None:
-    """Account-aware loop with on-the-fly score recalculation on overflow."""
+    """Account-aware loop that creates new NON_REG rows on overflow and re-sorts.
+
+    When a tax-advantaged account's contribution room is exhausted, the
+    overflow capital is placed into a **new** dataframe row targeting
+    ``NON_REG``.  Its tax-efficiency and composite scores are recalculated
+    on the fly, and the row participates in subsequent sort-allocate
+    iterations so that the highest-value opportunities always receive
+    capital first.
+    """
     room = deepcopy(dict(config.available_contribution_room))
     chars = config.asset_characteristics
+    processed: set = set()
 
-    # Sort by current opportunity score
-    ranked = df.sort_values("opportunity_score", ascending=False)
+    # Allocate fresh indices for new rows we may append
+    idx_max = df.index.max()
+    next_idx = int(idx_max) + 1 if not df.empty else 0  # type: ignore[arg-type]
 
-    for idx in ranked.index:
-        raw = df.at[idx, "raw_allocation"]
-        if raw <= 0:
+    # Safety cap: each original row can produce at most one NON_REG spillover
+    # row, so total rows ≤ 2 × initial_rows.  Add a generous 10× buffer and
+    # an absolute floor of 10 000 to guard against logic regressions.
+    max_iterations = max(10 * len(df) + 1, 10_000)
+    iteration = 0
+
+    while True:
+        iteration += 1
+        if iteration > max_iterations:
+            logger.error(
+                "Allocation loop exceeded max_iterations (%d). "
+                "Breaking to prevent infinite loop.  %d rows processed, "
+                "%d rows remain.",
+                max_iterations,
+                len(processed),
+                len(df) - len(processed),
+            )
+            break
+
+        # ---- pick the highest-scored row that hasn't been finalised ----
+        unprocessed_mask = ~df.index.isin(processed)
+        unprocessed: pd.DataFrame = df.loc[unprocessed_mask]  # type: ignore[assignment]
+        if unprocessed.empty:
+            break
+
+        unprocessed = unprocessed.sort_values("opportunity_score", ascending=False)
+        top_idx = unprocessed.index[0]
+        row = df.loc[top_idx]
+        raw = float(row.get("raw_allocation", 0.0))
+
+        # NaN raw_allocation (e.g. from divide-by-zero upstream) is unrecoverable
+        if raw <= 0 or np.isnan(raw):
+            processed.add(top_idx)
             continue
 
-        acct = _resolve_account(df.loc[idx])
-        ticker = df.at[idx, "ticker"] if "ticker" in df.columns else str(idx)
+        acct = _resolve_account(row)
+        ticker = str(row.get("ticker", "")) if "ticker" in df.columns else str(top_idx)
 
-        if acct is None:
-            # Unknown account — allocate directly
-            df.at[idx, "recommended_allocation"] = raw
+        # ---- NON_REG / unknown → unlimited room → allocate directly ----
+        if acct is None or acct == AccountType.NON_REG:
+            df.at[top_idx, "recommended_allocation"] = raw
+            processed.add(top_idx)
             continue
 
-        if acct == AccountType.NON_REG:
-            # Non-reg has unlimited room
-            df.at[idx, "recommended_allocation"] = raw
-            continue
-
-        # --- Tax-advantaged account — enforce room cap ---
+        # ---- Tax-advantaged account — enforce room cap ----
         remaining = room.get(acct, 0.0)
-        if remaining >= raw:
-            df.at[idx, "recommended_allocation"] = raw
-            room[acct] = remaining - raw
-        elif remaining > 0:
-            # Partial fill — overflow spills to NON_REG
-            df.at[idx, "recommended_allocation"] = remaining
-            overflow = raw - remaining
-            df.at[idx, "spillover_allocation"] = overflow
-            df.at[idx, "spillover_account"] = AccountType.NON_REG.value
-            room[acct] = 0.0
 
-            # --- Recalculate opportunity score for NON_REG placement ---
-            char = chars.get(ticker)
-            if char is not None:
-                try:
-                    new_score = engine.compute_tax_efficiency_score(
-                        char, AccountType.NON_REG.value
-                    )
-                    # Blend with original non-tax pillars
-                    df.at[idx, "recalculated_score"] = (
-                        config.weight_underweight * df.at[idx, "underweight_score"]
-                        + config.weight_valuation * df.at[idx, "valuation_score"]
-                        + config.weight_tax_efficiency * new_score
-                    )
-                except (ValueError, KeyError):
-                    pass
+        if remaining >= raw:
+            # Full allocation within remaining room
+            df.at[top_idx, "recommended_allocation"] = raw
+            room[acct] = remaining - raw
+            processed.add(top_idx)
+
+        elif remaining > 0:
+            # Partial fill — the portion beyond room spills to a new NON_REG row
+            df.at[top_idx, "recommended_allocation"] = remaining
+            overflow = raw - remaining
+            df.at[top_idx, "spillover_allocation"] = overflow
+            df.at[top_idx, "spillover_account"] = AccountType.NON_REG.value
+            room[acct] = 0.0
+            processed.add(top_idx)
+
+            _append_overflow_row(
+                df, next_idx, row, overflow, ticker, config, engine, chars
+            )
+            next_idx += 1
 
             logger.info(
                 "%s: %s room exhausted (allocated $%.2f of $%.2f). $%.2f spills to %s.",
@@ -489,25 +520,17 @@ def _allocate_with_dynamic_reroute(
                 overflow,
                 AccountType.NON_REG.value,
             )
-        else:
-            # No room — entire amount spills
-            df.at[idx, "spillover_allocation"] = raw
-            df.at[idx, "spillover_account"] = AccountType.NON_REG.value
-            room[acct] = 0.0
 
-            char = chars.get(ticker)
-            if char is not None:
-                try:
-                    new_score = engine.compute_tax_efficiency_score(
-                        char, AccountType.NON_REG.value
-                    )
-                    df.at[idx, "recalculated_score"] = (
-                        config.weight_underweight * df.at[idx, "underweight_score"]
-                        + config.weight_valuation * df.at[idx, "valuation_score"]
-                        + config.weight_tax_efficiency * new_score
-                    )
-                except (ValueError, KeyError):
-                    pass
+        else:
+            # No room at all — entire amount spills to a new NON_REG row
+            df.at[top_idx, "recommended_allocation"] = 0.0
+            df.at[top_idx, "spillover_allocation"] = raw
+            df.at[top_idx, "spillover_account"] = AccountType.NON_REG.value
+            room[acct] = 0.0
+            processed.add(top_idx)
+
+            _append_overflow_row(df, next_idx, row, raw, ticker, config, engine, chars)
+            next_idx += 1
 
             logger.debug(
                 "%s: %s has no remaining room — $%.2f spills to %s.",
@@ -519,3 +542,53 @@ def _allocate_with_dynamic_reroute(
 
     # --- Apply minimum allocation ---
     _apply_min_allocation(df, contribution_dollars, config)
+
+
+def _append_overflow_row(
+    df: pd.DataFrame,
+    new_idx: int,
+    source_row: pd.Series,
+    overflow_amount: float,
+    ticker: str,
+    config: AllocationConfig,
+    engine: AssetLocationEngine,
+    chars: dict[str, AssetTaxCharacteristics],
+) -> None:
+    """Append a new NON_REG row to *df* for the overflow capital.
+
+    The new row inherits the source row's drift and valuation pillars but
+    recalculates ``tax_efficiency_score`` and ``opportunity_score`` for the
+    non-registered account context.
+    """
+    new_row = source_row.copy()
+    new_row["target_account"] = AccountType.NON_REG.value
+    new_row["raw_allocation"] = overflow_amount
+    new_row["recommended_allocation"] = 0.0
+    new_row["spillover_allocation"] = 0.0
+    new_row["spillover_account"] = None
+    new_row["recalculated_score"] = np.nan
+
+    # Recalculate tax-efficiency for NON_REG
+    char = chars.get(ticker)
+    if char is not None:
+        try:
+            tax_score = engine.compute_tax_efficiency_score(
+                char, AccountType.NON_REG.value
+            )
+            new_row["tax_efficiency_score"] = tax_score
+            # pd.Series.get returns object; the defaults guarantee float at runtime
+            uw_score = float(new_row.get("underweight_score", 0.0))  # type: ignore[arg-type]
+            val_score = float(new_row.get("valuation_score", 0.0))  # type: ignore[arg-type]
+            new_row["opportunity_score"] = (
+                config.weight_underweight * uw_score
+                + config.weight_valuation * val_score
+                + config.weight_tax_efficiency * tax_score
+            )
+        except (ValueError, KeyError) as exc:
+            logger.debug(
+                "Could not recalculate tax-efficiency for %s in NON_REG: %s",
+                ticker,
+                exc,
+            )
+
+    df.loc[new_idx] = new_row

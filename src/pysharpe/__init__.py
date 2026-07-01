@@ -9,9 +9,10 @@ imports between top-level modules.
 from __future__ import annotations
 
 from importlib import import_module
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
-from .config import (
+from .config import (  # noqa: F401 — used via _CONFIG_EXPORTS
     AssetTaxProfile,
     PySharpeSettings,
     TaxProfile,
@@ -49,12 +50,12 @@ _METRIC_EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 _SETTINGS = get_settings()
-DATA_DIR: Final[str] = _SETTINGS.data_dir
-PORTFOLIO_DIR: Final[str] = _SETTINGS.portfolio_dir
-PRICE_HISTORY_DIR: Final[str] = _SETTINGS.price_history_dir
-EXPORT_DIR: Final[str] = _SETTINGS.export_dir
-INFO_DIR: Final[str] = _SETTINGS.info_dir
-LOG_DIR: Final[str] = _SETTINGS.log_dir
+DATA_DIR: Final[Path] = _SETTINGS.data_dir
+PORTFOLIO_DIR: Final[Path] = _SETTINGS.portfolio_dir
+PRICE_HISTORY_DIR: Final[Path] = _SETTINGS.price_history_dir
+EXPORT_DIR: Final[Path] = _SETTINGS.export_dir
+INFO_DIR: Final[Path] = _SETTINGS.info_dir
+LOG_DIR: Final[Path] = _SETTINGS.log_dir
 
 _EXPORT_MAP: dict[str, tuple[str, str]] = {
     # Exceptions
@@ -178,7 +179,7 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
 
 _EXPORT_MAP.update(_METRIC_EXPORTS)
 
-__all__ = (*_CONFIG_EXPORTS, *_DIRECTORY_EXPORTS, *_EXPORT_MAP)
+__all__: tuple[str, ...] = (*_CONFIG_EXPORTS, *_DIRECTORY_EXPORTS, *_EXPORT_MAP)  # type: ignore[reportUnknownVariableType]
 
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - thin dynamic dispatch
