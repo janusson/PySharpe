@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -49,9 +50,6 @@ class PortfolioDefinition:
         """
 
         return set(self.tickers)
-
-
-import csv
 
 
 def read_tickers(path: Path) -> list[str]:

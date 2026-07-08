@@ -27,5 +27,5 @@ def test_dir_lists_lazy_exports():
 
 def test_unknown_attribute_raises_helpful_error():
     with pytest.raises(AttributeError) as exc:
-        pysharpe.does_not_exist
+        _ = pysharpe.does_not_exist  # noqa: F841
     assert "Available exports" in str(exc.value)

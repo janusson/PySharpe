@@ -75,10 +75,11 @@ select = [
     "I",  # import sorting
     "UP", # pyupgrade
 ]
-ignore = ["E203"]
+ignore = ["E203", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/" = ["S101"]
+"scripts/**" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -92,4 +93,11 @@ addopts = "--quiet --disable-warnings" #Formerly with "--cov=pysharpe --cov-repo
 norecursedirs = [".git", "examples", "docs"]
 markers = [
     "benchmark: Micro-benchmark coverage for performance-sensitive helpers.",
+]
+filterwarnings = [
+    # arviz 1.x removed InferenceData (PySharpe doesn't use it directly; the warning
+    # comes from pymc's transitive dependency and is harmless).
+    "ignore::arviz.MigrationWarning",
+    # Streamlit's "No runtime found" appears during test imports outside the server.
+    "ignore:No runtime found:UserWarning:streamlit",
 ]

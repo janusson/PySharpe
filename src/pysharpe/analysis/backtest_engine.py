@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..optimization.base import PortfolioOptimizer
 
 
 @dataclass(frozen=True)
@@ -276,11 +281,6 @@ class HistoricalBacktester:
             ),
             rebalance_events=pd.DatetimeIndex(rebalance_dates).normalize(),
         )
-
-
-from typing import Callable
-
-from ..optimization.base import PortfolioOptimizer
 
 
 class WalkForwardBacktester:

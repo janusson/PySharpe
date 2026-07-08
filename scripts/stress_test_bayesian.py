@@ -153,10 +153,10 @@ def run_stress_test():
             # Optimize with the modified covariance matrix
             n_assets = len(assets)
 
-            def objective(weights):
+            def objective(weights, cov=mod_cov_matrix):
                 # Using annualized metrics (assuming monthly data * 12)
                 p_return = np.sum(expected_returns.values * weights) * 12
-                p_vol = np.sqrt(np.dot(weights.T, np.dot(mod_cov_matrix * 12, weights)))
+                p_vol = np.sqrt(np.dot(weights.T, np.dot(cov * 12, weights)))
                 sharpe = p_return / p_vol if p_vol > 0 else 0
                 return -sharpe
 
