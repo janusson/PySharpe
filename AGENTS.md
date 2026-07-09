@@ -28,3 +28,14 @@ You are an expert quantitative finance developer and scientific software enginee
 - **Targeted testing:** Run the test subset covering your change before the full suite. Use the quick-reference table in `docs/TEST_MAP.md`.
 - **Bug fix discipline:** When you fix a bug: (a) add a regression test that fails before the fix and passes after; (b) grep the codebase for the same anti-pattern; (c) record the failure pattern in `docs/GOTCHAS.md`.
 - **Accumulate knowledge:** Update `CLAUDE.md`, `docs/TEST_MAP.md`, or `docs/GOTCHAS.md` whenever you discover new conventions, test mappings, or failure patterns.
+
+### 5. Asynchronous Execution
+
+- Do not halt execution to ask the user a question via standard terminal output. If you hit a blocking design decision or require permission to modify core pipeline files, you must use your provided tools to push a task notification to the AgentRQ dashboard and suspend your thread until a remote authorization event is received.
+
+### 6. Investment Philosophy & Allocation Heuristics
+
+- **Primary Objective (Value Averaging):** The core allocator implements a deterministic Value Averaging (VA) strategy, not standard Modern Portfolio Theory (MPT). Do not replace the allocation engine with Markowitz mean-variance solvers, minimum-variance portfolios, or risk-parity algorithms. The allocator's primary objective is to calculate the capital contribution required to meet a pre-defined, compounding target value path for each asset.
+- **Asset Universe:** The tool is explicitly tuned for broad-market, CAD-denominated index ETFs (e.g., VFV, VDY, QQC). Do not introduce single-stock idiosyncratic volatility models, sentiment analysis, or options-pricing logic.
+- **Tax-Advantaged Constraints (TFSA):** Assume all portfolios operate within the constraints of a Canadian Tax-Free Savings Account (TFSA). Because capital gains are tax-exempt and losses cannot be claimed, **tax-loss harvesting (TLH) logic is strictly prohibited.** You must account for foreign withholding tax drag on US dividends (e.g., within VFV/QQC) as a strict yield reduction, but do not build capital gains optimization or tax-bracket routing layers.
+- **Scoring Stability:** Preserve the `allocator.py` heuristic blend. The opportunity score must remain a strictly defined weighted sum of path drift (default 60%) and fundamental valuation/mean-reversion (default 40%). Do not alter these baseline weights unless explicitly instructed.
