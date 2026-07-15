@@ -1,4 +1,17 @@
-"""Tests for PySharpe configuration helpers."""
+"""Tests for PySharpe configuration helpers.
+
+.. note::
+
+    **Canadian Investment Compliance** — Default MER values must be decimal
+    fractions (< 0.10), never percentage points.  A real Canadian ETF MER
+    expressed as a decimal fraction is always well below 0.10 (e.g., 0.0017
+    for 0.17%).  Values like 0.17 signal the old percentage-point convention
+    and are rejected.
+
+    ``get_settings()`` is LRU-cached; call ``cache_clear()`` in tests
+    that vary environment variables.  ``PYSHARPE_DATA_DIR`` overrides the
+    data root.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,12 @@
-"""Unit tests for the metrics helper module."""
+"""Unit tests for the metrics helper module.
+
+.. note::
+
+    **Canadian Investment Context** — All metrics (Sharpe, Sortino, CAGR,
+    maximum drawdown, etc.) are computed on CAD-denominated price series.
+    Risk-free rate defaults to Canadian government bond yields.  Returns
+    are annualized using 252 trading days (North American convention).
+"""
 
 from __future__ import annotations
 

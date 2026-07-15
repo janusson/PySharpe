@@ -31,7 +31,6 @@ PySharpe is built from the ground up for the Canadian retail investor. It models
 
 - **2-D Asset Location Matrix** — Simultaneously solves both *what to hold* (asset allocation) and *where to hold it* (account placement) across TFSA, RRSP, FHSA, LIRA, RRIF, and Non-Registered accounts. Uses tax-adjusted expected returns that account for US foreign withholding tax (FWT) treaty protection, unrecoverable fund-level FWT on CAD-wrapped US ETFs, and account-specific income taxation.
 - **Tax-Loss Harvesting (TLH) Engine** — Identifies unrealized capital losses, proposes switch-fund trades that maintain factor exposure, and enforces the CRA's 61-day superficial loss rule (ITA s. 54). Includes a full ACB tracker using the CRA-mandated weighted-average cost method.
-- **Norbert's Gambit FX Routing** — Automatically determines whether to use standard FX conversion or the Norbert's Gambit journaling method for USD-denominated purchases. Computes a precise crossover threshold, itemized cost comparison, and a step-by-step execution checklist.
 - **Canadian ETF Benchmarks** — Built-in comparison against VEQT, XEQT, VGRO, XGRO, VBAL, and XBAL on equity curves and efficient frontier plots.
 
 ### 📊 Portfolio Optimization

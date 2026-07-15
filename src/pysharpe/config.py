@@ -46,21 +46,6 @@ class ExecutionConfig:
     withholding_tax_rate : float
         US withholding-tax rate applied to dividend yield for accounts that
         do not have treaty protection (TFSA, FHSA). Default is ``0.15``.
-    norberts_commission : float
-        Flat commission per trade when executing Norbert's Gambit (e.g.,
-        buying DLR.TO and selling DLR-U.TO). Two commissions are charged
-        per round-trip. Default is ``6.95`` (typical Canadian discount
-        brokerage).
-    norberts_spread_bps : float
-        Bid-ask spread of the dual-listed security (e.g., DLR.TO / DLR-U.TO)
-        expressed in basis points. Default is ``2.0`` (0.02%).
-    norberts_drift_risk_bps : float
-        Estimated adverse market-drift risk during the 2--3 business day
-        journaling period, expressed in basis points of the transaction
-        value. Default is ``5.0`` (0.05%).
-    norberts_dlr_price_cad : float
-        Approximate share price of DLR.TO in CAD, used to compute the
-        number of shares in the execution checklist. Default is ``14.0``.
     """
 
     account_type: str = "Non-Reg"
@@ -68,10 +53,6 @@ class ExecutionConfig:
     fx_fee_bps: float = 0.0
     dividend_yield_estimate: float = 0.02
     withholding_tax_rate: float = 0.15
-    norberts_commission: float = 6.95
-    norberts_spread_bps: float = 2.0
-    norberts_drift_risk_bps: float = 5.0
-    norberts_dlr_price_cad: float = 14.0
 
     @property
     def tax_drag_applies(self) -> bool:
@@ -94,15 +75,6 @@ class ExecutionConfig:
             return 0.0
         return self.dividend_yield_estimate * self.withholding_tax_rate
 
-    @property
-    def norberts_spread_decimal(self) -> float:
-        """Return the Norbert's Gambit spread as a decimal fraction."""
-        return self.norberts_spread_bps / 10000.0
-
-    @property
-    def norberts_drift_decimal(self) -> float:
-        """Return the Norbert's Gambit drift risk as a decimal fraction."""
-        return self.norberts_drift_risk_bps / 10000.0
 
 
 def load_execution_config(
@@ -137,10 +109,6 @@ def load_execution_config(
         "account_type",
         "allow_fractional",
         "fx_fee_bps",
-        "norberts_commission",
-        "norberts_spread_bps",
-        "norberts_drift_risk_bps",
-        "norberts_dlr_price_cad",
     ):
         if key in data:
             kwargs[key] = data[key]

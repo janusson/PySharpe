@@ -1,4 +1,15 @@
-"""Tests for the rebalance workflow."""
+"""Tests for the rebalance workflow.
+
+.. note::
+
+    **Canadian TFSA Constraint** — PySharpe portfolios operate within
+    Canadian Tax-Free Savings Account rules.  Capital gains are tax-exempt;
+    losses cannot be claimed.  No tax-loss harvesting logic is applied.
+
+    The rebalancing engine uses synthetic broad-market CAD-ETF data for
+    testing.  Test tickers (AAPL, MSFT) are synthetic placeholders and
+    do not represent actual single-stock recommendations.
+"""
 
 from __future__ import annotations
 

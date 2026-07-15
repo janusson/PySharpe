@@ -10,7 +10,10 @@
     "FCUV.TO": 0.0038,
     "FCUQ.TO": 0.0039,
     "INAI.TO": 0.0039,
-    "MNT.TO": 0.0035
+    "MNT.TO": 0.0035,
+    "VAB.TO": 0.0009,
+    "ZMMK.TO": 0.0013,
+    "ZGLD.TO": 0.0025
   },
   "geo_mapping": {
     "VFV.TO": "US",
@@ -26,7 +29,9 @@
     "FCUQ.TO": "US",
     "INAI.TO": "US",
     "MNT.TO": "GOLD",
-    "ZGLD.TO": "GOLD"
+    "ZGLD.TO": "GOLD",
+    "VAB.TO": "CA",
+    "ZMMK.TO": "CA"
   },
   "constraints": {
     "max_portfolio_mer": 1.0,

@@ -1,5 +1,12 @@
-"""Tests for portfolio categorisation helpers."""
+"""Tests for portfolio categorisation helpers.
 
+.. note::
+
+    **Canadian ETF Context** — Category mapping groups correlated ETFs
+    (e.g., US Equity, Fixed Income) before optimisation.  Geographic
+    constraints (US, CA, INT) are applied at the optimizer level.  Test
+    data uses synthetic ticker labels.
+"""
 from __future__ import annotations
 
 from pathlib import Path

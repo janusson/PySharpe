@@ -1,3 +1,11 @@
+"""Tests for the DuckDB-based data linker.
+
+.. note::
+
+    **Canadian Data Pipeline** — DataLinker provides SQL-based joining
+    of market and macro data for enhanced feature engineering.  Used
+    for analytical workflows, not for predictive trading models.
+"""
 import numpy as np
 import pandas as pd
 import pytest

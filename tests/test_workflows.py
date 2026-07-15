@@ -1,5 +1,12 @@
-"""Tests for high-level workflows."""
+"""Tests for high-level workflows.
 
+.. note::
+
+    **Canadian TFSA Context** — Download and optimisation workflows process
+    CAD-denominated ETF portfolios.  MER values are decimal fractions.
+    Base currency is CAD.  Optimisation results are written to the exports
+    directory for use by the VA rebalancing engine.
+"""
 from __future__ import annotations
 
 import pandas as pd

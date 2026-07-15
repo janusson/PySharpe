@@ -1,3 +1,11 @@
+"""Tests for walk-forward backtesting.
+
+.. note::
+
+    **Canadian ETF Context** — Walk-forward optimisation trains on rolling
+    windows of CAD-denominated ETF price data.  The strategy benchmark
+    comparison uses synthetic data with fixed seeds for reproducibility.
+"""
 import numpy as np
 import pandas as pd
 import pytest

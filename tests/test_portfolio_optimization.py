@@ -1,4 +1,17 @@
-"""Tests for the simplified portfolio optimisation module."""
+"""Tests for the simplified portfolio optimisation module.
+
+.. note::
+
+    **Canadian ETF Constraints** — Optimisation is tuned for broad-market,
+    CAD-denominated index ETFs.  MER values must be decimal fractions
+    (< 0.10), never percentage points.  Geographic lower-bound constraints
+    are dropped for regions with no mapped assets to avoid infeasible
+    solver crashes.
+
+    The efficient frontier analysis is separate from the Value Averaging
+    (VA) allocation engine.  Optimisation provides analytical insight;
+    the VA allocator drives actual contribution decisions.
+"""
 
 from __future__ import annotations
 

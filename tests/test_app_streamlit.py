@@ -1,3 +1,11 @@
+"""Tests for the Streamlit dashboard.
+
+.. note::
+
+    **Canadian TFSA Context** — The dashboard operates on CAD-denominated
+    ETF portfolios.  All test data is synthetic.  No live market data,
+    single-stock recommendations, or day-trading signals are used.
+"""
 import datetime as dt
 import io
 from types import SimpleNamespace

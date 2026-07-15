@@ -1,5 +1,25 @@
 """Integration tests for the 2-D Asset Location Matrix model.
 
+.. note::
+
+    **Canadian Investment Heuristics** — The allocation engine implements a
+    deterministic Value Averaging (VA) strategy for broad-market, CAD-
+    denominated index ETFs (e.g., VFV, VDY, QQC).
+
+    The opportunity score is a strictly defined weighted sum:
+
+    * 60% Path Drift (underweight_score): how far current value deviates
+      from the compounding target value path.
+    * 40% Valuation/Mean-Reversion (valuation_score): fundamental signal.
+
+    When tax characteristics are absent or all assets target the same
+    account, the blend collapses to the authoritative 60/40 baseline,
+    bypassing the tax-efficiency pillar entirely (see
+    :func:`pysharpe.execution.allocator._is_tax_location_differentiable`).
+
+    These weights are stable.  Do not alter them without explicit
+    authorization.
+
 Validates:
 * Sharpe-optimiser weight convergence in the N×M variable space.
 * Per-account capacity constraints are respected.
@@ -479,6 +499,45 @@ class TestAllocatorOverflow:
 class TestAllocatorScoring:
     """Verify composite scoring blends drift, valuation, and tax efficiency."""
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_base_df(
+        target_account: str | None = None,
+    ) -> pd.DataFrame:
+        """Build a minimal 3-ticker DataFrame parametrised by account."""
+        rows = []
+        for ticker in TICKERS:
+            row = {
+                "ticker": ticker,
+                "current_value": 1000.0,
+                "target_weight": (
+                    0.50 if ticker == "VFV" else 0.30 if ticker == "QQC" else 0.20
+                ),
+                "pe_ratio": (
+                    18.0 if ticker == "VFV" else 25.0 if ticker == "QQC" else 14.0
+                ),
+                "pb_ratio": (
+                    3.0 if ticker == "VFV" else 5.0 if ticker == "QQC" else 1.8
+                ),
+                "div_yield": (
+                    0.012 if ticker == "VFV" else 0.005 if ticker == "QQC" else 0.035
+                ),
+                "momentum_6m": (
+                    0.08 if ticker == "VFV" else 0.12 if ticker == "QQC" else 0.04
+                ),
+            }
+            if target_account is not None:
+                row["target_account"] = target_account
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
     def test_composite_score_is_weighted_blend(self) -> None:
         """opportunity_score must equal the weighted sum of its components."""
         df = _make_scored_df()
@@ -505,6 +564,63 @@ class TestAllocatorScoring:
             + config.weight_tax_efficiency
         )
         assert abs(total - 1.0) < 1e-9
+
+    def test_tax_neutral_scales_to_60_40(self) -> None:
+        """When asset_characteristics are omitted, scoring collapses to
+        the authoritative 60/40 investment-heuristic baseline."""
+        df = self._build_base_df(target_account="TFSA")
+        config = AllocationConfig()  # empty asset_characteristics
+        result = score_opportunities(df, config)
+
+        for _, row in result.iterrows():
+            expected = 0.6 * row["underweight_score"] + 0.4 * row["valuation_score"]
+            ticker = row.get("ticker", "?")
+            assert abs(row["opportunity_score"] - expected) < 1e-9, (
+                f"60/40 scaling failed for {ticker}: "
+                f"got {row['opportunity_score']:.6f}, expected {expected:.6f}"
+            )
+
+    def test_uniform_account_scales_to_60_40(self) -> None:
+        """When all rows target the same account wrapper, relative
+        tax-location differentials vanish and scoring collapses to 60/40."""
+        chars = _make_tax_chars()
+        df = self._build_base_df(target_account="RRSP")
+        config = AllocationConfig(
+            asset_characteristics=chars,
+            tax_profile=TaxProfile(marginal_tax_rate=0.45),
+        )
+        result = score_opportunities(df, config)
+
+        for _, row in result.iterrows():
+            expected = 0.6 * row["underweight_score"] + 0.4 * row["valuation_score"]
+            ticker = row.get("ticker", "?")
+            assert abs(row["opportunity_score"] - expected) < 1e-9, (
+                f"Uniform-account 60/40 scaling failed for {ticker}: "
+                f"got {row['opportunity_score']:.6f}, expected {expected:.6f}"
+            )
+
+    def test_mixed_accounts_uses_three_pillar_blend(self) -> None:
+        """When multiple accounts are present alongside configured tax
+        characteristics, the full three-pillar blend (50/30/20 default)
+        should be used."""
+        df = _make_scored_df()  # TFSA, RRSP, NON_REG
+        config = AllocationConfig(
+            asset_characteristics=_make_tax_chars(),
+            tax_profile=TaxProfile(marginal_tax_rate=0.45),
+        )
+        result = score_opportunities(df, config)
+
+        for _, row in result.iterrows():
+            expected = (
+                config.weight_underweight * row["underweight_score"]
+                + config.weight_valuation * row["valuation_score"]
+                + config.weight_tax_efficiency * row["tax_efficiency_score"]
+            )
+            ticker = row.get("ticker", "?")
+            assert abs(row["opportunity_score"] - expected) < 1e-9, (
+                f"Three-pillar blend mismatch for {ticker}: "
+                f"got {row['opportunity_score']:.6f}, expected {expected:.6f}"
+            )
 
 
 # ---------------------------------------------------------------------------

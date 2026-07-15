@@ -14,11 +14,12 @@ from pysharpe.optimization.sharpe_optimizer import (
 
 @pytest.fixture
 def sample_data():
+    rng = np.random.default_rng(12)
     dates = pd.date_range("2023-01-01", periods=100)
     data = pd.DataFrame(
         {
-            "A": np.exp(np.random.normal(0.001, 0.02, 100).cumsum()),
-            "B": np.exp(np.random.normal(0.002, 0.03, 100).cumsum()),
+            "A": np.exp(rng.normal(0.001, 0.02, 100).cumsum()),
+            "B": np.exp(rng.normal(0.002, 0.03, 100).cumsum()),
         },
         index=dates,
     )
@@ -41,12 +42,12 @@ def steady_prices():
 @pytest.fixture
 def three_asset_prices():
     """Three-asset price series with distinct risk/return profiles."""
-    np.random.seed(99)
+    rng = np.random.default_rng(99)
     dates = pd.date_range("2023-01-01", periods=200)
     returns = pd.DataFrame(index=dates)
-    returns["A"] = np.random.normal(0.001, 0.02, 200)  # High return, high vol
-    returns["B"] = np.random.normal(0.0005, 0.005, 200)  # Low return, low vol
-    returns["C"] = np.random.normal(0.0002, 0.01, 200)  # Mid
+    returns["A"] = rng.normal(0.001, 0.02, 200)  # High return, high vol
+    returns["B"] = rng.normal(0.0005, 0.005, 200)  # Low return, low vol
+    returns["C"] = rng.normal(0.0002, 0.01, 200)  # Mid
     prices = (1 + returns).cumprod() * 100
     prices.index.name = "Date"
     return prices

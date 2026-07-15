@@ -1,4 +1,12 @@
-"""Tests for the dollar-cost averaging utilities."""
+"""Tests for the dollar-cost averaging utilities.
+
+.. note::
+
+    **Canadian TFSA Context** — DCA projections assume a Canadian TFSA:
+    contributions grow tax-free, no capital gains tax on withdrawals,
+    and no tax-loss harvesting.  Monthly contribution calculations use
+    Canadian dollar amounts and annualized CAD-market return assumptions.
+"""
 
 from __future__ import annotations
 

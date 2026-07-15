@@ -37,6 +37,7 @@
 ### Security
 
 - Upgraded `starlette` from 1.0.0 to 1.2.1 (transitive dependency via `streamlit`) to address a missing Host header validation vulnerability (Dependabot #29).
+- Upgraded `soupsieve` from 2.8.3 to 2.8.4 (transitive dependency via `beautifulsoup4`) to address two vulnerabilities: ReDoS via unterminated CSS selector quotes (CVE-2026-49477) and memory exhaustion via unbounded comma-separated selector lists (CVE-2026-49476).
 
 ## v0.2.0
 

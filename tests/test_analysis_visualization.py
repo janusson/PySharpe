@@ -1,3 +1,11 @@
+"""Tests for backtest visualization.
+
+.. note::
+
+    **Canadian ETF Context** — Visualization plots are generated from
+    synthetic CAD-denominated portfolio data.  No live price data or
+    single-stock analysis is rendered.
+"""
 import matplotlib
 import pandas as pd
 import pytest

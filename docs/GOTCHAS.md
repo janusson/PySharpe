@@ -60,6 +60,21 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
   `test_portfolio_optimization.py`)
 - **Grep guard**: `grep -rn 'lower_bound' src/pysharpe/ --include='*.py'`
 
+### 2025 — Hard-coded three-pillar blend overwriting 60/40 baseline
+- **Symptom**: When tax characteristics were omitted or all assets targeted the
+  same account, the composite score still included a 0.2-weight tax-efficiency
+  pillar, diluting the core 60/40 investment-heuristic signal.
+- **Root cause**: `score_opportunities` always blended using the three config
+  weights (`weight_underweight`, `weight_valuation`, `weight_tax_efficiency`)
+  without checking whether tax location was differentiable.
+- **Fix**: Added `_is_tax_location_differentiable()` guard. When tax
+  characteristics are empty or all rows share a single `target_account`,
+  the blend collapses to the authoritative 60/40 (`_CORE_UNDERWEIGHT_WEIGHT` /
+  `_CORE_VALUATION_WEIGHT`) bypassing tax entirely.
+- **Regression test**: `test_tax_neutral_scales_to_60_40`,
+  `test_uniform_account_scales_to_60_40`, `test_mixed_accounts_uses_three_pillar_blend`
+- **Grep guard**: `grep -rn '_CORE_UNDERWEIGHT_WEIGHT\|_CORE_VALUATION_WEIGHT\|_is_tax_location_differentiable' src/pysharpe/execution/allocator.py`
+
 ### 2024 — pandas 2.2+ groupby(axis=1) deprecation
 - **Symptom**: Warning/crash in the collation layer on pandas ≥ 2.2.
 - **Root cause**: `groupby(axis=1)` was deprecated in newer pandas versions.

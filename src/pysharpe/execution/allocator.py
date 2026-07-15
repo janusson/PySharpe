@@ -8,7 +8,6 @@ with on-the-fly opportunity-score recalculation.
 from __future__ import annotations
 
 import logging
-import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
@@ -123,6 +122,45 @@ def _minmax_01(series: pd.Series) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
+# Adaptive pillar scaling
+# ---------------------------------------------------------------------------
+
+# Authoritative baseline weights when tax location is non-differentiable.
+# These match the core 60/40 investment-heuristic split mandated by the
+# project investment philosophy.
+_CORE_UNDERWEIGHT_WEIGHT: float = 0.6
+_CORE_VALUATION_WEIGHT: float = 0.4
+
+
+def _is_tax_location_differentiable(
+    df: pd.DataFrame,
+    chars: dict[str, AssetTaxCharacteristics],
+) -> bool:
+    """Return ``True`` when tax-efficiency scoring provides
+    a meaningful differentiation signal across the evaluated assets.
+
+    Tax location is *non-differentiable* (returns ``False``) when:
+
+    * No asset characteristics are configured, OR
+    * There is no ``target_account`` column, OR
+    * Every row targets the same account wrapper (eliminating
+      relative tax-optimisation differentials).
+    """
+    if not chars:
+        return False
+    if "target_account" not in df.columns:
+        return False
+
+    accounts = df["target_account"].dropna()
+    if accounts.empty:
+        return False
+
+    # Normalise to uppercase, stripped strings for robust comparison
+    unique = {str(a).upper().strip() for a in accounts}
+    return len(unique) > 1
+
+
+# ---------------------------------------------------------------------------
 # Opportunity scoring
 # ---------------------------------------------------------------------------
 
@@ -223,84 +261,25 @@ def score_opportunities(
     else:
         df["tax_efficiency_score"] = 0.5
 
-    # 4) Final blended score
-    df["opportunity_score"] = (
-        config.weight_underweight * df["underweight_score"]
-        + config.weight_valuation * df["valuation_score"]
-        + config.weight_tax_efficiency * df["tax_efficiency_score"]
-    )
+    # 4) Final blended score with adaptive pillar scaling
+    #
+    # When tax location is non-differentiable (unconfigured tax
+    # characteristics or a single uniform account), the three-pillar
+    # 50/30/20 split collapses into the authoritative 60/40 investment-
+    # heuristic baseline, bypassing the tax-efficiency pillar entirely.
+    if _is_tax_location_differentiable(df, chars):
+        df["opportunity_score"] = (
+            config.weight_underweight * df["underweight_score"]
+            + config.weight_valuation * df["valuation_score"]
+            + config.weight_tax_efficiency * df["tax_efficiency_score"]
+        )
+    else:
+        df["opportunity_score"] = (
+            _CORE_UNDERWEIGHT_WEIGHT * df["underweight_score"]
+            + _CORE_VALUATION_WEIGHT * df["valuation_score"]
+        )
 
     return df.sort_values("opportunity_score", ascending=False).reset_index(drop=True)
-
-
-# ---------------------------------------------------------------------------
-# FX routing (unchanged)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class FxRoutingResult:
-    use_norberts_gambit: bool
-    standard_cost: float
-    norberts_gambit_cost: float
-    savings: float
-    execution_steps: list[str]
-
-
-def determine_fx_routing(
-    transaction_value: float,
-    config: ExecutionConfig,
-) -> FxRoutingResult:
-    if transaction_value <= 0:
-        return FxRoutingResult(False, 0.0, 0.0, 0.0, [])
-
-    fee = config.fx_fee_decimal
-    commission = config.norberts_commission
-    spread_pct = config.norberts_spread_decimal
-    drift_pct = config.norberts_drift_decimal
-    dlr_price = config.norberts_dlr_price_cad
-
-    standard_cost = transaction_value * fee
-    ng_cost = 2 * commission + transaction_value * (spread_pct + drift_pct)
-    use_ng = ng_cost < standard_cost
-    savings = abs(standard_cost - ng_cost)
-
-    steps: list[str] = []
-    if use_ng:
-        shares = math.floor(transaction_value / dlr_price) if dlr_price > 0 else 0
-        if shares > 0:
-            dlr_cost = shares * dlr_price
-            steps.append(
-                f"Step 1: Buy {shares} shares of DLR.TO at ~${dlr_price:.2f}/share "
-                f"(≈${dlr_cost:,.2f} CAD + ${commission:.2f} commission)"
-            )
-        else:
-            steps.append(
-                f"Step 1: Buy DLR.TO with ~${transaction_value:,.2f} CAD "
-                f"(+ ${commission:.2f} commission)"
-            )
-        steps.append(
-            "Step 2: Request journaling of DLR.TO → DLR-U.TO (takes 2–3 business days)"
-        )
-        if shares > 0:
-            steps.append(
-                f"Step 3: Sell {shares} shares of DLR-U.TO to receive USD "
-                f"(− ${commission:.2f} commission)"
-            )
-        else:
-            steps.append(
-                f"Step 3: Sell DLR-U.TO shares to receive USD "
-                f"(− ${commission:.2f} commission)"
-            )
-        steps.append("Step 4: Use USD proceeds to purchase the target US security")
-
-    return FxRoutingResult(
-        use_norberts_gambit=use_ng,
-        standard_cost=round(standard_cost, 2),
-        norberts_gambit_cost=round(ng_cost, 2),
-        savings=round(savings, 2),
-        execution_steps=steps,
-    )
 
 
 # ---------------------------------------------------------------------------

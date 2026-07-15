@@ -1,4 +1,12 @@
-"""Tests for optimisation dataclasses."""
+"""Tests for optimisation dataclasses.
+
+.. note::
+
+    **Canadian ETF Context** — Portfolio weights, optimisation performance,
+    and optimisation results are structured to represent CAD-denominated
+    ETF portfolios.  MER values are decimal fractions (< 0.10).  Sharpe
+    ratios use the Canadian risk-free rate convention (252 trading days).
+"""
 
 from __future__ import annotations
 

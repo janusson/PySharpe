@@ -1,5 +1,11 @@
-"""Tests for the PySharpe CLI."""
+"""Tests for the PySharpe CLI.
 
+.. note::
+
+    **Canadian TFSA Context** — The CLI operates on CAD-denominated ETF
+    portfolios.  Base currency defaults to CAD.  Max weight caps (0.20)
+    and shrinkage floors (0.3) reflect Canadian ETF diversification norms.
+"""
 from __future__ import annotations
 
 from pathlib import Path

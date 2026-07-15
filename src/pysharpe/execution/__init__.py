@@ -1,9 +1,12 @@
 from .allocator import (
     AllocationConfig,
-    FxRoutingResult,
     allocate_contribution,
-    determine_fx_routing,
     score_opportunities,
+)
+from .brokerage import (
+    Brokerage,
+    BrokerageExportConfig,
+    export_buy_orders,
 )
 from .rebalance import RebalancePlan, build_rebalance_plan, format_rebalance_plan
 from .tax_tracker import (
@@ -21,7 +24,8 @@ __all__ = [
     "ACBPosition",
     "ACBTracker",
     "AllocationConfig",
-    "FxRoutingResult",
+    "Brokerage",
+    "BrokerageExportConfig",
     "RebalancePlan",
     "TLHEngine",
     "TLHRebalanceResult",
@@ -30,7 +34,7 @@ __all__ = [
     "allocate_contribution",
     "analyze_tlh_opportunities",
     "build_rebalance_plan",
-    "determine_fx_routing",
+    "export_buy_orders",
     "format_rebalance_plan",
     "format_tlh_rebalance_result",
     "score_opportunities",

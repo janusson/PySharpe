@@ -1,4 +1,12 @@
-"""Tests for weight normalisation helpers."""
+"""Tests for weight normalisation helpers.
+
+.. note::
+
+    **Canadian Investment Constraint** — Portfolio weights are always
+    non-negative (no short-selling in TFSA accounts).  Weights must sum
+    to 1.0.  These constraints are enforced at the optimizer and VA
+    allocator layers.
+"""
 
 from __future__ import annotations
 

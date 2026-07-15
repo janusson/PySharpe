@@ -1,3 +1,11 @@
+"""Tests for the history-stitching linker.
+
+.. note::
+
+    **Canadian ETF Context** — HistoryLinker stitches short-history
+    tickers with long-history proxy data, with optional FX adjustment
+    (USDCAD=X).  All test data is synthetic; no live network calls.
+"""
 import pandas as pd
 import pytest
 

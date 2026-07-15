@@ -17,12 +17,11 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.sharpe_optimizer`
 - `pysharpe.optimization.tax_location`
 
-## `test_fx_routing.py`
-- `pysharpe.config`
-- `pysharpe.execution.allocator`
-
 ## `test_rebalance.py`
 - `pysharpe.execution.rebalance`
+
+## `test_brokerage.py`
+- `pysharpe.execution.brokerage`
 
 ## `test_metrics.py`
 - `pysharpe.metrics`
@@ -137,6 +136,12 @@ your change instead of the full suite every time.
 ## `test_logging_utils.py`
 - `pysharpe.logging_utils`
 
+## `test_ledger.py`
+- `pysharpe.validation.ledger`
+
+## `test_sample_size.py`
+- `pysharpe.validation.sample_size`
+
 ---
 
 ## Quick Reference — Run These For Your Change
@@ -145,7 +150,9 @@ your change instead of the full suite every time.
 |---------------------|-----|
 | `optimization/tax_location.py` | `pytest tests/test_tax_location.py tests/test_tax_tracker.py tests/test_2d_allocation.py` |
 | `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
-| `execution/allocator.py` | `pytest tests/test_2d_allocation.py tests/test_fx_routing.py` |
+| `execution/allocator.py` | `pytest tests/test_2d_allocation.py` |
+| `execution/rebalance.py` | `pytest tests/test_rebalance.py tests/test_brokerage.py` |
+| `execution/brokerage.py` | `pytest tests/test_brokerage.py` |
 | `optimization/expected_returns.py` | `pytest tests/test_optimization_base.py` |
 | `optimization/sharpe_optimizer.py` | `pytest tests/test_optimization_base.py tests/test_portfolio_optimization.py` |
 | `portfolio_optimization.py` | `pytest tests/test_portfolio_optimization.py tests/test_optimization_models.py` |
@@ -156,3 +163,5 @@ your change instead of the full suite every time.
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `analysis/backtest_engine.py` | `pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py` |
 | `metrics.py` | `pytest tests/test_metrics.py` |
+| `validation/ledger.py` | `pytest tests/test_ledger.py` |
+| `validation/sample_size.py` | `pytest tests/test_sample_size.py` |

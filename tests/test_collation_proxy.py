@@ -1,3 +1,12 @@
+"""Tests for proxy-mapped collation (history stitching).
+
+.. note::
+
+    **Canadian ETF Context** — Proxy mapping (e.g., PROXY → TARGET)
+    extends short price histories using correlated long-history tickers.
+    FX adjustment (USDCAD=X) is applied when ``fx_adjust=True``.
+    All test data is synthetic.
+"""
 import pandas as pd
 import pytest
 

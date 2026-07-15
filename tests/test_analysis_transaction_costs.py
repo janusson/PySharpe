@@ -1,3 +1,12 @@
+"""Tests for transaction-cost modeling in backtests.
+
+.. note::
+
+    **Canadian TFSA Context** — Transaction costs (fixed fees + slippage)
+    are modeled as portfolio drag.  In a TFSA, these costs cannot be
+    deducted from taxable income.  Fee-per-trade and slippage percentages
+    reflect Canadian discount brokerage rates.
+"""
 import pandas as pd
 import pytest
 

@@ -1,4 +1,12 @@
-"""Tests for the Backtesting tab and its helper functions."""
+"""Tests for the backtesting tab and its helper functions.
+
+.. note::
+
+    **Canadian ETF Context** — Backtests use synthetic CAD-denominated price
+    series and standard Canadian rebalancing frequencies (monthly/ME).
+    Historical backtesting validates drift-based and calendar rebalancing
+    strategies for broad-market ETF portfolios.
+"""
 
 from __future__ import annotations
 

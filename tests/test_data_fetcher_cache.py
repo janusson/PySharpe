@@ -1,3 +1,12 @@
+"""Tests for the DuckDB write-through price cache.
+
+.. note::
+
+    **Canadian Data Pipeline** — DuckDB caching wraps only
+    YFinancePriceFetcher.  Cache keys include ticker, period, and
+    interval parameters.  Cache invalidation is tested via parameter
+    changes (different period/interval/ticker produce cache misses).
+"""
 import pandas as pd
 import pytest
 

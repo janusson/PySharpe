@@ -1,4 +1,23 @@
-"""Tests for the Asset Location Engine (tax_location.py)."""
+"""Tests for the Asset Location Engine (tax_location.py).
+
+.. note::
+
+    **Canadian Tax Law Reminder** — These tests validate the foreign
+    withholding tax (FWT) drag model for Canadian registered accounts:
+
+    * TFSA / FHSA: 15% FWT drag on US-domiciled and CAD-wrapped US equity
+      ETFs (e.g., VOO, VFV), unrecoverable per the US-Canada tax treaty.
+    * RRSP / LIRA / RRIF: US-domiciled ETFs (e.g., VOO) are treaty-protected
+      (0% FWT).  CAD-wrapped US ETFs (e.g., VFV) still incur 15% FWT at
+      the fund level.
+    * Canadian-domiciled ETFs (e.g., VCN): no FWT in any account.
+    * Non-Reg / Margin accounts: FWT is recoverable via the Foreign Tax
+      Credit (FTC), resulting in zero net FWT drag.
+
+    Income tax drag (non-reg only) is computed using Canadian marginal tax
+    rates, dividend gross-up (1.38), and capital gains inclusion rates.
+    Registered accounts (TFSA, RRSP, FHSA) have zero income tax drag.
+"""
 
 from __future__ import annotations
 

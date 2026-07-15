@@ -90,6 +90,81 @@ class BayesianOptimizer:
 
         pytensor.config.mode = "FAST_COMPILE"
 
+    # ------------------------------------------------------------------
+    # Compilation cache warm-up
+    # ------------------------------------------------------------------
+    @classmethod
+    def warm_compilation_cache(cls) -> bool:
+        """Pre-warm the PyTensor compilation cache and verify the toolchain.
+
+        Compiles a minimal PyTensor graph to probe whether the environment
+        has a working C++ compiler backend.  If the default (``FAST_RUN``)
+        mode fails with a linker/compiler error, the method automatically
+        enables ``FAST_COMPILE`` pure-Python mode and logs a diagnostic
+        warning so that subsequent PyMC sampling does not silently degrade.
+
+        This is safe to call early during CLI startup — it is non-blocking
+        and does not mutate any instance state.
+
+        Returns:
+            ``True`` when the C-compiler toolchain is functional (no
+            fallback needed), ``False`` when PyTensor was switched to
+            ``FAST_COMPILE`` mode.
+        """
+        try:
+            import pytensor
+            import pytensor.tensor as pt
+        except ImportError:
+            logger.info(
+                "PyTensor is not installed; skipping compilation cache warm-up."
+            )
+            return True  # Nothing to warm — not a failure.
+
+        # Save the current mode so we can restore it if the probe succeeds.
+        original_mode: str = pytensor.config.mode
+
+        try:
+            x = pt.scalar("x")
+            f = pytensor.function([x], x + 1)
+            f(0)
+            logger.info(
+                "PyTensor C-compiler toolchain verified successfully "
+                "(mode=%s).",
+                original_mode,
+            )
+            return True
+        except Exception as exc:
+            if _is_compilation_error(exc):
+                logger.warning(
+                    "C-compiler toolchain is not functional (%s). "
+                    "Switching PyTensor to FAST_COMPILE pure-Python mode. "
+                    "Install Xcode CLI tools (macOS) or a C++ compiler to "
+                    "restore full performance for Bayesian estimation.",
+                    exc,
+                )
+                cls._enable_fast_compile()
+                try:
+                    import pytensor.tensor as pt
+
+                    x = pt.scalar("x")
+                    f = pytensor.function([x], x + 1)
+                    f(0)
+                    logger.info(
+                        "PyTensor FAST_COMPILE fallback verified successfully."
+                    )
+                except Exception as fallback_exc:
+                    logger.warning(
+                        "PyTensor FAST_COMPILE fallback also failed: %s",
+                        fallback_exc,
+                    )
+                return False
+            logger.debug(
+                "PyTensor compilation cache probe raised a non-compiler error "
+                "(%s); leaving mode unchanged.",
+                exc,
+            )
+            return True  # Not a compilation failure — assume toolchain is fine.
+
     def fit_returns_model(
         self,
         returns: pd.DataFrame | None = None,

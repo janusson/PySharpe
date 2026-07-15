@@ -133,11 +133,13 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "RebalancePlan": ("pysharpe.execution.rebalance", "RebalancePlan"),
     "build_rebalance_plan": ("pysharpe.execution.rebalance", "build_rebalance_plan"),
     "format_rebalance_plan": ("pysharpe.execution.rebalance", "format_rebalance_plan"),
+    # Execution / brokerage export
+    "Brokerage": ("pysharpe.execution.brokerage", "Brokerage"),
+    "BrokerageExportConfig": ("pysharpe.execution.brokerage", "BrokerageExportConfig"),
+    "export_buy_orders": ("pysharpe.execution.brokerage", "export_buy_orders"),
     # Allocator
     "AllocationConfig": ("pysharpe.execution.allocator", "AllocationConfig"),
-    "FxRoutingResult": ("pysharpe.execution.allocator", "FxRoutingResult"),
     "allocate_contribution": ("pysharpe.execution.allocator", "allocate_contribution"),
-    "determine_fx_routing": ("pysharpe.execution.allocator", "determine_fx_routing"),
     "score_opportunities": ("pysharpe.execution.allocator", "score_opportunities"),
     # Tax tracker / TLH
     "ACBPosition": ("pysharpe.execution.tax_tracker", "ACBPosition"),
@@ -160,6 +162,16 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "apply_category_mapping",
     ),
     "load_category_map": ("pysharpe.analysis", "load_category_map"),
+    # Validation / trial ledger
+    "DuckDBLedger": ("pysharpe.validation.ledger", "DuckDBLedger"),
+    "ExecutionStatus": ("pysharpe.validation.ledger", "ExecutionStatus"),
+    "PBOResult": ("pysharpe.validation.ledger", "PBOResult"),
+    "TrialRecord": ("pysharpe.validation.ledger", "TrialRecord"),
+    "compute_pbo": ("pysharpe.validation.ledger", "compute_pbo"),
+    "validate_economic_justification": (
+        "pysharpe.validation.ledger",
+        "validate_economic_justification",
+    ),
     # Visualisation helpers
     "DCAProjection": ("pysharpe.visualization", "DCAProjection"),
     "simulate_dca": ("pysharpe.visualization", "simulate_dca"),
@@ -174,6 +186,60 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "plot_equity_curves": (
         "pysharpe.visualization",
         "plot_equity_curves",
+    ),
+    # Validation / resampling
+    "BootstrapResult": ("pysharpe.validation.resampling", "BootstrapResult"),
+    "PurgedFold": ("pysharpe.validation.resampling", "PurgedFold"),
+    "PurgedKFold": ("pysharpe.validation.resampling", "PurgedKFold"),
+    "Regime": ("pysharpe.validation.resampling", "Regime"),
+    "RegimeDependencyReport": (
+        "pysharpe.validation.resampling",
+        "RegimeDependencyReport",
+    ),
+    "RegimeDependencyWarning": (
+        "pysharpe.validation.resampling",
+        "RegimeDependencyWarning",
+    ),
+    "RegimeLabeler": ("pysharpe.validation.resampling", "RegimeLabeler"),
+    "RegimeSegmentationResult": (
+        "pysharpe.validation.resampling",
+        "RegimeSegmentationResult",
+    ),
+    "bootstrap_regime_paths": (
+        "pysharpe.validation.resampling",
+        "bootstrap_regime_paths",
+    ),
+    "check_regime_dependency": (
+        "pysharpe.validation.resampling",
+        "check_regime_dependency",
+    ),
+    "compute_regime_survival_rates": (
+        "pysharpe.validation.resampling",
+        "compute_regime_survival_rates",
+    ),
+    "optimal_block_length": (
+        "pysharpe.validation.resampling",
+        "optimal_block_length",
+    ),
+    # Validation / friction stress-testing
+    "FrictionProfile": ("pysharpe.validation.friction", "FrictionProfile"),
+    "FrictionStep": ("pysharpe.validation.friction", "FrictionStep"),
+    "stress_test_execution_friction": (
+        "pysharpe.validation.friction",
+        "stress_test_execution_friction",
+    ),
+    # Validation / sample-size
+    "SampleReliability": (
+        "pysharpe.validation.sample_size",
+        "SampleReliability",
+    ),
+    "evaluate_trade_sample": (
+        "pysharpe.validation.sample_size",
+        "evaluate_trade_sample",
+    ),
+    "calculate_min_btl": (
+        "pysharpe.validation.sample_size",
+        "calculate_min_btl",
     ),
 }
 
@@ -240,10 +306,13 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     )
     from pysharpe.execution.allocator import (  # noqa: F401
         AllocationConfig,
-        FxRoutingResult,
         allocate_contribution,
-        determine_fx_routing,
         score_opportunities,
+    )
+    from pysharpe.execution.brokerage import (  # noqa: F401
+        Brokerage,
+        BrokerageExportConfig,
+        export_buy_orders,
     )
     from pysharpe.execution.rebalance import (  # noqa: F401
         RebalancePlan,
@@ -282,6 +351,38 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.portfolio_optimization import (  # noqa: F401
         optimise_all_portfolios,
         optimise_portfolio,
+    )
+    from pysharpe.validation.friction import (  # noqa: F401
+        FrictionProfile,
+        FrictionStep,
+        stress_test_execution_friction,
+    )
+    from pysharpe.validation.ledger import (  # noqa: F401
+        DuckDBLedger,
+        ExecutionStatus,
+        PBOResult,
+        TrialRecord,
+        compute_pbo,
+        validate_economic_justification,
+    )
+    from pysharpe.validation.resampling import (  # noqa: F401
+        BootstrapResult,
+        PurgedFold,
+        PurgedKFold,
+        Regime,
+        RegimeDependencyReport,
+        RegimeDependencyWarning,
+        RegimeLabeler,
+        RegimeSegmentationResult,
+        bootstrap_regime_paths,
+        check_regime_dependency,
+        compute_regime_survival_rates,
+        optimal_block_length,
+    )
+    from pysharpe.validation.sample_size import (  # noqa: F401
+        SampleReliability,
+        calculate_min_btl,
+        evaluate_trade_sample,
     )
     from pysharpe.visualization import (  # noqa: F401
         DCAProjection,

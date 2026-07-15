@@ -1,3 +1,11 @@
+"""Tests for the Streamlit app helpers.
+
+.. note::
+
+    **Canadian TFSA Context** — The Streamlit dashboard displays CAD-
+    denominated ETF portfolio analytics.  No single-stock ticker
+    recommendations are generated.  All price data is synthetic in tests.
+"""
 import pandas as pd
 import pytest
 

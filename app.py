@@ -22,6 +22,7 @@ from pysharpe.app.analytics import (
     compute_metrics,
 )
 from pysharpe.app.backtest import render_backtest_tab
+from pysharpe.app.rebalance_ui import render_execution_tab
 from pysharpe.app.charts import render_frontier_comparison
 from pysharpe.app.data import (
     _STREAMLIT_SERVICE,  # noqa: F401 - test visibility
@@ -328,7 +329,9 @@ def main() -> None:
             st.subheader("Collated Portfolio Preview")
             st.dataframe(portfolio_data.collated.head().style.format("{:.2f}"))
 
-    tab_analytics, tab_backtest = st.tabs(["Analytics", "Backtest"])
+    tab_analytics, tab_backtest, tab_execute = st.tabs(
+        ["Analytics", "Backtest", "Execute"]
+    )
 
     with tab_analytics:
         st.subheader("Price Preview")
@@ -441,6 +444,12 @@ def main() -> None:
 
     with tab_backtest:
         render_backtest_tab(prices)
+
+    with tab_execute:
+        render_execution_tab(
+            price_data,
+            default_cash=controls.get("dca_monthly", 1000.0),
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution only

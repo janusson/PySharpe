@@ -1,3 +1,12 @@
+"""Tests for the price fetcher.
+
+.. note::
+
+    **Canadian Data Pipeline** — All price data is fetched in CAD or
+    converted from USD via USDCAD=X.  No lookahead bias: rows without FX
+    rate coverage are excluded, never bfilled.  DuckDB write-through caching
+    wraps only YFinancePriceFetcher (not custom/test stubs).
+"""
 import builtins
 from types import SimpleNamespace
 

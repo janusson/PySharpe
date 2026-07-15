@@ -1,3 +1,12 @@
+"""Tests for the Bayesian optimizer.
+
+.. note::
+
+    **Canadian ETF Context** — Bayesian posterior estimation of asset
+    returns uses synthetic CAD-denominated return series.  PyMC sampling
+    provides uncertainty-aware expected returns and covariance for
+    efficient frontier analysis, not for predictive trading.
+"""
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -167,3 +176,75 @@ def test_get_estimates_before_fit():
     optimizer = BayesianOptimizer()
     with pytest.raises(RuntimeError):
         optimizer.get_posterior_estimates()
+
+
+# ---------------------------------------------------------------------------
+# warm_compilation_cache tests
+# ---------------------------------------------------------------------------
+
+
+def test_warm_compilation_cache_success():
+    """Test that warm_compilation_cache returns True when the C toolchain works."""
+    try:
+        import pytensor
+    except ImportError:  # pragma: no cover
+        pytest.skip("PyTensor is not installed.")
+
+    original_mode = pytensor.config.mode
+    try:
+        # Ensure we start from the default (C-compiler) mode.
+        pytensor.config.mode = "FAST_RUN"
+        result = BayesianOptimizer.warm_compilation_cache()
+        # In CI/dev environments with a working C compiler this should be True.
+        # On macOS without Xcode CLI tools it may return False (fallback).
+        assert isinstance(result, bool)
+        if result:
+            # Mode should be unchanged when the probe succeeded.
+            assert pytensor.config.mode == "FAST_RUN"
+        else:
+            # Fallback was activated — mode should be FAST_COMPILE.
+            assert pytensor.config.mode == "FAST_COMPILE"
+    finally:
+        pytensor.config.mode = original_mode
+
+
+def test_warm_compilation_cache_fallback_on_compile_error():
+    """Test that a compilation error triggers the FAST_COMPILE fallback."""
+    import importlib.util
+
+    if importlib.util.find_spec("pytensor") is None:  # pragma: no cover
+        pytest.skip("PyTensor is not installed.")
+
+    compile_error = RuntimeError("gcc: error: linker command failed")
+
+    with patch.object(
+        BayesianOptimizer, "_enable_fast_compile"
+    ) as mock_fast_compile:
+        with patch("pytensor.function") as mock_fn:
+            mock_fn.side_effect = compile_error
+
+            result = BayesianOptimizer.warm_compilation_cache()
+
+            mock_fast_compile.assert_called_once()
+            assert result is False
+
+
+def test_warm_compilation_cache_non_compilation_error_is_silent():
+    """Test that non-compilation errors do not trigger fallback and return True."""
+    import importlib.util
+
+    if importlib.util.find_spec("pytensor") is None:  # pragma: no cover
+        pytest.skip("PyTensor is not installed.")
+
+    other_error = ValueError("Something else broke")
+
+    with patch.object(
+        BayesianOptimizer, "_enable_fast_compile"
+    ) as mock_fast_compile:
+        with patch("pytensor.function") as mock_fn:
+            mock_fn.side_effect = other_error
+
+            result = BayesianOptimizer.warm_compilation_cache()
+
+            mock_fast_compile.assert_not_called()
+            assert result is True

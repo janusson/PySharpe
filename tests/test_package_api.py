@@ -1,5 +1,12 @@
-"""Tests covering the top-level pysharpe package interface."""
+"""Tests covering the top-level pysharpe package interface.
 
+.. note::
+
+    **Canadian ETF Context** — The public API exposes CAD-ETF portfolio
+    functions: optimisation, metrics, allocation, and rebalancing.  Lazy
+    imports prevent heavy dependencies (PyMC, statsmodels) from loading
+    at startup.
+"""
 from __future__ import annotations
 
 import importlib

@@ -1,5 +1,15 @@
-"""Shared pytest fixtures for deterministic portfolio data."""
+"""Shared pytest fixtures for deterministic portfolio data.
 
+.. note::
+
+    **Canadian TFSA Context** — All fixtures use synthetic data with fixed
+    seeds (np.random.default_rng).  No live network calls, no real ticker
+    data.  Price series simulate CAD-denominated broad-market ETF behavior
+    with mild volatility.
+
+    PyMC/PyTensor sampling tests are skipped when a C-compiler toolchain
+    is unavailable (common on macOS without Xcode CLI tools).
+"""
 from __future__ import annotations
 
 from collections.abc import Iterable

@@ -1,5 +1,12 @@
-"""Focused tests for the CollationService helpers."""
+"""Focused tests for the CollationService helpers.
 
+.. note::
+
+    **Canadian Data Pipeline** — Collation joins per-ticker CAD price CSVs
+    into a single DataFrame.  Invalid columns are filtered; dropped tickers
+    are recorded in metadata.  DuckDB wrapping applies only to
+    YFinancePriceFetcher instances (not custom fetchers).
+"""
 from __future__ import annotations
 
 import json

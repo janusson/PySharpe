@@ -1,4 +1,16 @@
-"""Tests for FX adjustment logic in portfolio optimization."""
+"""Tests for FX adjustment logic in portfolio optimization.
+
+.. note::
+
+    **Canadian FX Constraint** — All portfolios use CAD as the base currency.
+    USD-denominated assets are converted using USDCAD=X exchange rates.
+    Rows without FX rate coverage are excluded (never bfilled) to prevent
+    lookahead bias — a future exchange rate must not be applied to a
+    historical price.
+
+    Foreign withholding tax drag (15% on US dividends in TFSA) is handled
+    separately in the tax-location engine, not in FX conversion.
+"""
 
 from __future__ import annotations
 

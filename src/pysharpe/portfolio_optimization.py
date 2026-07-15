@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import cvxpy as cp
 import numpy as np
@@ -144,7 +144,7 @@ def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
     output_path = target_dir / f"{result.name}_allocation.png"
 
     fig, ax = plt.subplots()
-    ax.pie(weights.values(), labels=weights.keys(), autopct="%1.1f%%", startangle=90)
+    ax.pie(list(weights.values()), labels=list(weights.keys()), autopct="%1.1f%%", startangle=90)
     ax.axis("equal")
     ax.set_title(f"{result.name} Allocation")
     plt.savefig(output_path)
@@ -356,8 +356,8 @@ def optimise_from_prices(
     limiting_ticker = first_valid_dates.idxmax()
     prices = prices.dropna()
     prices = apply_fx_conversion(prices, base_currency=base_currency)
-    start_date = prices.index.min().strftime("%Y-%m-%d")
-    end_date = prices.index.max().strftime("%Y-%m-%d")
+    start_date = cast(pd.Timestamp, prices.index.min()).strftime("%Y-%m-%d")
+    end_date = cast(pd.Timestamp, prices.index.max()).strftime("%Y-%m-%d")
 
     if category_map:
         try:
@@ -402,10 +402,11 @@ def optimise_from_prices(
         drag = execution_config.annual_tax_drag
         tickers_affected: list[str] = []
         for ticker in mu.index:
-            meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
+            ticker_str = str(ticker)
+            meta = get_ticker_metadata(ticker_str, proxy_map=proxy_map)
             if meta["is_us_domiciled"]:
                 mu[ticker] -= drag
-                tickers_affected.append(ticker)
+                tickers_affected.append(ticker_str)
         if tickers_affected:
             logger.info(
                 "Applied %.2f%% tax drag to US-domiciled assets: %s",
@@ -454,7 +455,7 @@ def optimise_from_prices(
         )
 
     if mer_mapping and max_portfolio_mer is not None:
-        aligned_mers = np.array([mer_mapping.get(t, 0.0) for t in ef.tickers])
+        aligned_mers = np.array([mer_mapping.get(str(t), 0.0) for t in ef.tickers])
         # For max_sharpe, w is scaled by k, so we must scale the RHS by sum(w)
         # Using subtraction form to satisfy DCP rules (affine <= constant)
         ef.add_constraint(
@@ -479,6 +480,10 @@ def optimise_from_prices(
         )
         expected, volatility, sharpe = ef.portfolio_performance(verbose=False)
 
+    expected = cast(float, expected)
+    volatility = cast(float, volatility)
+    sharpe = cast(float, sharpe)
+
     if np.isnan(volatility):
         volatility = 0.0
         if expected - 0.02 > 0:  # Assuming 2% risk-free rate for dummy calculation
@@ -489,13 +494,13 @@ def optimise_from_prices(
     portfolio_mer: float | None = None
     if mer_mapping:
         portfolio_mer = sum(
-            weight * mer_mapping.get(ticker, 0.0)
+            weight * mer_mapping.get(str(ticker), 0.0)
             for ticker, weight in cleaned_weights.items()
         )
 
     return OptimisationResult(
         name=name,
-        weights=PortfolioWeights(cleaned_weights),
+        weights=PortfolioWeights(cast(dict[str, float], cleaned_weights)),
         performance=OptimisationPerformance(
             expected,
             volatility,
@@ -625,8 +630,8 @@ def optimise_portfolio_for_sharpe(
             "and dropping NaNs for Sharpe optimization."
         )
 
-    start_date = prices.index.min().strftime("%Y-%m-%d")
-    end_date = prices.index.max().strftime("%Y-%m-%d")
+    start_date = cast(pd.Timestamp, prices.index.min()).strftime("%Y-%m-%d")
+    end_date = cast(pd.Timestamp, prices.index.max()).strftime("%Y-%m-%d")
 
     # Initialize and run the SharpeOptimizer
     if config is None:

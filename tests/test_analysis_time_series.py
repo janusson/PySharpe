@@ -1,3 +1,12 @@
+"""Tests for time-series analysis: stationarity, GARCH, VAR.
+
+.. note::
+
+    **Canadian ETF Context** — GARCH volatility forecasting and VAR modeling
+    are applied to CAD-denominated ETF return series.  These are risk
+    analytics tools, not predictive trading models.  No single-stock
+    idiosyncratic signals are generated.
+"""
 import numpy as np
 import pandas as pd
 import pytest

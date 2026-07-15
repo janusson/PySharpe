@@ -1,4 +1,23 @@
 """
+.. warning::
+
+    **Canadian ETF Mandate** — PySharpe is tuned exclusively for
+    broad-market, CAD-denominated index ETFs (e.g., VFV, VDY, QQC).
+    Single-stock idiosyncratic volatility models, sentiment analysis, and
+    options-pricing logic are prohibited per the project investment
+    philosophy.
+
+    :func:`technical_score` and :func:`dividend_score` use P/E ratios,
+    200-day SMA, 52-week lows, dividend growth history, and payout ratios
+    — all single-stock fundamental/technical metrics that fall outside the
+    broad-market ETF scope.  These functions are **deprecated** and retained
+    solely for legacy single-security analysis.
+
+    For ETF-level evaluation, use the VA allocation engine's opportunity
+    scoring (:func:`pysharpe.execution.allocator.score_opportunities`), which
+    blends path drift (60%) and valuation/mean-reversion (40%) per the
+    authoritative Canadian investment heuristics.
+
 Scoring module for technical and fundamental analysis of securities.
 Combines technical indicators and dividend metrics for comprehensive scoring.
 """
@@ -41,7 +60,13 @@ def technical_score(
     PER: float,
     weights: Optional[dict[str, float]] = None,
 ) -> float:
-    """
+    """.. deprecated::
+
+        Single-stock technical scoring (P/E ratio, 52-week lows, 200-day
+        SMA) falls outside the PySharpe CAD-ETF mandate.  Use
+        :func:`pysharpe.execution.allocator.score_opportunities` for
+        ETF-level opportunity evaluation.
+
     Calculate technical score based on price metrics.
 
     Parameters
@@ -99,7 +124,13 @@ def dividend_score(
     coverage: Optional[float] = None,
     weights: Optional[dict[str, float]] = None,
 ) -> float:
-    """
+    """.. deprecated::
+
+        Single-stock dividend scoring (yield, payout ratio, growth history)
+        falls outside the PySharpe CAD-ETF mandate.  For ETF-level
+        opportunity evaluation, use
+        :func:`pysharpe.execution.allocator.score_opportunities`.
+
     Calculate dividend score based on various dividend metrics.
 
     Parameters

@@ -1,4 +1,29 @@
-"""Tests for ACB tracking and Tax-Loss Harvesting engine."""
+"""Tests for ACB tracking and Tax-Loss Harvesting engine.
+
+.. warning::
+
+    **Canadian TFSA Constraint** — PySharpe operates under the assumption
+    that all portfolios are held within a Canadian Tax-Free Savings Account
+    (TFSA).  Capital gains are tax-exempt and losses cannot be claimed.
+
+    **Tax-Loss Harvesting (TLH) is categorically prohibited** in TFSA,
+    FHSA, and RRSP accounts per Canadian treaty guidelines.  The TLH
+    tests in this file (:class:`TestTLHEngineIdentify`,
+    :class:`TestTLHEngineGeneratePairs`, :class:`TestTLHEngineSuperficialLoss`,
+    :class:`TestEndToEndTLHScenario`, and related) exercise the deprecated
+    TLH engine for non-registered account validation only.
+
+    The :class:`TestTLHAccountGuardrails` class verifies that the TLH entry
+    points correctly reject TFSA, FHSA, and RRSP account types.
+
+    **ACB tracking** (:class:`ACBTracker`, :class:`TradeRecord`,
+    :class:`ACBPosition`) is legitimate in any account type for cost-basis
+    bookkeeping and is retained in the test suite.
+
+    **Foreign withholding tax** on US dividends (e.g., VFV, QQC) is modeled
+    as a strict yield reduction — see :mod:`tests.test_tax_location` for FWT
+    drag verification.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +46,7 @@ from pysharpe.execution.tax_tracker import (
     analyze_tlh_opportunities,
     format_tlh_rebalance_result,
 )
+from pysharpe.optimization.tax_location import AccountType
 
 # ---------------------------------------------------------------------------
 # ACBTracker — initialization
@@ -1082,6 +1108,7 @@ class TestAnalyzeTLHOpportunities:
         result = analyze_tlh_opportunities(
             acb_tracker=acb,
             current_prices={"VCN.TO": 30.0, "VUN.TO": 65.0},
+            account_type=AccountType.NON_REG,
             switch_fund_map={"VCN.TO": ["XIC.TO", "ZCN.TO"]},
             portfolio_name="test_portfolio",
             min_loss_dollars=100.0,
@@ -1099,6 +1126,7 @@ class TestAnalyzeTLHOpportunities:
         result = analyze_tlh_opportunities(
             acb_tracker=acb,
             current_prices={"VCN.TO": 30.0},
+            account_type=AccountType.NON_REG,
             switch_fund_map={"VCN.TO": ["XIC.TO"]},
             as_of_date=date(2024, 6, 15),
         )
@@ -1110,6 +1138,7 @@ class TestAnalyzeTLHOpportunities:
         result = analyze_tlh_opportunities(
             acb_tracker=acb,
             current_prices={},
+            account_type=AccountType.NON_REG,
             portfolio_name="empty",
         )
         assert result.tlh_trades.empty
@@ -1124,9 +1153,60 @@ class TestAnalyzeTLHOpportunities:
         result = analyze_tlh_opportunities(
             acb_tracker=acb,
             current_prices={"VCN.TO": 30.0},
+            account_type=AccountType.NON_REG,
             switch_fund_map=path,
         )
         assert len(result.tlh_trades) == 1
+
+
+# ---------------------------------------------------------------------------
+# TLH Account Guardrails — tax-sheltered account prohibition
+# ---------------------------------------------------------------------------
+
+
+class TestTLHAccountGuardrails:
+    """Ensure TLH entry points reject tax-sheltered account types."""
+
+    @pytest.fixture
+    def _tracker_and_prices(self):
+        """Minimal non-empty inputs so we test the guard, not empty-edge paths."""
+        tracker = ACBTracker(initial_positions={"VCN.TO": (100.0, 4000.0)})
+        prices = {"VCN.TO": 30.0}
+        return tracker, prices
+
+    @pytest.mark.parametrize(
+        "account_type",
+        [AccountType.TFSA, AccountType.FHSA, AccountType.RRSP],
+    )
+    def test_raises_for_tax_sheltered_accounts(
+        self, _tracker_and_prices, account_type
+    ):
+        """TFSA, FHSA, and RRSP must all raise ValueError."""
+        tracker, prices = _tracker_and_prices
+        with pytest.raises(ValueError, match="structurally prohibited"):
+            analyze_tlh_opportunities(
+                acb_tracker=tracker,
+                current_prices=prices,
+                account_type=account_type,
+            )
+
+    @pytest.mark.parametrize(
+        "account_type",
+        [AccountType.NON_REG, AccountType.LIRA, AccountType.RRIF],
+    )
+    def test_allows_taxable_and_locked_in_accounts(
+        self, _tracker_and_prices, account_type
+    ):
+        """NON_REG, LIRA, and RRIF must NOT raise (proceed to TLH analysis)."""
+        tracker, prices = _tracker_and_prices
+        # Should not raise
+        result = analyze_tlh_opportunities(
+            acb_tracker=tracker,
+            current_prices=prices,
+            account_type=account_type,
+        )
+        assert isinstance(result, TLHRebalanceResult)
+
 
 
 # ---------------------------------------------------------------------------
@@ -1298,6 +1378,7 @@ class TestEndToEndTLHScenario:
         result = analyze_tlh_opportunities(
             acb_tracker=tracker,
             current_prices={"VCN.TO": 40.0},
+            account_type=AccountType.NON_REG,
             switch_fund_map={"VCN.TO": ["XIC.TO"]},
             as_of_date=date(2024, 11, 20),
         )

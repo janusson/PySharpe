@@ -1,5 +1,12 @@
-"""Tests for the benchmarks analysis module."""
+"""Tests for the benchmarks analysis module.
 
+.. note::
+
+    **Canadian ETF Context** — Benchmarks use CAD-denominated broad-market
+    ETFs (e.g., VEQT.TO).  Returns are annualized at 252 trading days.
+    Foreign withholding tax drag is accounted for in the tax-location
+    engine, not in benchmark fetching.
+"""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

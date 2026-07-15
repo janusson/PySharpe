@@ -1,3 +1,12 @@
+"""Tests for the historical backtest engine.
+
+.. note::
+
+    **Canadian ETF Context** — Backtests simulate CAD-denominated portfolios
+    with drift-based, relative, calendar, and volatility-triggered
+    rebalancing strategies.  All price data is synthetic; no live market
+    data is used.  Test tickers are synthetic placeholders.
+"""
 import numpy as np
 import pandas as pd
 import pytest

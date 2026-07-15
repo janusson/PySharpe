@@ -25,13 +25,13 @@ dependencies = [
     "duckdb>=0.10",
     "pytest>=9.0.2",
     "matplotlib>=3.9",
+    "seaborn>=0.13",
     "streamlit>=1.52",
 ]
 
 [project.optional-dependencies]
 cli = [
     "matplotlib>=3.9",
-    "seaborn>=0.13",
 ]
 gui = [
     "streamlit>=1.35",

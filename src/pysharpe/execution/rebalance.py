@@ -30,9 +30,7 @@ from pysharpe.optimization.tax_location import (
 
 from .allocator import (
     AllocationConfig,
-    FxRoutingResult,
     allocate_contribution,
-    determine_fx_routing,
     score_opportunities,
 )
 
@@ -78,10 +76,6 @@ class RebalancePlan:
         allocation DataFrame. ``None`` for single-account plans.
     account_cash : dict[str, float] or None
         Per-account cash deployment amounts. ``None`` for single-account plans.
-    fx_routing : dict[str, FxRoutingResult] or None
-        Per-ticker FX routing decisions when ``execution_config.fx_fee_bps > 0``
-        and non-CAD-denominated assets are being purchased. ``None`` when no
-        FX routing was performed.
     """
 
     portfolio_name: str
@@ -92,7 +86,6 @@ class RebalancePlan:
     allocations: pd.DataFrame
     account_allocations: dict[str, pd.DataFrame] | None = None
     account_cash: dict[str, float] | None = None
-    fx_routing: dict[str, FxRoutingResult] | None = None
 
     @property
     def buy_orders(self) -> pd.DataFrame:
@@ -896,41 +889,22 @@ def build_rebalance_plan(
             config=allocation_config,
         )
 
-        # --- FX Drag (with Norbert's Gambit routing) ---
-        fx_routing: dict[str, FxRoutingResult] | None = None
+        # --- FX fee application ---
         if execution_config is not None and execution_config.fx_fee_bps > 0:
-            fx_routing = {}
             for idx, row in allocations.iterrows():
                 ticker = row["ticker"]
                 meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
                 if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
                     original = row["recommended_allocation"]
-                    routing = determine_fx_routing(original, execution_config)
-                    fx_routing[ticker] = routing
-
-                    if routing.use_norberts_gambit:
-                        # Subtract the fixed + proportional Norbert's Gambit cost
-                        ng_cost = routing.norberts_gambit_cost
-                        allocations.at[idx, "recommended_allocation"] = max(
-                            original - ng_cost, 0.0
-                        )
-                        logger.debug(
-                            "Norbert's Gambit for %s: $%.2f -> $%.2f (saved $%.2f)",
-                            ticker,
-                            original,
-                            allocations.at[idx, "recommended_allocation"],
-                            routing.savings,
-                        )
-                    else:
-                        fee = execution_config.fx_fee_decimal
-                        allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
-                        logger.debug(
-                            "Applied %.2f%% FX fee to %s: $%.2f -> $%.2f",
-                            fee * 100,
-                            ticker,
-                            original,
-                            allocations.at[idx, "recommended_allocation"],
-                        )
+                    fee = execution_config.fx_fee_decimal
+                    allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
+                    logger.debug(
+                        "Applied %.2f%% FX fee to %s: $%.2f -> $%.2f",
+                        fee * 100,
+                        ticker,
+                        original,
+                        allocations.at[idx, "recommended_allocation"],
+                    )
 
         valid_prices = allocations["latest_price"].where(
             allocations["latest_price"] > 0
@@ -970,7 +944,6 @@ def build_rebalance_plan(
             prices_path=prices_path,
             scored_state=scored,
             allocations=allocations,
-            fx_routing=fx_routing,
         )
 
     # === Multi-account path ===
@@ -995,7 +968,6 @@ def build_rebalance_plan(
 
     all_scored: list[pd.DataFrame] = []
     account_allocations: dict[str, pd.DataFrame] = {}
-    fx_routing: dict[str, FxRoutingResult] = {}
 
     for account in accounts:
         acct_holdings = holdings[holdings["account"] == account].drop(
@@ -1063,27 +1035,14 @@ def build_rebalance_plan(
             config=allocation_config,
         )
 
-        # --- FX Drag (with Norbert's Gambit routing) ---
+        # --- FX fee application ---
         if execution_config is not None and execution_config.fx_fee_bps > 0:
             for idx, row in allocations.iterrows():
                 ticker = row["ticker"]
                 meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
                 if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
-                    original = row["recommended_allocation"]
-                    routing = determine_fx_routing(original, execution_config)
-                    # Use the first routing decision encountered (per ticker);
-                    # multi-account plans produce the same decision per ticker.
-                    if ticker not in fx_routing:
-                        fx_routing[ticker] = routing
-
-                    if routing.use_norberts_gambit:
-                        ng_cost = routing.norberts_gambit_cost
-                        allocations.at[idx, "recommended_allocation"] = max(
-                            original - ng_cost, 0.0
-                        )
-                    else:
-                        fee = execution_config.fx_fee_decimal
-                        allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
+                    fee = execution_config.fx_fee_decimal
+                    allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
 
         valid_prices = allocations["latest_price"].where(
             allocations["latest_price"] > 0
@@ -1134,7 +1093,6 @@ def build_rebalance_plan(
         allocations=combined_allocations,
         account_allocations=account_allocations,
         account_cash=account_cash,
-        fx_routing=fx_routing if fx_routing else None,
     )
 
 
@@ -1263,22 +1221,6 @@ def format_rebalance_plan(
             )
             lines.append("")
             lines.append(display.to_string(index=False))
-
-    # --- Norbert's Gambit execution checklist ---
-    if plan.fx_routing:
-        ng_tickers = [t for t, r in plan.fx_routing.items() if r.use_norberts_gambit]
-        if ng_tickers:
-            lines.append("")
-            lines.append(
-                "\u2500\u2500 Norbert's Gambit Execution Checklist \u2500\u2500"
-            )
-            for ticker in ng_tickers:
-                routing = plan.fx_routing[ticker]
-                lines.append(
-                    f"\n  For {ticker} (save ${routing.savings:,.2f} vs standard FX):"
-                )
-                for step in routing.execution_steps:
-                    lines.append(f"    {step}")
 
     return "\n".join(lines)
 

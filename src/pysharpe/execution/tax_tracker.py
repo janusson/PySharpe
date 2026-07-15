@@ -1,9 +1,25 @@
-"""Adjusted Cost Base (ACB) tracking and Tax-Loss Harvesting (TLH) engine.
+"""Adjusted Cost Base (ACB) tracking for Canadian portfolios.
 
-Implements the CRA-mandated weighted-average cost method for Canadian
-non-registered accounts, plus a TLH signal engine that identifies unrealized
-capital losses, proposes switch trades, and enforces the superficial loss rule
-(ITA s. 54).
+.. warning::
+
+    **Canadian TFSA Constraint** — PySharpe operates under the assumption that
+    all portfolios are held within a Canadian Tax-Free Savings Account (TFSA).
+
+    Because capital gains are tax-exempt and losses cannot be claimed in a
+    TFSA, **Tax-Loss Harvesting (TLH) logic is categorically prohibited** for
+    the TFSA account type. The TLH-related classes and functions in this module
+    (:class:`TLHEngine`, :class:`TLHTrade`, :class:`TLHRebalanceResult`,
+    :func:`analyze_tlh_opportunities`, :func:`format_tlh_rebalance_result`)
+    are **deprecated** and exist solely for legacy non-registered account
+    analysis that falls outside the project's TFSA mandate.
+
+    The ACB tracking infrastructure (:class:`ACBTracker`, :class:`TradeRecord`,
+    :class:`ACBPosition`) remains available for general portfolio bookkeeping
+    (cost basis, return-of-capital adjustments, and unrealized gain/loss
+    monitoring), which are legitimate in any account type.
+
+Implements the CRA-mandated weighted-average cost method (ITA s. 47(1)) and
+return-of-capital adjustment rules for Canadian accounts.
 """
 
 from __future__ import annotations
@@ -15,6 +31,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+
+from pysharpe.optimization.tax_location import AccountType
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +110,13 @@ class ACBPosition:
 
 @dataclass
 class TLHTrade:
-    """A proposed tax-loss harvesting pair trade.
+    """.. deprecated::
+
+        Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
+        treaty guidelines.  This class is retained for legacy non-registered
+        account analysis only.
+
+    A proposed tax-loss harvesting pair trade.
 
     Attributes
     ----------
@@ -707,6 +731,13 @@ def _load_switch_fund_map(path: Path | None = None) -> dict[str, list[str]]:
 
 
 class TLHEngine:
+    """.. deprecated::
+
+        Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
+        treaty guidelines.  This engine is retained for legacy non-registered
+        account analysis only.
+
+    """
     """Identify and validate tax-loss harvesting opportunities.
 
     The engine cross-references the ACB tracker with a switch-fund map to
@@ -1103,7 +1134,13 @@ class TLHEngine:
 
 @dataclass
 class TLHRebalanceResult:
-    """Output of a TLH-augmented rebalance analysis.
+    """.. deprecated::
+
+        Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
+        treaty guidelines.  This result type is retained for legacy
+        non-registered account analysis only.
+
+    Output of a TLH-augmented rebalance analysis.
 
     Attributes
     ----------
@@ -1129,13 +1166,20 @@ class TLHRebalanceResult:
 def analyze_tlh_opportunities(
     acb_tracker: ACBTracker,
     current_prices: dict[str, float],
+    account_type: AccountType,
     switch_fund_map: dict[str, list[str]] | Path | None = None,
     portfolio_name: str = "default",
     min_loss_dollars: float = 0.0,
     min_loss_pct: float = 0.0,
     as_of_date: date | None = None,
 ) -> TLHRebalanceResult:
-    """Run a full TLH analysis and return actionable trade recommendations.
+    """.. deprecated::
+
+        Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
+        treaty guidelines.  This function is retained for legacy
+        non-registered account analysis only.
+
+    Run a full TLH analysis and return actionable trade recommendations.
 
     This is the top-level entry point intended to be called from the rebalance
     workflow.  It runs the opportunity scan, generates switch-trade pairs,
@@ -1148,6 +1192,9 @@ def analyze_tlh_opportunities(
         ACB ledger with full trade history.
     current_prices : dict[str, float]
         Current market prices keyed by ticker.
+    account_type : AccountType
+        The type of Canadian account.  TLH is prohibited in TFSA, FHSA, and
+        RRSP accounts; calling with any of those types raises a ValueError.
     switch_fund_map : dict or Path or None
         Switch-fund mapping (see :class:`TLHEngine`).
     portfolio_name : str, optional
@@ -1162,7 +1209,20 @@ def analyze_tlh_opportunities(
     Returns
     -------
     TLHRebalanceResult
+
+    Raises
+    ------
+    ValueError
+        If *account_type* is TFSA, FHSA, or RRSP (tax-sheltered accounts
+        where TLH is structurally prohibited per Canadian treaty guidelines).
     """
+    if account_type in (AccountType.TFSA, AccountType.FHSA, AccountType.RRSP):
+        raise ValueError(
+            "Tax-Loss Harvesting execution is structurally prohibited "
+            "in tax-sheltered accounts per Canadian treaty guidelines. "
+            f"Received account_type={account_type.value}."
+        )
+
     engine = TLHEngine(
         acb_tracker=acb_tracker,
         switch_fund_map=switch_fund_map,

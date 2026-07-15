@@ -1,5 +1,12 @@
-"""Tests for the efficient frontier visualization module."""
+"""Tests for the efficient frontier visualization module.
 
+.. note::
+
+    **Canadian ETF Context** — Efficient frontier plots display CAD-
+    denominated portfolio risk/return profiles.  Benchmarks use Canadian
+    asset-allocation ETFs (VGRO.TO, VEQT.TO).  Frontier generation uses
+    synthetic price data with fixed seeds.
+"""
 from __future__ import annotations
 
 import numpy as np

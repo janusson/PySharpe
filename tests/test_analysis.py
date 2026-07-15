@@ -1,5 +1,16 @@
-"""
-Tests for the analysis module.
+"""Tests for the analysis module (backtest, scoring).
+
+.. note::
+
+    **Canadian ETF Mandate** — PySharpe targets broad-market, CAD-
+    denominated index ETFs (e.g., VFV, VDY, QQC).  :func:`technical_score`
+    and :func:`dividend_score` are deprecated single-stock scoring
+    functions that fall outside the ETF scope.  These tests validate the
+    scoring math but the functions should not be used for portfolio
+    allocation decisions.
+
+    For ETF-level evaluation, use the VA allocation engine:
+    :func:`pysharpe.execution.allocator.score_opportunities`.
 """
 
 import numpy as np

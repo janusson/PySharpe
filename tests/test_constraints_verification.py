@@ -1,3 +1,12 @@
+"""Tests for combined optimisation constraints (MER, geo, weights).
+
+.. note::
+
+    **Canadian ETF Constraints** — MER values are decimal fractions
+    (< 0.10).  Geographic constraints (US, CA, INT) use lower/upper
+    bounds per region.  Infeasible constraint combinations (e.g., all
+    assets exceed max_portfolio_mer) raise ExecutionConfigError.
+"""
 import numpy as np
 import pandas as pd
 import pytest
@@ -9,16 +18,16 @@ def test_optimisation_constraints(tmp_path):
     # Setup dummy data
     dates = pd.date_range("2020-01-01", periods=300)
 
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     # A: High Risk, High Return, High MER
     # B: Low Risk, Low Return, Low MER
     # C: Noise
 
     # We construct returns such that they are well behaved.
     returns = pd.DataFrame(index=dates)
-    returns["A"] = np.random.normal(0.001, 0.02, 300)
-    returns["B"] = np.random.normal(0.0005, 0.005, 300)
-    returns["C"] = np.random.normal(0.0002, 0.01, 300)
+    returns["A"] = rng.normal(0.001, 0.02, 300)
+    returns["B"] = rng.normal(0.0005, 0.005, 300)
+    returns["C"] = rng.normal(0.0002, 0.01, 300)
 
     # Force expected returns to be positive and distinct
     # Annualized: A ~ 25%, B ~ 12%, C ~ 5%

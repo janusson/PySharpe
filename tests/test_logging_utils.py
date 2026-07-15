@@ -1,5 +1,11 @@
-"""Tests for logging configuration helpers."""
+"""Tests for logging configuration helpers.
 
+.. note::
+
+    **Canadian Compliance** — Logging captures data pipeline and
+    optimisation events for audit trails.  No sensitive financial
+    data (holdings, account numbers) is logged at INFO level or above.
+"""
 from __future__ import annotations
 
 import logging

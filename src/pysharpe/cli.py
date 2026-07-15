@@ -21,6 +21,7 @@ from pysharpe.execution.allocator import (
     score_opportunities,
 )
 from pysharpe.execution.rebalance import build_rebalance_plan, format_rebalance_plan
+from pysharpe.optimization.bayesian import BayesianOptimizer
 from pysharpe.optimization.models import OptimisationResult
 from pysharpe.visualization import plot_dca_projection, simulate_dca
 from pysharpe.visualization import utils as viz_utils
@@ -69,6 +70,17 @@ def _handle_optimise(args: argparse.Namespace) -> int:
     portfolio_dir.mkdir(parents=True, exist_ok=True)
     price_dir.mkdir(parents=True, exist_ok=True)
     export_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # Pre-warm the PyTensor compilation cache so that Bayesian estimation
+    # does not pay the C-compilation latency on its first invocation.
+    # This is a non-blocking diagnostic — failures are logged but never
+    # halt the optimisation workflow.
+    # ------------------------------------------------------------------
+    try:
+        BayesianOptimizer.warm_compilation_cache()
+    except Exception:
+        pass  # Non-blocking: never let a cache warm-up abort the workflow.
 
     try:
         if args.log_dir:
