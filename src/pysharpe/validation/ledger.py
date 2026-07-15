@@ -247,8 +247,12 @@ class DuckDBLedger:
                     record.run_timestamp,
                     config_json,
                     record.is_economically_justifiable,
-                    record.in_sample_sharpe if np.isfinite(record.in_sample_sharpe) else None,
-                    record.out_of_sample_sharpe if np.isfinite(record.out_of_sample_sharpe) else None,
+                    record.in_sample_sharpe
+                    if np.isfinite(record.in_sample_sharpe)
+                    else None,
+                    record.out_of_sample_sharpe
+                    if np.isfinite(record.out_of_sample_sharpe)
+                    else None,
                     record.execution_status.name,
                 ),
             )
@@ -353,8 +357,12 @@ def _row_to_record(row: tuple) -> TrialRecord:
         run_timestamp=str(run_timestamp),
         strategy_config=config,
         is_economically_justifiable=bool(is_economically_justifiable),
-        in_sample_sharpe=float(in_sample_sharpe) if in_sample_sharpe is not None else float("nan"),
-        out_of_sample_sharpe=float(out_of_sample_sharpe) if out_of_sample_sharpe is not None else float("nan"),
+        in_sample_sharpe=float(in_sample_sharpe)
+        if in_sample_sharpe is not None
+        else float("nan"),
+        out_of_sample_sharpe=float(out_of_sample_sharpe)
+        if out_of_sample_sharpe is not None
+        else float("nan"),
         execution_status=ExecutionStatus[execution_status_raw],
     )
 
@@ -410,9 +418,7 @@ def compute_pbo(
             f"got {n} vs {len(oos_sharpes)}"
         )
     if n < 3:
-        raise ValueError(
-            f"Need at least 3 trials for rank correlation, got {n}"
-        )
+        raise ValueError(f"Need at least 3 trials for rank correlation, got {n}")
 
     is_std: float = float(np.nanstd(is_sharpes))
     if is_std < 1e-15 or not np.isfinite(is_std):
@@ -496,10 +502,10 @@ def _log_edge_case_observation(
 
 # Known strategy philosophies and their canonical direction.
 _PHILOSOPHY_DIRECTION: dict[str, int] = {
-    "trend_following": 1,       # Structural long bias with momentum.
-    "mean_reversion": -1,       # Contrarian, fade the move.
-    "value": 1,                 # Buy undervalued, hold.
-    "risk_parity": 0,           # Direction-neutral by design.
+    "trend_following": 1,  # Structural long bias with momentum.
+    "mean_reversion": -1,  # Contrarian, fade the move.
+    "value": 1,  # Buy undervalued, hold.
+    "risk_parity": 0,  # Direction-neutral by design.
     "volatility_targeting": 0,  # Adjusts exposure, not direction.
 }
 

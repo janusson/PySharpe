@@ -7,6 +7,7 @@
     provides uncertainty-aware expected returns and covariance for
     efficient frontier analysis, not for predictive trading.
 """
+
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -217,9 +218,7 @@ def test_warm_compilation_cache_fallback_on_compile_error():
 
     compile_error = RuntimeError("gcc: error: linker command failed")
 
-    with patch.object(
-        BayesianOptimizer, "_enable_fast_compile"
-    ) as mock_fast_compile:
+    with patch.object(BayesianOptimizer, "_enable_fast_compile") as mock_fast_compile:
         with patch("pytensor.function") as mock_fn:
             mock_fn.side_effect = compile_error
 
@@ -238,9 +237,7 @@ def test_warm_compilation_cache_non_compilation_error_is_silent():
 
     other_error = ValueError("Something else broke")
 
-    with patch.object(
-        BayesianOptimizer, "_enable_fast_compile"
-    ) as mock_fast_compile:
+    with patch.object(BayesianOptimizer, "_enable_fast_compile") as mock_fast_compile:
         with patch("pytensor.function") as mock_fn:
             mock_fn.side_effect = other_error
 

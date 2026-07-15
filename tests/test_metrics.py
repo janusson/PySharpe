@@ -29,7 +29,7 @@ def test_compute_returns_simple_series(sample_price_series):
     assert isinstance(returns, pd.Series)
     assert len(returns) == len(sample_price_series) - 1
     np.testing.assert_allclose(
-        returns.iloc[:3].values,
+        returns.iloc[:3].to_numpy(dtype=float),
         np.array([0.02, -0.00980392, 0.01980198]),
         rtol=1e-6,
     )
@@ -40,7 +40,7 @@ def test_compute_returns_log_matches_manual(sample_price_series):
     manual = np.log(
         sample_price_series.iloc[1:].values / sample_price_series.iloc[:-1].values
     )
-    np.testing.assert_allclose(log_returns.values, manual, rtol=1e-9)
+    np.testing.assert_allclose(log_returns.to_numpy(dtype=float), manual, rtol=1e-9)
 
 
 def test_compute_returns_validates_method(sample_price_series):

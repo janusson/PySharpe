@@ -22,8 +22,11 @@ import pytest
 
 pytest.importorskip("pypfopt")
 
+import numpy as np
+
 from pysharpe import portfolio_optimization
 from pysharpe.optimization.models import OptimisationResult
+from pysharpe.portfolio_optimization import optimise_portfolio
 
 
 def _write_collated(tmp_path: Path, name: str) -> Path:
@@ -338,3 +341,74 @@ def test_load_collated_prices_reflects_updated_file(tmp_path):
         f"Expected fresh price 999.0 but got {result_v2['AAA'].iloc[0]}. "
         "The LRU cache returned stale data from before the file was re-written."
     )
+
+
+def test_optimisation_constraints(tmp_path):
+    """MER constraints, geo constraints, and combined enforcement."""
+    dates = pd.date_range("2020-01-01", periods=300)
+
+    rng = np.random.default_rng(42)
+    returns = pd.DataFrame(index=dates)
+    returns["A"] = rng.normal(0.001, 0.02, 300)
+    returns["B"] = rng.normal(0.0005, 0.005, 300)
+    returns["C"] = rng.normal(0.0002, 0.01, 300)
+
+    prices = (1 + returns).cumprod() * 100
+    prices.index.name = "Date"
+
+    collated_dir = tmp_path / "collated"
+    collated_dir.mkdir()
+    prices.to_csv(collated_dir / "test_portfolio_collated.csv")
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    mer_mapping = {"A": 0.05, "B": 0.001, "C": 0.02}
+    geo_mapping = {"A": "US", "B": "CA", "C": "INT"}
+
+    # --- MER constraint ---
+    max_mer = 0.015
+    result_mer = optimise_portfolio(
+        "test_portfolio",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        mer_mapping=mer_mapping,
+        max_portfolio_mer=max_mer,
+        make_plot=False,
+        max_weight=1.0,
+    )
+    weights_mer = result_mer.weights.allocations
+    port_mer = sum(weights_mer.get(t, 0) * mer_mapping[t] for t in weights_mer)
+    assert port_mer <= max_mer + 1e-5
+
+    # --- Geo constraint ---
+    result_geo = optimise_portfolio(
+        "test_portfolio",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        geo_mapping=geo_mapping,
+        geo_upper_bounds={"US": 0.40},
+        make_plot=False,
+        max_weight=1.0,
+    )
+    weights_geo = result_geo.weights.allocations
+    assert weights_geo.get("A", 0) <= 0.40 + 1e-5
+
+    # --- Combined constraints ---
+    result_combined = optimise_portfolio(
+        "test_portfolio",
+        collated_dir=collated_dir,
+        output_dir=output_dir,
+        mer_mapping=mer_mapping,
+        max_portfolio_mer=0.01,
+        geo_mapping=geo_mapping,
+        geo_upper_bounds={"CA": 0.6},
+        make_plot=False,
+        max_weight=1.0,
+    )
+    weights_combined = result_combined.weights.allocations
+    port_mer_combined = sum(
+        weights_combined.get(t, 0) * mer_mapping[t] for t in weights_combined
+    )
+    assert port_mer_combined <= 0.01 + 1e-5
+    assert weights_combined.get("B", 0) <= 0.6 + 1e-5

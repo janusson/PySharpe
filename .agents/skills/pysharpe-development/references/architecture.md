@@ -70,6 +70,11 @@ The CLI (`cli.py`) calls these. Portfolio definitions are CSV files in
 - **`backtest_engine.py`** — Calendar and drift-based rebalancing backtests.
 - **`categorization.py`** — Groups correlated tickers by category before
   optimization.
+- **`comparison.py`** — Stateless head-to-head fund comparison engine that
+  evaluates two assets side-by-side using vectorised metrics (CAGR, volatility,
+  drawdown depth/duration, Sharpe, Sortino, Calmar, rolling tracking error,
+  and return correlation) without invoking multi-asset optimization or VA
+  allocation pipelines.
 - **`scoring.py`** — Shared scoring utilities used by backtests and benchmarks.
 
 ## App (`app/`)

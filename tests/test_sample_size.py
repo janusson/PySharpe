@@ -183,7 +183,9 @@ class TestAnnualisedSharpeSE:
         """Under normality (skew=0, excess kurtosis=0), SE matches the
         standard i.i.d. formula: sqrt((1 + 0.5*SR²) / n)."""
         sr = 0.5
-        se = _annualised_sharpe_se(sr, skewness=0.0, excess_kurtosis=0.0, periods_per_year=252)
+        se = _annualised_sharpe_se(
+            sr, skewness=0.0, excess_kurtosis=0.0, periods_per_year=252
+        )
         expected = math.sqrt((1 + 0.5 * sr**2) / 252)
         assert se == pytest.approx(expected)
 
@@ -213,15 +215,21 @@ class TestAnnualisedSharpeSE:
 
     def test_non_normal_dominates_with_high_sr(self):
         """At high Sharpe ratios the non-normality terms are magnified by SR²."""
-        se_low = _annualised_sharpe_se(0.2, skewness=-1.0, excess_kurtosis=5.0, periods_per_year=252)
-        se_high = _annualised_sharpe_se(1.5, skewness=-1.0, excess_kurtosis=5.0, periods_per_year=252)
+        se_low = _annualised_sharpe_se(
+            0.2, skewness=-1.0, excess_kurtosis=5.0, periods_per_year=252
+        )
+        se_high = _annualised_sharpe_se(
+            1.5, skewness=-1.0, excess_kurtosis=5.0, periods_per_year=252
+        )
         # The gap should be larger at high SR.
         gap_low = se_low - _annualised_sharpe_se(0.2, 0.0, 0.0, 252)
         gap_high = se_high - _annualised_sharpe_se(1.5, 0.0, 0.0, 252)
         assert gap_high > gap_low
 
     def test_zero_sharpe(self):
-        se = _annualised_sharpe_se(0.0, skewness=0.0, excess_kurtosis=0.0, periods_per_year=252)
+        se = _annualised_sharpe_se(
+            0.0, skewness=0.0, excess_kurtosis=0.0, periods_per_year=252
+        )
         expected = math.sqrt(1.0 / 252)
         assert se == pytest.approx(expected)
 
@@ -229,7 +237,9 @@ class TestAnnualisedSharpeSE:
         """When the variance expression becomes negative due to extreme
         parameters, return zero to avoid NaN propagation."""
         # Extreme positive skewness can drive variance_per_obs negative.
-        se = _annualised_sharpe_se(0.5, skewness=10.0, excess_kurtosis=0.0, periods_per_year=252)
+        se = _annualised_sharpe_se(
+            0.5, skewness=10.0, excess_kurtosis=0.0, periods_per_year=252
+        )
         assert se == 0.0
 
 
@@ -295,15 +305,23 @@ class TestCalculateMinBTL:
         assert btl_strong < btl_modest
 
     def test_higher_confidence_increases_min_btL(self):
-        btl_90 = calculate_min_btl(0.5, 0.0, 0.0, 0.0, num_trials=1, confidence_level=0.90)
-        btl_99 = calculate_min_btl(0.5, 0.0, 0.0, 0.0, num_trials=1, confidence_level=0.99)
+        btl_90 = calculate_min_btl(
+            0.5, 0.0, 0.0, 0.0, num_trials=1, confidence_level=0.90
+        )
+        btl_99 = calculate_min_btl(
+            0.5, 0.0, 0.0, 0.0, num_trials=1, confidence_level=0.99
+        )
         assert btl_99 > btl_90
 
     def test_monthly_frequency(self):
         """Verify periods_per_year=12 yields a larger MinBTL than daily (252).
         Fewer observations per year → higher uncertainty → longer MinBTL."""
-        btl_daily = calculate_min_btl(0.5, 0.0, 0.0, 0.0, num_trials=1, periods_per_year=252)
-        btl_monthly = calculate_min_btl(0.5, 0.0, 0.0, 0.0, num_trials=1, periods_per_year=12)
+        btl_daily = calculate_min_btl(
+            0.5, 0.0, 0.0, 0.0, num_trials=1, periods_per_year=252
+        )
+        btl_monthly = calculate_min_btl(
+            0.5, 0.0, 0.0, 0.0, num_trials=1, periods_per_year=12
+        )
         # Monthly has fewer observations/year → larger SE → longer MinBTL.
         assert btl_monthly > btl_daily
 

@@ -76,7 +76,6 @@ class ExecutionConfig:
         return self.dividend_yield_estimate * self.withholding_tax_rate
 
 
-
 def load_execution_config(
     config_path: Path | None = None,
 ) -> ExecutionConfig:

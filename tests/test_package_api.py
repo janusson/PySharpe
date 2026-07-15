@@ -7,6 +7,7 @@
     imports prevent heavy dependencies (PyMC, statsmodels) from loading
     at startup.
 """
+
 from __future__ import annotations
 
 import importlib

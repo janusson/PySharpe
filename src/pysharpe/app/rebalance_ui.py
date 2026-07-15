@@ -89,9 +89,15 @@ def _render_buy_orders_table(plan: RebalancePlan) -> None:
     display["Price"] = display["Price"].apply(_format_money)
     display["Buy $"] = display["Buy $"].apply(_format_money)
     display["Buy Shares"] = display["Buy Shares"].apply(_format_shares)
-    display["Current"] = display["Current"].apply(lambda v: f"{v:.2%}" if not pd.isna(v) else "—")
-    display["Target"] = display["Target"].apply(lambda v: f"{v:.2%}" if not pd.isna(v) else "—")
-    display["Score"] = display["Score"].apply(lambda v: f"{v:.4f}" if not pd.isna(v) else "—")
+    display["Current"] = display["Current"].apply(
+        lambda v: f"{v:.2%}" if not pd.isna(v) else "—"
+    )
+    display["Target"] = display["Target"].apply(
+        lambda v: f"{v:.2%}" if not pd.isna(v) else "—"
+    )
+    display["Score"] = display["Score"].apply(
+        lambda v: f"{v:.4f}" if not pd.isna(v) else "—"
+    )
 
     st.markdown("### 💰 Buy Orders")
     st.dataframe(display, use_container_width=True, hide_index=True)
@@ -128,12 +134,14 @@ def _render_account_breakdown(plan: RebalancePlan) -> None:
             continue
 
         with st.expander(f"📁 {account} — ${acct_cash:,.2f}"):
-            display = pd.DataFrame({
-                "Ticker": buys["ticker"],
-                "Buy $": buys["recommended_allocation"].apply(_format_money),
-                "Buy Shares": buys["recommended_shares"].apply(_format_shares),
-                "Score": buys["opportunity_score"].apply(lambda v: f"{v:.4f}"),
-            })
+            display = pd.DataFrame(
+                {
+                    "Ticker": buys["ticker"],
+                    "Buy $": buys["recommended_allocation"].apply(_format_money),
+                    "Buy Shares": buys["recommended_shares"].apply(_format_shares),
+                    "Score": buys["opportunity_score"].apply(lambda v: f"{v:.4f}"),
+                }
+            )
             st.dataframe(display, use_container_width=True, hide_index=True)
 
 
@@ -247,7 +255,9 @@ def render_execution_tab(
                 key="exec_portfolio",
                 help="Portfolios found in the configured export directory.",
             )
-            st.caption(f"Using weights from `{export_root / f'{portfolio_name}_weights.txt'}`")
+            st.caption(
+                f"Using weights from `{export_root / f'{portfolio_name}_weights.txt'}`"
+            )
         else:
             st.warning(
                 "No pre-computed portfolios found. "
@@ -286,7 +296,10 @@ def render_execution_tab(
         if prices_upload is not None:
             try:
                 prices_df = pd.read_csv(prices_upload)
-                if "ticker" in prices_df.columns and "latest_price" in prices_df.columns:
+                if (
+                    "ticker" in prices_df.columns
+                    and "latest_price" in prices_df.columns
+                ):
                     row_data = {
                         row["ticker"]: [row["latest_price"]]
                         for _, row in prices_df.iterrows()
@@ -409,13 +422,13 @@ def _execute_rebalance(
 
             # Derive/copy latest prices
             if existing_collated.exists():
-                shutil.copy(existing_collated, export_dir / f"{portfolio_name}_collated.csv")
+                shutil.copy(
+                    existing_collated, export_dir / f"{portfolio_name}_collated.csv"
+                )
             else:
                 _write_collated_from_prices(price_data, export_dir, portfolio_name)
         elif weights_df is not None:
-            weights_df.to_csv(
-                export_dir / f"{portfolio_name}_weights.txt", index=False
-            )
+            weights_df.to_csv(export_dir / f"{portfolio_name}_weights.txt", index=False)
             _write_collated_from_prices(price_data, export_dir, portfolio_name)
         else:
             # Equal weight: derive from holdings
@@ -425,7 +438,11 @@ def _execute_rebalance(
             from pysharpe.execution.rebalance import _rename_known_columns
 
             renamed = _rename_known_columns(holdings_df)
-            tickers = renamed["ticker"].dropna().unique().tolist() if "ticker" in renamed.columns else []
+            tickers = (
+                renamed["ticker"].dropna().unique().tolist()
+                if "ticker" in renamed.columns
+                else []
+            )
             if not tickers:
                 st.error("Could not identify ticker column in holdings CSV.")
                 return

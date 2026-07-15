@@ -6,6 +6,7 @@
     ETF portfolios.  All test data is synthetic.  No live market data,
     single-stock recommendations, or day-trading signals are used.
 """
+
 import datetime as dt
 import io
 from types import SimpleNamespace

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -27,8 +28,11 @@ from pysharpe.execution.brokerage import (
     _validate_buy_orders,
     export_buy_orders,
 )
-from pysharpe.execution.rebalance import build_rebalance_plan
-
+from pysharpe.execution.rebalance import (
+    build_rebalance_plan,
+    format_rebalance_plan,
+    main,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -95,7 +99,14 @@ def test_questrade_produces_expected_columns():
     rows = _csv_to_dicts(csv_out)
 
     assert len(rows) == 2
-    expected_cols = {"Symbol", "Action", "Quantity", "Order Type", "Limit Price", "Duration"}
+    expected_cols = {
+        "Symbol",
+        "Action",
+        "Quantity",
+        "Order Type",
+        "Limit Price",
+        "Duration",
+    }
     assert set(rows[0].keys()) == expected_cols
 
     assert rows[0]["Symbol"] == "VFV"
@@ -172,7 +183,13 @@ def test_wealthsimple_produces_expected_columns():
     rows = _csv_to_dicts(csv_out)
 
     assert len(rows) == 2
-    expected_cols = {"Ticker", "Action", "Shares", "Estimated Price", "Estimated Cost (CAD)"}
+    expected_cols = {
+        "Ticker",
+        "Action",
+        "Shares",
+        "Estimated Price",
+        "Estimated Cost (CAD)",
+    }
     assert set(rows[0].keys()) == expected_cols
 
     assert rows[0]["Ticker"] == "VFV"
@@ -375,14 +392,10 @@ def test_multi_account_filters_by_account(tmp_path):
 
     assert plan.is_multi_account
 
-    csv_tfsa = export_buy_orders(
-        plan, Brokerage.QUESTRADE, account="TFSA"
-    )
+    csv_tfsa = export_buy_orders(plan, Brokerage.QUESTRADE, account="TFSA")
     rows_tfsa = _csv_to_dicts(csv_tfsa)
 
-    csv_rrsp = export_buy_orders(
-        plan, Brokerage.QUESTRADE, account="RRSP"
-    )
+    csv_rrsp = export_buy_orders(plan, Brokerage.QUESTRADE, account="RRSP")
     rows_rrsp = _csv_to_dicts(csv_rrsp)
 
     # Both accounts should receive orders — tickers may differ based on scoring
@@ -424,7 +437,12 @@ def test_multi_account_invalid_account_raises(tmp_path):
 def test_empty_buy_orders_produces_header_only_csv():
     """An empty buy-orders DataFrame should produce CSV with only the header."""
     df = pd.DataFrame(
-        columns=["ticker", "recommended_allocation", "recommended_shares", "latest_price"]
+        columns=[
+            "ticker",
+            "recommended_allocation",
+            "recommended_shares",
+            "latest_price",
+        ]
     )
     csv_out = export_buy_orders(df, Brokerage.QUESTRADE)
     lines = csv_out.strip().split("\n")
@@ -486,3 +504,71 @@ def test_raw_dataframe_missing_column_raises():
     df = pd.DataFrame({"ticker": ["VFV"], "recommended_allocation": [100.0]})
     with pytest.raises(ValueError, match="recommended_shares"):
         export_buy_orders(df, Brokerage.QUESTRADE)
+
+
+def _write_rebalance_artifacts(export_dir) -> None:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "demo_weights.txt").write_text(
+        "ticker,weight\nAAPL,0.60\nMSFT,0.40\n",
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        {
+            "Date": ["2024-01-01", "2024-01-02"],
+            "AAPL": [100.0, 110.0],
+            "MSFT": [200.0, 210.0],
+        }
+    ).to_csv(export_dir / "demo_collated.csv", index=False)
+
+
+def test_build_rebalance_plan_allocates_to_underweight_asset(tmp_path):
+    export_dir = tmp_path / "exports"
+    _write_rebalance_artifacts(export_dir)
+
+    plan = build_rebalance_plan(
+        "demo",
+        new_cash=100.0,
+        holdings_mapping={"AAPL": 2},
+        holdings_kind="shares",
+        export_dir=export_dir,
+    )
+
+    buy_orders = plan.buy_orders
+
+    assert list(buy_orders["ticker"]) == ["MSFT"]
+    assert buy_orders.iloc[0]["recommended_allocation"] == pytest.approx(100.0)
+    assert buy_orders.iloc[0]["recommended_shares"] == pytest.approx(100.0 / 210.0)
+    assert "opportunity_score" in plan.scored_state.columns
+
+    rendered = format_rebalance_plan(plan)
+    assert "Rebalance plan for demo" in rendered
+    assert "MSFT" in rendered
+    assert "$100.00" in rendered
+
+
+def test_rebalance_main_accepts_json_file(tmp_path, capsys):
+    export_dir = tmp_path / "exports"
+    _write_rebalance_artifacts(export_dir)
+
+    holdings_path = tmp_path / "holdings.json"
+    holdings_path.write_text(json.dumps({"AAPL": 2}), encoding="utf-8")
+
+    exit_code = main(
+        [
+            "--portfolio",
+            "demo",
+            "--holdings-json",
+            str(holdings_path),
+            "--holdings-kind",
+            "shares",
+            "--new-cash",
+            "100",
+            "--export-dir",
+            str(export_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Rebalance plan for demo" in output
+    assert "MSFT" in output

@@ -95,7 +95,9 @@ class TestLedgerSchema:
 
     def test_roundtrip_nan_sharpe(self) -> None:
         """NaN Sharpe values (from failed/rejected trials) survive roundtrip."""
-        record = _make_record(in_sample=float("nan"), oos=float("nan"), status=ExecutionStatus.FAILED)
+        record = _make_record(
+            in_sample=float("nan"), oos=float("nan"), status=ExecutionStatus.FAILED
+        )
         with DuckDBLedger(":memory:") as ledger:
             ledger.write_trial(record)
             loaded = ledger.load_trials()
@@ -205,9 +207,7 @@ class TestThreadSafety:
                     ledger.write_trial(record)
 
             with ThreadPoolExecutor(max_workers=self.NUM_WRITERS) as executor:
-                futures = [
-                    executor.submit(_writer, w) for w in range(self.NUM_WRITERS)
-                ]
+                futures = [executor.submit(_writer, w) for w in range(self.NUM_WRITERS)]
                 for future in as_completed(futures):
                     future.result()  # Re-raise any exception.
 

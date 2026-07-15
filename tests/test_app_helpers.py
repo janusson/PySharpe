@@ -6,6 +6,7 @@
     denominated ETF portfolio analytics.  No single-stock ticker
     recommendations are generated.  All price data is synthetic in tests.
 """
+
 import pandas as pd
 import pytest
 

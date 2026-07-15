@@ -46,6 +46,10 @@ _METRIC_EXPORTS: dict[str, tuple[str, str]] = {
     "annualize_volatility": ("pysharpe.metrics", "annualize_volatility"),
     "expected_return": ("pysharpe.metrics", "expected_return"),
     "sharpe_ratio": ("pysharpe.metrics", "sharpe_ratio"),
+    "sortino_ratio": ("pysharpe.metrics", "sortino_ratio"),
+    "calmar_ratio": ("pysharpe.metrics", "calmar_ratio"),
+    "tracking_error": ("pysharpe.metrics", "tracking_error"),
+    "max_drawdown_duration": ("pysharpe.metrics", "max_drawdown_duration"),
     "compute_realized_volatility": ("pysharpe.metrics", "compute_realized_volatility"),
 }
 
@@ -162,6 +166,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "apply_category_mapping",
     ),
     "load_category_map": ("pysharpe.analysis", "load_category_map"),
+    "compare_two_funds": (
+        "pysharpe.analysis.comparison",
+        "compare_two_funds",
+    ),
     # Validation / trial ledger
     "DuckDBLedger": ("pysharpe.validation.ledger", "DuckDBLedger"),
     "ExecutionStatus": ("pysharpe.validation.ledger", "ExecutionStatus"),
@@ -278,6 +286,9 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         apply_category_mapping,
         load_category_map,
     )
+    from pysharpe.analysis.comparison import (  # noqa: F401
+        compare_two_funds,
+    )
     from pysharpe.config import (  # noqa: F401
         AccountType,
         AssetTaxProfile,
@@ -332,10 +343,14 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.metrics import (  # noqa: F401
         annualize_return,
         annualize_volatility,
+        calmar_ratio,
         compute_realized_volatility,
         compute_returns,
         expected_return,
+        max_drawdown_duration,
         sharpe_ratio,
+        sortino_ratio,
+        tracking_error,
     )
     from pysharpe.optimization import (  # noqa: F401
         OptimisationPerformance,

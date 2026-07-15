@@ -7,11 +7,17 @@
     rebalancing strategies.  All price data is synthetic; no live market
     data is used.  Test tickers are synthetic placeholders.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from pysharpe.analysis.backtest_engine import HistoricalBacktester
+from pysharpe.analysis.backtest_engine import (
+    BacktestResult,
+    HistoricalBacktester,
+    WalkForwardBacktester,
+)
+from pysharpe.optimization.base import OptimizationResult
 
 
 def test_historical_backtester_initialization():
@@ -192,3 +198,73 @@ def test_historical_backtester_run_vol_threshold_rebalance():
     # This will trigger a rebalance if rolling_vol > 0.10
     assert len(result.rebalance_events) > 0
     assert pd.Timestamp("2024-01-21") in result.rebalance_events
+
+
+class _DummyOptimizer:
+    def __init__(self, data: pd.DataFrame):
+        self.assets = data.columns.tolist()
+
+    def optimize(self) -> OptimizationResult:
+        n = len(self.assets)
+        weights = {asset: 1.0 / n for asset in self.assets}
+        return OptimizationResult(
+            weights=weights, expected_return=0.1, volatility=0.15, sharpe_ratio=0.5
+        )
+
+
+@pytest.fixture
+def _dummy_prices():
+    dates = pd.date_range("2023-01-01", periods=100)
+    data = pd.DataFrame(
+        {
+            "A": np.exp(np.random.normal(0.001, 0.02, 100).cumsum()),
+            "B": np.exp(np.random.normal(0.002, 0.03, 100).cumsum()),
+            "SPY": np.exp(np.random.normal(0.0005, 0.015, 100).cumsum()),
+        },
+        index=dates,
+    )
+    return data
+
+
+def test_walk_forward_backtester_run(_dummy_prices):
+    backtester = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=30,
+        test_window_days=10,
+        initial_capital=10000.0,
+    )
+    result = backtester.run(_dummy_prices)
+
+    assert isinstance(result, BacktestResult)
+    assert len(result.portfolio_value) == 70
+    assert len(result.historical_weights) == 70
+    assert "A" in result.historical_weights.columns
+    assert "B" in result.historical_weights.columns
+
+
+def test_walk_forward_compare_to_benchmark(_dummy_prices):
+    backtester = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=30,
+        test_window_days=10,
+        initial_capital=10000.0,
+    )
+
+    comparison = backtester.compare_to_benchmark(_dummy_prices, benchmark_ticker="SPY")
+
+    assert "Strategy" in comparison.columns
+    assert "Benchmark" in comparison.columns
+    assert len(comparison) == 70
+    assert pytest.approx(comparison["Strategy"].iloc[0], rel=1e-3) == 10000.0
+    assert pytest.approx(comparison["Benchmark"].iloc[0], rel=1e-3) == 10000.0
+
+
+def test_walk_forward_insufficient_data(_dummy_prices):
+    backtester = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=80,
+        test_window_days=30,
+        initial_capital=10000.0,
+    )
+    with pytest.raises(ValueError, match="Insufficient data"):
+        backtester.run(_dummy_prices)

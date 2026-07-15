@@ -1178,9 +1178,7 @@ class TestTLHAccountGuardrails:
         "account_type",
         [AccountType.TFSA, AccountType.FHSA, AccountType.RRSP],
     )
-    def test_raises_for_tax_sheltered_accounts(
-        self, _tracker_and_prices, account_type
-    ):
+    def test_raises_for_tax_sheltered_accounts(self, _tracker_and_prices, account_type):
         """TFSA, FHSA, and RRSP must all raise ValueError."""
         tracker, prices = _tracker_and_prices
         with pytest.raises(ValueError, match="structurally prohibited"):
@@ -1206,7 +1204,6 @@ class TestTLHAccountGuardrails:
             account_type=account_type,
         )
         assert isinstance(result, TLHRebalanceResult)
-
 
 
 # ---------------------------------------------------------------------------

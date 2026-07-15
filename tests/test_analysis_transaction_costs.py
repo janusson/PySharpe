@@ -7,6 +7,7 @@
     deducted from taxable income.  Fee-per-trade and slippage percentages
     reflect Canadian discount brokerage rates.
 """
+
 import pandas as pd
 import pytest
 

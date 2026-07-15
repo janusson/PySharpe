@@ -27,14 +27,14 @@ def _coerce_to_dataframe(data: PandasLike) -> tuple[pd.DataFrame, bool]:
 
 
 def _prep_numeric(frame: pd.DataFrame) -> pd.DataFrame:
-    cleaned = frame.apply(pd.to_numeric, errors="coerce")
+    cleaned: pd.DataFrame = frame.apply(pd.to_numeric, errors="coerce")  # type: ignore[assignment]
     cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
     cleaned = cleaned.dropna(how="all")
     if cleaned.empty:
         raise ValueError(
             "Input must contain at least one finite observation per column."
         )
-    return cleaned
+    return cleaned  # type: ignore[return-value]
 
 
 def compute_returns(
@@ -249,9 +249,11 @@ def sharpe_ratio(
     )
 
     if isinstance(annualised_volatility, pd.Series):
-        zero_mask = annualised_volatility.apply(lambda value: np.isclose(value, 0.0))
+        zero_mask: pd.Series = annualised_volatility.apply(  # type: ignore[assignment]
+            lambda value: np.isclose(value, 0.0)
+        )
         if zero_mask.any():
-            problematic = ", ".join(annualised_volatility[zero_mask].index)
+            problematic = ", ".join(annualised_volatility[zero_mask].index)  # type: ignore[union-attr]
             raise ValueError(
                 f"Volatility is zero; Sharpe ratio undefined for: {problematic}"
             )
@@ -315,6 +317,189 @@ def maximum_drawdown(value_series: pd.Series) -> float:
     return float(drawdown.min())
 
 
+def sortino_ratio(
+    returns: PandasLike,
+    *,
+    risk_free_rate: float = 0.0,
+    periods_per_year: int = 252,
+    target_return: float = 0.0,
+) -> float | pd.Series:
+    """Calculate the annualised Sortino ratio.
+
+    The Sortino ratio uses downside deviation (volatility of returns below a
+    target) in the denominator rather than total volatility, penalising only
+    harmful variability.
+
+    Args:
+        returns: Periodic returns expressed as decimal fractions.
+        risk_free_rate: Annual risk-free rate expressed as a decimal.
+        periods_per_year: Observation frequency of the input ``returns``.
+        target_return: Minimum acceptable return (MAR) expressed as a daily
+            decimal fraction. Defaults to zero.
+
+    Returns:
+        Sortino ratio of the supplied returns.
+
+    Raises:
+        ValueError: If downside deviation is zero for any column.
+
+    Example:
+        >>> import pandas as pd
+        >>> from pysharpe import metrics
+        >>> rets = pd.Series([0.01, -0.02, 0.015], dtype=float)
+        >>> metrics.sortino_ratio(rets, risk_free_rate=0.02, periods_per_year=252)  # doctest: +ELLIPSIS
+        ...
+    """
+    frame, was_series = _coerce_to_dataframe(returns)
+    numeric = _prep_numeric(frame)
+
+    annualised_return = annualize_return(returns, periods_per_year=periods_per_year)
+
+    # Daily risk-free rate for excess return in downside calculation.
+    daily_rf = risk_free_rate / periods_per_year
+    downside = numeric - (target_return + daily_rf)
+    downside = downside.clip(upper=0.0)
+    downside_sq = downside.pow(2)
+    downside_dev = np.sqrt(downside_sq.mean(skipna=True))
+    annualised_downside = downside_dev * np.sqrt(periods_per_year)
+
+    if isinstance(annualised_downside, pd.Series):
+        zero_mask: pd.Series = annualised_downside.apply(  # type: ignore[assignment]
+            lambda v: np.isclose(v, 0.0)
+        )
+        if zero_mask.any():
+            problematic = ", ".join(annualised_downside[zero_mask].index)  # type: ignore[union-attr]
+            raise ValueError(
+                f"Downside deviation is zero; Sortino ratio undefined for: {problematic}"
+            )
+        excess = annualised_return - risk_free_rate
+        result = excess / annualised_downside
+        if was_series:
+            return float(result.iloc[0])
+        return result
+
+    if np.isclose(annualised_downside, 0.0):
+        raise ValueError("Downside deviation is zero; Sortino ratio undefined.")
+
+    excess_return = annualised_return - risk_free_rate
+    return float(excess_return / annualised_downside)
+
+
+def calmar_ratio(value_series: pd.Series) -> float:
+    """Calculate the Calmar ratio (annualised return / |max drawdown|).
+
+    Args:
+        value_series: Portfolio value over time (index must be DatetimeIndex).
+
+    Returns:
+        Calmar ratio as a float. Returns ``inf`` when the maximum drawdown is
+        zero (i.e., the series never declined from a peak).
+
+    Raises:
+        TypeError: If index is not DatetimeIndex.
+        ValueError: If initial value is not positive.
+
+    Example:
+        >>> import pandas as pd
+        >>> from pysharpe import metrics
+        >>> dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        >>> vals = pd.Series([100, 102, 98, 101, 105], index=dates, dtype=float)
+        >>> metrics.calmar_ratio(vals)  # doctest: +ELLIPSIS
+        ...
+    """
+    annual_cagr = cagr(value_series)
+    mdd = maximum_drawdown(value_series)
+
+    if np.isclose(mdd, 0.0):
+        return float("inf") if annual_cagr > 0 else float("-inf")
+
+    return annual_cagr / abs(mdd)
+
+
+def tracking_error(
+    returns_a: PandasLike,
+    returns_b: PandasLike,
+    *,
+    periods_per_year: int = 252,
+) -> float:
+    """Calculate the annualised tracking error between two return series.
+
+    Tracking error is the standard deviation of the return differential.
+
+    Args:
+        returns_a: Periodic returns of the first asset.
+        returns_b: Periodic returns of the second asset (benchmark).
+        periods_per_year: Observation frequency used to annualise.
+
+    Returns:
+        Annualised tracking error as a float.
+
+    Raises:
+        ValueError: If the two series have different lengths.
+
+    Example:
+        >>> import pandas as pd
+        >>> from pysharpe import metrics
+        >>> ra = pd.Series([0.01, -0.005, 0.02], dtype=float)
+        >>> rb = pd.Series([0.005, 0.01, 0.015], dtype=float)
+        >>> metrics.tracking_error(ra, rb, periods_per_year=252)  # doctest: +ELLIPSIS
+        0.0...
+    """
+    a_frame, _ = _coerce_to_dataframe(returns_a)
+    b_frame, _ = _coerce_to_dataframe(returns_b)
+
+    if len(a_frame) != len(b_frame):
+        raise ValueError(
+            f"Return series must have the same length; "
+            f"got {len(a_frame)} vs {len(b_frame)}."
+        )
+
+    a_numeric = _prep_numeric(a_frame)
+    b_numeric = _prep_numeric(b_frame)
+
+    diff = a_numeric.iloc[:, 0] - b_numeric.iloc[:, 0]
+    return float(diff.std(ddof=1) * np.sqrt(periods_per_year))
+
+
+def max_drawdown_duration(value_series: pd.Series) -> int:
+    """Calculate the longest drawdown duration in trading days.
+
+    Duration is measured as the number of consecutive periods where the value
+    remains below its previous all-time high.
+
+    Args:
+        value_series: Portfolio value over time.
+
+    Returns:
+        Longest drawdown duration in periods (trading days).
+
+    Example:
+        >>> import pandas as pd
+        >>> from pysharpe import metrics
+        >>> vals = pd.Series([100, 90, 95, 80, 105], dtype=float)
+        >>> metrics.max_drawdown_duration(vals)
+        3
+    """
+    if value_series.empty:
+        return 0
+
+    peak = value_series.cummax()
+    is_drawdown = value_series < peak
+
+    if not is_drawdown.any():
+        return 0
+
+    # Identify contiguous drawdown runs.
+    # We increment a counter during drawdown, reset to zero at recovery.
+    drawdown_streak = is_drawdown.astype(int)
+    streak = drawdown_streak.groupby(
+        (drawdown_streak != drawdown_streak.shift(1)).cumsum()
+    ).cumsum()
+    # Only count streaks where drawdown is True.
+    streak = streak * drawdown_streak
+    return int(streak.max())
+
+
 def compute_realized_volatility(
     prices: PandasLike,
     window: int,
@@ -372,6 +557,10 @@ __all__ = [
     "annualize_volatility",
     "expected_return",
     "sharpe_ratio",
+    "sortino_ratio",
+    "calmar_ratio",
+    "tracking_error",
+    "max_drawdown_duration",
     "cagr",
     "maximum_drawdown",
     "compute_realized_volatility",

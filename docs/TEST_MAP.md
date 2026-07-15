@@ -81,13 +81,13 @@ your change instead of the full suite every time.
 
 ## `test_analysis.py`
 - `pysharpe.analysis.backtest`
+- `pysharpe.analysis.benchmarks`
 - `pysharpe.analysis.scoring`
+- `pysharpe.analysis.visualization`
 
 ## `test_analysis_backtest_engine.py`
 - `pysharpe.analysis.backtest_engine`
-
-## `test_analysis_benchmarks.py`
-- `pysharpe.analysis.benchmarks`
+- `pysharpe.optimization.base`
 
 ## `test_analysis_time_series.py`
 - `pysharpe.analysis.time_series`
@@ -95,15 +95,12 @@ your change instead of the full suite every time.
 ## `test_analysis_transaction_costs.py`
 - `pysharpe.analysis.backtest_engine`
 
-## `test_analysis_walk_forward.py`
-- `pysharpe.analysis.backtest_engine`
-- `pysharpe.optimization.base`
-
-## `test_analysis_visualization.py`
-- `pysharpe.analysis.visualization`
-
 ## `test_categorization.py`
 - `pysharpe.analysis.categorization`
+
+## `test_analysis_comparison.py`
+- `pysharpe.analysis.comparison`
+- `pysharpe.metrics`
 
 ## `test_app_streamlit.py`
 - `app`
@@ -116,11 +113,9 @@ your change instead of the full suite every time.
 - `pysharpe.analysis.backtest_engine`
 - `pysharpe.metrics`
 
-## `test_dca.py`
-- `pysharpe.visualization.dca`
-
 ## `test_visualization_frontier.py`
 - `pysharpe.optimization.models`
+- `pysharpe.visualization.dca`
 - `pysharpe.visualization.frontier`
 
 ## `test_workflows.py`
@@ -130,10 +125,12 @@ your change instead of the full suite every time.
 ## `test_data_collector.py`
 - `pysharpe.data_collector`
 
-## `test_constraints_verification.py`
+## `test_portfolio_optimization.py`
 - `pysharpe.portfolio_optimization`
+- `pysharpe.optimization.models`
 
-## `test_logging_utils.py`
+## `test_config.py`
+- `pysharpe.config`
 - `pysharpe.logging_utils`
 
 ## `test_ledger.py`
@@ -151,17 +148,18 @@ your change instead of the full suite every time.
 | `optimization/tax_location.py` | `pytest tests/test_tax_location.py tests/test_tax_tracker.py tests/test_2d_allocation.py` |
 | `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
 | `execution/allocator.py` | `pytest tests/test_2d_allocation.py` |
-| `execution/rebalance.py` | `pytest tests/test_rebalance.py tests/test_brokerage.py` |
+| `execution/rebalance.py` | `pytest tests/test_brokerage.py` |
 | `execution/brokerage.py` | `pytest tests/test_brokerage.py` |
 | `optimization/expected_returns.py` | `pytest tests/test_optimization_base.py` |
 | `optimization/sharpe_optimizer.py` | `pytest tests/test_optimization_base.py tests/test_portfolio_optimization.py` |
-| `portfolio_optimization.py` | `pytest tests/test_portfolio_optimization.py tests/test_optimization_models.py` |
+| `portfolio_optimization.py` | `pytest tests/test_portfolio_optimization.py` |
 | `data/fetcher.py` | `pytest tests/test_fetcher.py tests/test_fx_adjustment.py tests/test_data_fetcher_cache.py tests/test_collation.py` |
-| `data/collation.py` | `pytest tests/test_collation.py tests/test_collation_proxy.py` |
+| `data/collation.py` | `pytest tests/test_collation.py` |
 | `cli.py` | `pytest tests/test_cli.py` |
 | `__init__.py` | `pytest tests/test_package_api.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `analysis/backtest_engine.py` | `pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py` |
-| `metrics.py` | `pytest tests/test_metrics.py` |
+| `analysis/comparison.py` | `pytest tests/test_analysis_comparison.py` |
+| `metrics.py` | `pytest tests/test_metrics.py tests/test_analysis_comparison.py` |
 | `validation/ledger.py` | `pytest tests/test_ledger.py` |
 | `validation/sample_size.py` | `pytest tests/test_sample_size.py` |

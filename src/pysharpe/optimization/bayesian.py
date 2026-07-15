@@ -128,8 +128,7 @@ class BayesianOptimizer:
             f = pytensor.function([x], x + 1)
             f(0)
             logger.info(
-                "PyTensor C-compiler toolchain verified successfully "
-                "(mode=%s).",
+                "PyTensor C-compiler toolchain verified successfully (mode=%s).",
                 original_mode,
             )
             return True
@@ -149,9 +148,7 @@ class BayesianOptimizer:
                     x = pt.scalar("x")
                     f = pytensor.function([x], x + 1)
                     f(0)
-                    logger.info(
-                        "PyTensor FAST_COMPILE fallback verified successfully."
-                    )
+                    logger.info("PyTensor FAST_COMPILE fallback verified successfully.")
                 except Exception as fallback_exc:
                     logger.warning(
                         "PyTensor FAST_COMPILE fallback also failed: %s",

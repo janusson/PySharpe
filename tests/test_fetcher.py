@@ -7,6 +7,7 @@
     rate coverage are excluded, never bfilled.  DuckDB write-through caching
     wraps only YFinancePriceFetcher (not custom/test stubs).
 """
+
 import builtins
 from types import SimpleNamespace
 

@@ -144,7 +144,12 @@ def _plot_allocation(result: OptimisationResult, output_dir: Path) -> Path:
     output_path = target_dir / f"{result.name}_allocation.png"
 
     fig, ax = plt.subplots()
-    ax.pie(list(weights.values()), labels=list(weights.keys()), autopct="%1.1f%%", startangle=90)
+    ax.pie(
+        list(weights.values()),
+        labels=list(weights.keys()),
+        autopct="%1.1f%%",
+        startangle=90,
+    )
     ax.axis("equal")
     ax.set_title(f"{result.name} Allocation")
     plt.savefig(output_path)
@@ -330,11 +335,18 @@ def optimise_from_prices(
             "For fewer assets, use direct manual allocation."
         )
 
-    if max_weight * len(prices.columns) < 1.0:
-        raise ValueError(
-            f"The max_weight constraint ({max_weight}) is too restrictive for "
-            f"{len(prices.columns)} assets to sum to 1.0."
+    n_assets = len(prices.columns)
+    if max_weight * n_assets < 1.0:
+        adjusted = 1.0 / n_assets
+        logger.warning(
+            "max_weight %.4f is too restrictive for %d assets (max sum = %.4f); "
+            "auto-adjusting to %.4f.",
+            max_weight,
+            n_assets,
+            max_weight * n_assets,
+            adjusted,
         )
+        max_weight = adjusted
 
     tickers = list(prices.columns)
 
@@ -613,11 +625,18 @@ def optimise_portfolio_for_sharpe(
             "For fewer assets, use direct manual allocation."
         )
 
-    if max_weight * len(prices.columns) < 1.0:
-        raise ValueError(
-            f"The max_weight constraint ({max_weight}) is too restrictive for "
-            f"{len(prices.columns)} assets to sum to 1.0."
+    n_assets = len(prices.columns)
+    if max_weight * n_assets < 1.0:
+        adjusted = 1.0 / n_assets
+        logger.warning(
+            "max_weight %.4f is too restrictive for %d assets (max sum = %.4f); "
+            "auto-adjusting to %.4f.",
+            max_weight,
+            n_assets,
+            max_weight * n_assets,
+            adjusted,
         )
+        max_weight = adjusted
 
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
     limiting_ticker = first_valid_dates.idxmax()  # Used for metadata

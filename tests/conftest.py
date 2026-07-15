@@ -10,9 +10,11 @@
     PyMC/PyTensor sampling tests are skipped when a C-compiler toolchain
     is unavailable (common on macOS without Xcode CLI tools).
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -22,12 +24,8 @@ import pytest
 # ---------------------------------------------------------------------------
 # PyMC / PyTensor compile‑mode guard
 # ---------------------------------------------------------------------------
-try:
-    import pytensor
 
-    _PYTENSOR_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _PYTENSOR_AVAILABLE = False
+_PYTENSOR_AVAILABLE = find_spec("pytensor") is not None
 
 
 def pymc_sampling_works() -> bool:
@@ -42,10 +40,15 @@ def pymc_sampling_works() -> bool:
     if not _PYTENSOR_AVAILABLE:
         return False
     try:
+        import pytensor  # re-import so type checkers see it as bound
         import pytensor.tensor as pt
 
         x = pt.scalar("x")
-        f = pytensor.function([x], x + 1, mode=pytensor.compile.mode.FAST_RUN)
+        f = pytensor.function(  # type: ignore[attr-defined]
+            [x],
+            x + 1,
+            mode=pytensor.compile.mode.FAST_RUN,  # type: ignore[attr-defined]
+        )
         f(0)
         return True
     except Exception:

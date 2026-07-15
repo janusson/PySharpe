@@ -140,9 +140,7 @@ def test_turnover_multiple_rebalances():
         },
         index=dates,
     )
-    events = pd.DatetimeIndex(
-        [pd.Timestamp("2024-01-03"), pd.Timestamp("2024-01-05")]
-    )
+    events = pd.DatetimeIndex([pd.Timestamp("2024-01-03"), pd.Timestamp("2024-01-05")])
 
     turnover = _compute_annual_turnover(weights, events, periods_per_year=252)
 
@@ -278,7 +276,7 @@ def test_break_even_analytical_match():
     for i in range(1, len(nav_decays)):
         assert nav_decays[i] <= nav_decays[i - 1] + 1e-10, (
             f"NAV decay not monotonic at step {i}: "
-            f"{nav_decays[i-1]} -> {nav_decays[i]}"
+            f"{nav_decays[i - 1]} -> {nav_decays[i]}"
         )
 
 
@@ -565,7 +563,7 @@ def test_sharpe_decreases_with_cost():
     # With positive turnover and returns, Sharpe should decline.
     for i in range(1, len(sharpes)):
         assert sharpes[i] <= sharpes[i - 1] + 1e-10, (
-            f"Sharpe increased from {sharpes[i-1]} to {sharpes[i]} at step {i}"
+            f"Sharpe increased from {sharpes[i - 1]} to {sharpes[i]} at step {i}"
         )
 
 

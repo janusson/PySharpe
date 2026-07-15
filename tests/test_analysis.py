@@ -13,6 +13,9 @@
     :func:`pysharpe.execution.allocator.score_opportunities`.
 """
 
+from unittest.mock import MagicMock
+
+import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
@@ -22,12 +25,27 @@ from pysharpe.analysis.backtest import (
     prepare_backtest_data,
     simulate_returns,
 )
+from pysharpe.analysis.benchmarks import fetch_benchmark_metrics
 from pysharpe.analysis.scoring import (
     composite_score,
     dividend_score,
     technical_score,
     validate_weights,
 )
+from pysharpe.analysis.visualization import (
+    plot_backtest_results,
+    plot_score_comparison,
+    plot_score_distribution,
+)
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+@pytest.fixture(autouse=True)
+def _close_plots():
+    yield
+    plt.close("all")
 
 
 def test_technical_score():
@@ -184,3 +202,67 @@ def test_simulate_returns_is_reproducible():
 
     assert results_a == results_b
     assert len(results_a) == 5
+
+
+def test_fetch_benchmark_metrics_empty():
+    """Test with empty ticker list."""
+    df = fetch_benchmark_metrics([], "2023-01-01", "2023-12-31")
+    assert isinstance(df, pd.DataFrame)
+    assert list(df.columns) == [
+        "Ticker",
+        "Annualized Return",
+        "Annualized Volatility",
+        "Sharpe Ratio",
+    ]
+    assert len(df) == 0
+
+
+def test_fetch_benchmark_metrics_mocked(monkeypatch: pytest.MonkeyPatch):
+    """Test with mocked price data."""
+    mock_fetcher = MagicMock()
+    veqt_data = pd.DataFrame(
+        {"Close": [10.0, 10.1, 10.2]},
+        index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+    )
+    mock_fetcher.fetch_history.return_value = veqt_data
+    monkeypatch.setattr(
+        "pysharpe.analysis.benchmarks.apply_fx_conversion", lambda df, **kwargs: df
+    )
+    monkeypatch.setattr(
+        "pysharpe.analysis.benchmarks.DuckDBCachedPriceFetcher", lambda _: mock_fetcher
+    )
+
+    df = fetch_benchmark_metrics(["VEQT.TO"], "2023-01-01", "2023-01-03")
+    assert len(df) == 1
+    assert df.iloc[0]["Ticker"] == "VEQT.TO"
+    assert "Annualized Return" in df.columns
+    assert "Annualized Volatility" in df.columns
+    assert "Sharpe Ratio" in df.columns
+    assert df.iloc[0]["Annualized Return"] > 0
+
+
+def test_plot_score_distribution():
+    df = pd.DataFrame({"CompositeScore": [0.1, 0.5, 0.8, 0.9, 0.5]})
+    plot_score_distribution(df, title="Test Dist")
+    fig = plt.gcf()
+    assert fig.axes[0].get_title() == "Test Dist"
+
+
+def test_plot_score_comparison():
+    df = pd.DataFrame(
+        {
+            "Ticker": ["AAPL", "MSFT", "GOOGL"],
+            "TechScore": [0.6, 0.8, 0.7],
+            "DivScore": [0.2, 0.4, 0.0],
+        }
+    )
+    plot_score_comparison(df)
+    fig = plt.gcf()
+    assert "TechScore vs DivScore" in fig.axes[0].get_title()
+
+
+def test_plot_backtest_results():
+    values = [1000.0, 1050.0, 1100.0, 1080.0]
+    plot_backtest_results(values, periods=3, initial_value=1000.0)
+    fig = plt.gcf()
+    assert "Backtest: Portfolio Performance" in fig.axes[0].get_title()

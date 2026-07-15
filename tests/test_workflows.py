@@ -7,6 +7,7 @@
     Base currency is CAD.  Optimisation results are written to the exports
     directory for use by the VA rebalancing engine.
 """
+
 from __future__ import annotations
 
 import pandas as pd

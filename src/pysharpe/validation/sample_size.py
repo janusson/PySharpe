@@ -116,8 +116,7 @@ def evaluate_trade_sample(trade_count: int, years_span: float) -> SampleReliabil
     meets_floor: bool = trade_count >= _TRADE_COUNT_HARD_FLOOR
     meets_basic: bool = trade_count >= _TRADE_COUNT_HIGH_VARIANCE
     meets_inst: bool = (
-        trade_count >= _TRADE_COUNT_BASIC
-        and years_span >= _INSTITUTIONAL_MIN_YEARS
+        trade_count >= _TRADE_COUNT_BASIC and years_span >= _INSTITUTIONAL_MIN_YEARS
     )
 
     # Determine the classification label and recommendation.
@@ -216,10 +215,7 @@ def _annualised_sharpe_se(
     # Asymptotic variance of SR per observation (see Lo 2002, Bailey & López de
     # Prado 2014 for the non-normality extension).
     variance_per_obs: float = (
-        1.0
-        + 0.5 * sharpe**2
-        - skewness * sharpe
-        + (excess_kurtosis / 4.0) * sharpe**2
+        1.0 + 0.5 * sharpe**2 - skewness * sharpe + (excess_kurtosis / 4.0) * sharpe**2
     )
     # Scale to annual frequency: more observations per year → lower variance.
     variance_per_year: float = variance_per_obs / periods_per_year

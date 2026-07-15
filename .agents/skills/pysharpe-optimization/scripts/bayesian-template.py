@@ -73,7 +73,9 @@ def build_bayesian_model(
         )
 
     # --- Extract posteriors ---
-    expected_returns: np.ndarray = trace.posterior["mu"].mean(dim=("chain", "draw")).values
+    expected_returns: np.ndarray = (
+        trace.posterior["mu"].mean(dim=("chain", "draw")).values
+    )
     covariance: np.ndarray = trace.posterior["cov"].mean(dim=("chain", "draw")).values
 
     return expected_returns, covariance

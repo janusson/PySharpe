@@ -222,9 +222,7 @@ def _format_wealthsimple(df: pd.DataFrame, config: BrokerageExportConfig) -> str
 _IBKR_HEADER_BASE = "Symbol,Action,Quantity,Order Type,Limit Price,Time-in-Force"
 
 
-def _format_interactive_brokers(
-    df: pd.DataFrame, config: BrokerageExportConfig
-) -> str:
+def _format_interactive_brokers(df: pd.DataFrame, config: BrokerageExportConfig) -> str:
     """Render buy orders as an Interactive Brokers BasketTrader CSV.
 
     IBKR's BasketTrader import expects:
@@ -267,7 +265,14 @@ def _format_interactive_brokers(
         return header + "\n"
 
     result = pd.DataFrame(rows)
-    cols = ["Symbol", "Action", "Quantity", "Order Type", "Limit Price", "Time-in-Force"]
+    cols = [
+        "Symbol",
+        "Action",
+        "Quantity",
+        "Order Type",
+        "Limit Price",
+        "Time-in-Force",
+    ]
     if has_account:
         cols.append("Account")
     result = result[cols]

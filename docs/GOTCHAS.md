@@ -82,6 +82,20 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
 - **Regression test**: Covered by existing collation tests.
 - **Grep guard**: `grep -rn 'groupby.*axis=1' src/pysharpe/ --include='*.py'`
 
+### 2024 — max_weight too restrictive for small portfolios
+- **Symptom**: `ValueError: The max_weight constraint (0.2) is too restrictive
+  for 4 assets to sum to 1.0.` Small portfolios (≤ 4 assets) with the default
+  `max_weight=0.20` are infeasible because 4 × 0.20 = 0.80 < 1.0.
+- **Root cause**: Both `optimise_from_prices` and
+  `optimise_portfolio_for_sharpe` raised a hard `ValueError` when
+  `max_weight * n_assets < 1.0` instead of auto-adjusting.
+- **Fix**: Replaced `ValueError` with a `logger.warning` and auto-adjust
+  `max_weight` to `1.0 / n_assets` (the minimum feasible per-asset weight
+  cap). The optimizer still enforces the cap — it just relaxes it enough
+  to be mathematically possible.
+- **Regression test**: None yet (the old constraint was never tested).
+- **Grep guard**: `grep -rn 'max_weight.*too restrictive' src/pysharpe/ --include='*.py'`
+
 ---
 
 ## Pre-commit verification checklist

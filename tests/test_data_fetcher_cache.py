@@ -7,6 +7,7 @@
     interval parameters.  Cache invalidation is tested via parameter
     changes (different period/interval/ticker produce cache misses).
 """
+
 import pandas as pd
 import pytest
 

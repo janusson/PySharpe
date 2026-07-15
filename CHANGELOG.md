@@ -19,9 +19,10 @@
 - **EMA expected returns**: Upgraded the portfolio optimiser to use Exponential Moving Average for expected returns by default, making allocations more responsive to recent market regimes. Override via `--return-model mean`.
 - **Ledoit-Wolf covariance shrinkage**: Enforced `scikit-learn` as a core dependency to guarantee Ledoit-Wolf shrinkage, which improves out-of-sample portfolio stability.
 - **Modular dependency groups**: Split dependencies into `cli`, `gui`, `dev`, and `all` extras in `pyproject.toml`. Removed legacy `requirements.txt` and `requirements-dev.txt`.
-- **`cagr` and `maximum_drawdown` metrics** (`src/pysharpe/metrics.py`): Added compound annual growth rate and maximum drawdown to the metrics library.
+- **CAGR and Maximum Drawdown metrics** (`src/pysharpe/metrics.py`): Added compound annual growth rate, maximum drawdown, Sortino ratio, Calmar ratio, tracking error, and max drawdown duration to the metrics library.
 - **`--return-model` CLI flag**: Added `ema`/`mean` toggle to `pysharpe optimise` for switching expected return models.
 - **Auto-load `portfolio_config.json`**: The `optimise` command now detects and loads `portfolio_config.json` from the working directory automatically. Override with `--config`.
+- **Head-to-Head Fund Comparison** (`src/pysharpe/analysis/comparison.py`): Added `compare_two_funds()` for side-by-side risk/return evaluation of any two assets using the full data pipeline (YFinance → DuckDB cache → collation). Outputs CAGR, annualized volatility, max drawdown depth and duration, Sharpe ratio, Sortino ratio, Calmar ratio, 1-year rolling tracking error, and 1-year rolling return correlation in a single DataFrame. No multi-asset optimizer or VA allocation invoked.
 
 ### Bug Fixes
 
@@ -33,6 +34,7 @@
 - **pandas 2.2+ `groupby(axis=1)` deprecation**: Fixed a warning/crash affecting the collation layer on pandas ≥ 2.2.
 - **`datetime.utcnow()` deprecation**: Fixed a timezone deprecation warning across internal logging utilities.
 - **`read_tickers` CSV parsing**: Fixed a bug where structured CSV files (e.g. `current_state.csv`) were treated as single-column ticker files, causing entire rows to be read as ticker symbols.
+- **Infeasible `max_weight` on small portfolios**: The default `max_weight=0.20` constraint is mathematically impossible for portfolios with ≤ 4 assets (e.g. 4 × 0.20 = 0.80 < 1.0). Previously this raised a hard `ValueError` blocking optimization entirely. Now `optimise_from_prices` and `optimise_portfolio_for_sharpe` auto-adjust `max_weight` to `1.0 / n_assets` (the minimum feasible cap) with a warning instead of crashing.
 
 ### Security
 

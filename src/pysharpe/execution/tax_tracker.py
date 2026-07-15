@@ -733,11 +733,12 @@ def _load_switch_fund_map(path: Path | None = None) -> dict[str, list[str]]:
 class TLHEngine:
     """.. deprecated::
 
-        Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
-        treaty guidelines.  This engine is retained for legacy non-registered
-        account analysis only.
+    Tax-Loss Harvesting is prohibited in TFSA accounts per Canadian
+    treaty guidelines.  This engine is retained for legacy non-registered
+    account analysis only.
 
     """
+
     """Identify and validate tax-loss harvesting opportunities.
 
     The engine cross-references the ACB tracker with a switch-fund map to

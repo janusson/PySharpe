@@ -7,6 +7,7 @@
     constraints (US, CA, INT) are applied at the optimizer level.  Test
     data uses synthetic ticker labels.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

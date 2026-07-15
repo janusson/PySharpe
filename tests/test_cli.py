@@ -6,9 +6,11 @@
     portfolios.  Base currency defaults to CAD.  Max weight caps (0.20)
     and shrinkage floors (0.3) reflect Canadian ETF diversification norms.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -31,7 +33,7 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     export_dir = tmp_path / "exports"
     _write_portfolio(portfolio_dir, "demo", "AAA\n")
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_download(*, portfolio_names, **kwargs):
         captured["download"] = {
@@ -370,7 +372,7 @@ def test_simulate_dca_subcommand_shows_plot(monkeypatch, capsys):
 
     def fake_require():
         class _Matplotlib:
-            def show(self_inner):
+            def show(self):
                 showed.append("called")
 
         return _Matplotlib()
@@ -490,7 +492,7 @@ def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
 
     def fake_require():
         class _Matplotlib:
-            def show(self_inner):
+            def show(self):
                 showed.append("shown")
 
         return _Matplotlib()

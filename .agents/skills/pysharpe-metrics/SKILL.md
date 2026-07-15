@@ -37,26 +37,29 @@ $$\text{Sharpe} = \frac{\bar{R} - R_f}{\sigma_R}$$
 
 ### Sortino Ratio
 
+- **`sortino_ratio(returns, risk_free_rate, periods_per_year, target_return)`**
+
 $$\text{Sortino} = \frac{\bar{R} - R_f}{\sigma_{\text{downside}}}$$
 
 - Downside deviation uses only returns below a target (default 0 or risk-free).
 - Vectorized: `sqrt(mean(min(0, r - target)^2))` with annualization.
 
-### Maximum Drawdown
+### Calmar Ratio
 
-- Cumulative maximum of the equity curve vs. current value.
-- Vectorized: `cummax` on cumulative returns, then `min` of drawdown series.
-- Returns both the max drawdown value and the duration (in periods).
+- **`calmar_ratio(value_series)`**
+
+$$\text{Calmar} = \frac{\text{Annualized Return}}{\lvert \text{Max Drawdown} \rvert}$$
+
+- Takes a DatetimeIndex-ed price series. Returns `inf` when there is no drawdown.
 
 ### Tracking Error
 
-$$\text{TE} = \sigma(R_{\text{portfolio}} - R_{\text{benchmark}})$$
+- **`tracking_error(returns_a, returns_b, periods_per_year)`**
+
+$$\text{TE} = \sigma(R_{\text{a}} - R_{\text{b}})$$
 
 - Annualized: multiply daily tracking error by √252.
-
-### Calmar Ratio
-
-$$\text{Calmar} = \frac{\text{Annualized Return}}{\lvert \text{Max Drawdown} \rvert}$$
+- Validates that both return series have equal length.
 
 ### Covariance & Correlation Matrices
 
@@ -85,8 +88,8 @@ This skill covers ONLY stateless metric computation. It does NOT cover:
 
 ## Testing
 
-Run: `uv run pytest tests/test_metrics.py`
+Run: `uv run pytest tests/test_metrics.py tests/test_analysis_comparison.py`
 
 Tests must use synthetic return data with fixed `numpy.random` seeds. No
 network calls. Test edge cases: zero-variance assets, all-negative returns,
-single-period series, and extreme drawdowns.
+single-period series, identical series, and extreme drawdowns.

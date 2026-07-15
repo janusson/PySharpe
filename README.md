@@ -53,6 +53,7 @@ PySharpe is built from the ground up for the Canadian retail investor. It models
 - **Walk-Forward Validation** — Rolling-window train/test evaluation with purged cross-validation support.
 - **Time-Series Modeling** — ADF stationarity tests, GARCH volatility forecasting, and Vector Autoregression (VAR) for asset interdependency analysis.
 - **Data Linkage (DuckDB)** — High-performance SQL window functions, rolling averages, lagged features, and macro-economic dataset joins via embedded DuckDB.
+- **Head-to-Head Fund Comparison** — Side-by-side risk/return metrics (CAGR, volatility, drawdown, Sharpe, Sortino, Calmar, rolling tracking error, return correlation) for any two assets using the same data pipeline.
 - **Proxy History Stitching** — Extend short-lived ETFs with longer proxy histories, with optional FX adjustment for cross-currency backfills.
 
 ### 🖥️ Interfaces
@@ -188,7 +189,10 @@ pysharpe optimise \
   --export-dir data/exports/ \
   --return-model shrinkage \
   --shrinkage-floor 0.3 \
+  --max-weight 0.20 \
   --base-currency CAD
+
+# For small portfolios (≤ 4 assets), max-weight auto-adjusts if infeasible
 
 # Rebalance with tax-aware multi-account support
 pysharpe rebalance \
@@ -243,6 +247,7 @@ PySharpe auto-detects `portfolio_config.json` in the working directory. Example:
 ```python
 import pandas as pd
 from pysharpe import metrics
+from pysharpe.analysis.comparison import compare_two_funds
 from pysharpe.execution import build_rebalance_plan, format_rebalance_plan
 from pysharpe.optimization import (
     TaxProfile,
@@ -257,8 +262,16 @@ from pysharpe.optimization.expected_returns import shrinkage_expected_return
 prices = pd.read_csv("my_prices.csv", index_col=0, parse_dates=True)
 returns = metrics.compute_returns(prices)
 sharpe = metrics.sharpe_ratio(returns)
+sortino = metrics.sortino_ratio(returns)
 cagr = metrics.cagr(prices.iloc[:, 0])
 mdd = metrics.maximum_drawdown(prices.iloc[:, 0])
+mdd_dur = metrics.max_drawdown_duration(prices.iloc[:, 0])
+calmar = metrics.calmar_ratio(prices.iloc[:, 0])
+te = metrics.tracking_error(returns.iloc[:, 0], returns.iloc[:, 1])
+
+# Head-to-head fund comparison
+comparison = compare_two_funds("VFV.TO", "QQC.TO", start_date="2020-01-01")
+print(comparison)
 
 # Shrinkage expected returns (default engine model)
 mu = shrinkage_expected_return(prices, shrinkage_floor=0.3)

@@ -6,6 +6,7 @@
     YFinancePriceFetcher, collates into portfolio CSVs, and writes
     metadata.  All test data is synthetic; no live network calls.
 """
+
 from __future__ import annotations
 
 import json

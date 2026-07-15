@@ -7,6 +7,7 @@
     analytics tools, not predictive trading models.  No single-stock
     idiosyncratic signals are generated.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
