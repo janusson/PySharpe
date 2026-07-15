@@ -30,7 +30,7 @@ Smart cash deployment + FX routing"]
         RB["execution/rebalance.py
 Build buy-plans from saved artefacts"]
         TX["execution/tax_tracker.py
-ACB tracking + tax-loss harvesting"]
+ACB tracking"]
     end
 
     subgraph Present["🖥️ Presentation Layer"]

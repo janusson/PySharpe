@@ -6,6 +6,8 @@ like Black-Litterman.
 """
 
 import logging
+import os
+import shutil
 
 import arviz as az
 import numpy as np
@@ -18,37 +20,57 @@ from .base import OptimizationResult
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Compilation-error detection helpers
+# C-compiler toolchain detection
 # ---------------------------------------------------------------------------
-_compilation_error_types: tuple[type[Exception], ...] = ()
+
+
+def _has_c_compiler() -> bool:
+    """Return ``True`` if a C/C++ compiler appears available on the system.
+
+    Checks (in order of authority):
+
+    1. ``CXX`` / ``CC`` environment variables — if set, verifies the
+       named compiler is resolvable on ``PATH``.
+    2. Common compiler names — ``clang``, ``gcc``, ``g++``, ``cc``, ``c++``
+       — probed via :func:`shutil.which`.
+
+    This is a lightweight pre-flight check; it does **not** verify that the
+    compiler can actually link or produce working binaries.
+    """
+    for var in ("CXX", "CC"):
+        compiler = os.environ.get(var)
+        if compiler and shutil.which(compiler):
+            return True
+
+    for compiler in ("clang", "gcc", "g++", "cc", "c++"):
+        if shutil.which(compiler):
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# PyTensor compilation-error type (imported once at module level)
+# ---------------------------------------------------------------------------
+
 try:
-    from pytensor.link.c.exceptions import (
-        CompileError as _PytensorCompileError,  # type: ignore[import-untyped]
+    from pytensor.link.c.exceptions import (  # type: ignore[import-untyped]
+        CompileError as _PytensorCompileError,
     )
-
-    _compilation_error_types = (_PytensorCompileError,)
 except ImportError:  # pragma: no cover - pytensor may not expose this module
-    pass
-
-_COMPILATION_KEYWORDS: tuple[str, ...] = (
-    "compile",
-    "compilation",
-    "linker",
-    "c compiler",
-    "gcc",
-    "clang",
-    "g++",
-    "ld returned",
-    "cannot compile",
-)
+    _PytensorCompileError = None  # type: ignore[assignment]
 
 
 def _is_compilation_error(exc: BaseException) -> bool:
-    """Return ``True`` when *exc* looks like a C-compiler / linker failure."""
-    if isinstance(exc, _compilation_error_types):
-        return True
-    msg = str(exc).lower()
-    return any(kw in msg for kw in _COMPILATION_KEYWORDS)
+    """Return ``True`` when *exc* is a known PyTensor C-compilation error.
+
+    Uses PyTensor's own ``CompileError`` exception type rather than brittle
+    string-matching against error messages.
+    """
+    return (
+        _PytensorCompileError is not None
+        and isinstance(exc, _PytensorCompileError)
+    )
 
 
 class BayesianOptimizer:
@@ -97,11 +119,14 @@ class BayesianOptimizer:
     def warm_compilation_cache(cls) -> bool:
         """Pre-warm the PyTensor compilation cache and verify the toolchain.
 
-        Compiles a minimal PyTensor graph to probe whether the environment
-        has a working C++ compiler backend.  If the default (``FAST_RUN``)
-        mode fails with a linker/compiler error, the method automatically
-        enables ``FAST_COMPILE`` pure-Python mode and logs a diagnostic
-        warning so that subsequent PyMC sampling does not silently degrade.
+        First performs a **preemptive** check via :func:`_has_c_compiler` to
+        determine whether a C/C++ compiler toolchain is available.  If no
+        compiler is found, ``FAST_COMPILE`` pure-Python mode is enabled
+        immediately — without invoking PyTensor's compilation path at all.
+
+        When a compiler **is** detected, a minimal PyTensor graph is compiled
+        as a functional probe.  If that probe fails (e.g. the compiler exists
+        but cannot link), the method falls back to ``FAST_COMPILE``.
 
         This is safe to call early during CLI startup — it is non-blocking
         and does not mutate any instance state.
@@ -113,14 +138,30 @@ class BayesianOptimizer:
         """
         try:
             import pytensor
-            import pytensor.tensor as pt
         except ImportError:
             logger.info(
                 "PyTensor is not installed; skipping compilation cache warm-up."
             )
             return True  # Nothing to warm — not a failure.
 
-        # Save the current mode so we can restore it if the probe succeeds.
+        # --- Preemptive compiler check ---------------------------------------
+        if not _has_c_compiler():
+            logger.warning(
+                "No C compiler (clang/gcc) found on PATH and CXX/CC not set. "
+                "Switching PyTensor to FAST_COMPILE pure-Python mode. "
+                "Install Xcode CLI tools (macOS) or a C++ compiler to restore "
+                "full performance for Bayesian estimation."
+            )
+            cls._enable_fast_compile()
+            return False
+
+        # --- Functional probe: compile a minimal graph -----------------------
+        try:
+            import pytensor.tensor as pt
+        except ImportError:
+            logger.info("pytensor.tensor not importable; skipping probe.")
+            return True
+
         original_mode: str = pytensor.config.mode
 
         try:
@@ -133,34 +174,13 @@ class BayesianOptimizer:
             )
             return True
         except Exception as exc:
-            if _is_compilation_error(exc):
-                logger.warning(
-                    "C-compiler toolchain is not functional (%s). "
-                    "Switching PyTensor to FAST_COMPILE pure-Python mode. "
-                    "Install Xcode CLI tools (macOS) or a C++ compiler to "
-                    "restore full performance for Bayesian estimation.",
-                    exc,
-                )
-                cls._enable_fast_compile()
-                try:
-                    import pytensor.tensor as pt
-
-                    x = pt.scalar("x")
-                    f = pytensor.function([x], x + 1)
-                    f(0)
-                    logger.info("PyTensor FAST_COMPILE fallback verified successfully.")
-                except Exception as fallback_exc:
-                    logger.warning(
-                        "PyTensor FAST_COMPILE fallback also failed: %s",
-                        fallback_exc,
-                    )
-                return False
-            logger.debug(
-                "PyTensor compilation cache probe raised a non-compiler error "
-                "(%s); leaving mode unchanged.",
+            logger.warning(
+                "C compiler found but PyTensor compilation failed (%s). "
+                "Switching to FAST_COMPILE pure-Python mode.",
                 exc,
             )
-            return True  # Not a compilation failure — assume toolchain is fine.
+            cls._enable_fast_compile()
+            return False
 
     def fit_returns_model(
         self,
@@ -174,11 +194,12 @@ class BayesianOptimizer:
 
         This method estimates the mean vector and covariance matrix of asset returns.
 
-        If the initial MCMC sampling attempt fails because of a C-compiler or
-        linker error (common on macOS with Python 3.13 when the Xcode
-        command-line tools are not installed), the method automatically falls
-        back to PyTensor's ``FAST_COMPILE`` pure-Python mode and retries
-        sampling.
+        If the initial MCMC sampling attempt fails with a PyTensor compilation
+        error (e.g. a C++ linker failure despite a compiler being present),
+        the method automatically falls back to ``FAST_COMPILE`` pure-Python
+        mode and retries sampling.  The preemptive compiler check in
+        :meth:`warm_compilation_cache` handles the common case where no
+        compiler is installed at all.
 
         Args:
             returns (Optional[pd.DataFrame]): Historical asset returns.
@@ -246,14 +267,14 @@ class BayesianOptimizer:
                 )
                 return model
 
+        # Attempt sampling; fall back to FAST_COMPILE on PyTensor compile errors.
         try:
             self.model_ = _sample({})
         except Exception as exc:
             if _is_compilation_error(exc):
                 logger.warning(
-                    "Local C compiler/linker failed. "
-                    + "Falling back to pure-Python FAST_COMPILE mode"
-                    + " for PyMC/PyTensor."
+                    "MCMC sampling failed due to a compiler/linker error. "
+                    "Falling back to FAST_COMPILE pure-Python mode."
                 )
                 BayesianOptimizer._enable_fast_compile()
                 self.model_ = _sample({})

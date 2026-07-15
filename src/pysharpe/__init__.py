@@ -145,21 +145,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "AllocationConfig": ("pysharpe.execution.allocator", "AllocationConfig"),
     "allocate_contribution": ("pysharpe.execution.allocator", "allocate_contribution"),
     "score_opportunities": ("pysharpe.execution.allocator", "score_opportunities"),
-    # Tax tracker / TLH
+    # Tax tracker / ACB
     "ACBPosition": ("pysharpe.execution.tax_tracker", "ACBPosition"),
     "ACBTracker": ("pysharpe.execution.tax_tracker", "ACBTracker"),
-    "TLHEngine": ("pysharpe.execution.tax_tracker", "TLHEngine"),
-    "TLHRebalanceResult": ("pysharpe.execution.tax_tracker", "TLHRebalanceResult"),
-    "TLHTrade": ("pysharpe.execution.tax_tracker", "TLHTrade"),
     "TradeRecord": ("pysharpe.execution.tax_tracker", "TradeRecord"),
-    "analyze_tlh_opportunities": (
-        "pysharpe.execution.tax_tracker",
-        "analyze_tlh_opportunities",
-    ),
-    "format_tlh_rebalance_result": (
-        "pysharpe.execution.tax_tracker",
-        "format_tlh_rebalance_result",
-    ),
     # Analysis helpers
     "apply_category_mapping": (
         "pysharpe.analysis",
@@ -333,12 +322,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.execution.tax_tracker import (  # noqa: F401
         ACBPosition,
         ACBTracker,
-        TLHEngine,
-        TLHRebalanceResult,
-        TLHTrade,
         TradeRecord,
-        analyze_tlh_opportunities,
-        format_tlh_rebalance_result,
     )
     from pysharpe.metrics import (  # noqa: F401
         annualize_return,

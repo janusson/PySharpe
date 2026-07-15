@@ -95,35 +95,55 @@ def test_fit_returns_model_invalid_input():
 
 
 def test_compilation_error_detection():
-    """Test that _is_compilation_error correctly identifies compilation failures."""
-    # Errors whose messages contain compiler keywords should be detected
+    """Test that _is_compilation_error detects PyTensor CompileError, not
+    arbitrary exceptions with compiler-like messages."""
+    # Try to import PyTensor's real CompileError type.
+    try:
+        from pytensor.link.c.exceptions import CompileError
+    except ImportError:
+        CompileError = None
+
+    if CompileError is not None:
+        # A genuine PyTensor CompileError should be detected.
+        assert _is_compilation_error(CompileError("linker failure")), (
+            "Should detect genuine CompileError"
+        )
+
+    # Arbitrary exceptions — even with compiler-related messages — should
+    # NOT be detected (the old string-matching heuristic is removed).
     for msg in (
         "gcc: error: linker command failed with exit code 1",
         "clang: error: unable to execute command: Segmentation fault",
         "Compilation failed: cannot compile C code",
         "ld returned 1 exit status",
     ):
-        assert _is_compilation_error(RuntimeError(msg)), f"Should detect: {msg}"
+        assert not _is_compilation_error(RuntimeError(msg)), (
+            f"Should NOT detect string-matched error: {msg}"
+        )
 
-    # Unrelated errors should pass through
+    # Unrelated errors should not be detected.
     assert not _is_compilation_error(ValueError("Invalid shape"))
     assert not _is_compilation_error(RuntimeError("convergence failure"))
 
 
 def test_fast_compile_fallback_on_compile_error(sample_returns):
-    """Test that a C-compiler/linker error triggers the FAST_COMPILE fallback.
+    """Test that a PyTensor compilation error triggers the FAST_COMPILE fallback.
 
-    When ``pm.sample`` raises an error whose message matches compilation-
-    failure keywords, the optimizer should log a warning, enable PyTensor's
-    FAST_COMPILE mode, and retry sampling successfully.
+    When ``pm.sample`` raises a ``pytensor.link.c.exceptions.CompileError``,
+    the optimizer should enable FAST_COMPILE mode and retry sampling.
     """
     optimizer = BayesianOptimizer(random_seed=42)
 
-    # Simulate a trace-like return for the second (successful) attempt.
-    fake_trace = MagicMock(name="trace")
+    # Try to use PyTensor's real CompileError; fall back to RuntimeError if
+    # the import fails (which means the type-based check won't fire, so the
+    # RuntimeError will propagate as a non-compilation error — skip the test).
+    try:
+        from pytensor.link.c.exceptions import CompileError as _CE
+    except ImportError:
+        pytest.skip("PyTensor CompileError not importable; cannot simulate.")
 
-    # The first call to pm.sample raises a linker error; the second succeeds.
-    fake_error = RuntimeError("gcc: error: linker command failed")
+    fake_trace = MagicMock(name="trace")
+    fake_error = _CE("gcc: linker command failed")
 
     with patch.object(BayesianOptimizer, "_enable_fast_compile") as mock_fast_compile:
         with patch("pysharpe.optimization.bayesian.pm.sample") as mock_sample:
@@ -228,8 +248,15 @@ def test_warm_compilation_cache_fallback_on_compile_error():
             assert result is False
 
 
-def test_warm_compilation_cache_non_compilation_error_is_silent():
-    """Test that non-compilation errors do not trigger fallback and return True."""
+def test_warm_compilation_cache_any_probe_error_triggers_fallback():
+    """Test that any exception during the functional probe triggers fallback.
+
+    Unlike the old behaviour (which only fell back on string-matched
+    compiler errors), the new ``warm_compilation_cache`` treats **any**
+    failure of the functional probe as grounds to enable FAST_COMPILE.
+    This is safer: if the probe fails for an unexpected reason, the
+    compiler toolchain is likely not functional.
+    """
     import importlib.util
 
     if importlib.util.find_spec("pytensor") is None:  # pragma: no cover
@@ -243,5 +270,6 @@ def test_warm_compilation_cache_non_compilation_error_is_silent():
 
             result = BayesianOptimizer.warm_compilation_cache()
 
-            mock_fast_compile.assert_not_called()
-            assert result is True
+            # Any probe failure should trigger FAST_COMPILE fallback.
+            mock_fast_compile.assert_called_once()
+            assert result is False

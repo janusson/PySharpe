@@ -4,16 +4,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import sys
 from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 
+# Ensure pysharpe is importable from the scripts/ directory.
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from pysharpe.exceptions import DataIngestionError, DataValidationError
+
+logger = logging.getLogger("export_current_state")
+
 
 def _load_holdings_csv(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path)
     if "ticker" not in frame.columns:
-        raise ValueError("Holdings CSV must include a ticker column.")
+        raise DataValidationError("Holdings CSV must include a ticker column.")
     frame = frame[["ticker"] + [col for col in frame.columns if col != "ticker"]]
     return frame
 
@@ -23,7 +35,7 @@ def _load_holdings_json(raw: str) -> pd.Series:
     payload = candidate.read_text(encoding="utf-8") if candidate.exists() else raw
     data = json.loads(payload)
     if not isinstance(data, dict):
-        raise ValueError("Holdings JSON must be a ticker -> number mapping.")
+        raise DataValidationError("Holdings JSON must be a ticker -> number mapping.")
     return pd.Series(data, name="shares").rename_axis("ticker")
 
 
@@ -36,7 +48,7 @@ def _fetch_latest_price(ticker: str) -> float:
         threads=False,
     )
     if history.empty:
-        raise ValueError(f"No price history for {ticker}.")
+        raise DataIngestionError(f"No price history for {ticker}.")
     return float(history["Close"].iloc[-1])
 
 
@@ -50,12 +62,14 @@ def _resolve_latest_prices(tickers: pd.Series) -> pd.Series:
 def _load_weights(path: Path) -> pd.Series:
     frame = pd.read_csv(path)
     if "ticker" not in frame.columns:
-        raise ValueError("Weights file must include a ticker column.")
+        raise DataValidationError("Weights file must include a ticker column.")
     if "target_weight" not in frame.columns:
         if "weight" in frame.columns:
             frame = frame.rename(columns={"weight": "target_weight"})
         else:
-            raise ValueError("Weights file must include target_weight or weight.")
+            raise DataValidationError(
+                "Weights file must include target_weight or weight."
+            )
     return (
         frame[["ticker", "target_weight"]]
         .assign(
@@ -89,33 +103,47 @@ def main() -> int:
     if (args.holdings_csv is None) == (args.holdings_json is None):
         parser.error("Provide either --holdings-csv or --holdings-json.")
 
-    if args.holdings_csv:
-        holdings = _load_holdings_csv(args.holdings_csv).set_index("ticker")
-        if "shares" not in holdings.columns:
-            raise ValueError("Holdings CSV must include a shares column.")
-        shares = holdings["shares"].astype(float)
-    else:
-        shares = _load_holdings_json(args.holdings_json).astype(float)
+    try:
+        if args.holdings_csv:
+            holdings = _load_holdings_csv(args.holdings_csv).set_index("ticker")
+            if "shares" not in holdings.columns:
+                raise DataValidationError(
+                    "Holdings CSV must include a shares column."
+                )
+            shares = holdings["shares"].astype(float)
+        else:
+            shares = _load_holdings_json(args.holdings_json).astype(float)
 
-    prices = _resolve_latest_prices(shares.index.to_series())
-    values = shares * prices.reindex(shares.index)
+        prices = _resolve_latest_prices(shares.index.to_series())
+        values = shares * prices.reindex(shares.index)
 
-    weights = _load_weights(args.weights)
+        weights = _load_weights(args.weights)
 
-    frame = pd.DataFrame(
-        {
-            "ticker": shares.index,
-            "shares": shares.values,
-            "latest_price": prices.reindex(shares.index).values,
-            "current_value": values.values,
-            "target_weight": weights.reindex(shares.index).fillna(0.0).values,
-        }
-    )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    frame[["ticker", "current_value", "target_weight"]].to_csv(args.output, index=False)
-    print(f"Wrote {args.output}")
+        frame = pd.DataFrame(
+            {
+                "ticker": shares.index,
+                "shares": shares.values,
+                "latest_price": prices.reindex(shares.index).values,
+                "current_value": values.values,
+                "target_weight": weights.reindex(shares.index).fillna(0.0).values,
+            }
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        frame[["ticker", "current_value", "target_weight"]].to_csv(
+            args.output, index=False
+        )
+        logger.info("Wrote %s", args.output)
+    except (DataIngestionError, DataValidationError) as exc:
+        logger.error("%s: %s", type(exc).__name__, exc)
+        return 1
+
     return 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level="INFO",
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stderr)],
+    )
     raise SystemExit(main())

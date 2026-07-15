@@ -139,6 +139,107 @@ class DataLinker:
 
         return self.execute_query(query)
 
+    def calculate_trend_signals(
+        self,
+        market_table: str = "market_data",
+        short_window: int = 20,
+        long_window: int = 50,
+    ) -> pd.DataFrame:
+        """Calculate trend signals for a single ticker's market data.
+
+        Computes moving-average crossover signals and 30-day vs historical
+        volatility ratios from price data already registered as *market_table*.
+
+        The computation proceeds in two stages:
+
+        1. **MA Crossover** — delegated to
+           :meth:`get_enhanced_market_data`, which computes ``short_ma``,
+           ``long_ma``, and ``ma_crossover_signal`` (1 = bullish,
+           -1 = bearish, 0 = neutral).
+        2. **Volatility ratio** — annualised 30-day rolling standard
+           deviation of log returns divided by the full-period annualised
+           standard deviation ::
+
+              vol_ratio = σ_30d / σ_hist
+
+           where σ = STDDEV_SAMP(log_returns) * √252.
+
+        Parameters
+        ----------
+        market_table : str
+            Registered DuckDB table name containing ``date`` and ``price``
+            columns.
+        short_window : int
+            Look-back window (rows) for the short moving average.
+        long_window : int
+            Look-back window (rows) for the long moving average.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns: ``date``, ``price``, ``price_rolling_avg``,
+            ``price_lag_1``, ``short_ma``, ``long_ma``,
+            ``ma_crossover_signal``, ``vol_30d``, ``vol_hist``,
+            ``volatility_ratio``.  Returns an empty DataFrame if fewer than
+            2 rows are available (log returns require at least 2 prices).
+        """
+        enhanced = self.get_enhanced_market_data(
+            market_table=market_table,
+            short_window=short_window,
+            long_window=long_window,
+        )
+
+        if enhanced.empty or len(enhanced) < 2:
+            empty_cols = [
+                "date", "price", "price_rolling_avg", "price_lag_1",
+                "short_ma", "long_ma", "ma_crossover_signal",
+                "vol_30d", "vol_hist", "volatility_ratio",
+            ]
+            return pd.DataFrame(columns=empty_cols)
+
+        self.register_data("_trend_enhanced", enhanced)
+
+        query = """
+            WITH returns AS (
+                SELECT
+                    date,
+                    price,
+                    price_rolling_avg,
+                    price_lag_1,
+                    short_ma,
+                    long_ma,
+                    ma_crossover_signal,
+                    LN(price / NULLIF(LAG(price, 1) OVER (ORDER BY date), 0)) AS log_ret
+                FROM _trend_enhanced
+            ),
+            volatility AS (
+                SELECT
+                    date,
+                    price,
+                    price_rolling_avg,
+                    price_lag_1,
+                    short_ma,
+                    long_ma,
+                    ma_crossover_signal,
+                    STDDEV_SAMP(log_ret) OVER (
+                        ORDER BY date
+                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+                    ) * SQRT(252) AS vol_30d,
+                    STDDEV_SAMP(log_ret) OVER () * SQRT(252) AS vol_hist
+                FROM returns
+            )
+            SELECT
+                *,
+                CASE
+                    WHEN vol_hist IS NOT NULL AND vol_hist > 0
+                    THEN vol_30d / vol_hist
+                    ELSE NULL
+                END AS volatility_ratio
+            FROM volatility
+            ORDER BY date
+        """
+        return self.execute_query(query)
+
     def close(self):
         """Close the database connection."""
         self.conn.close()

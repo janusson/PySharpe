@@ -30,7 +30,7 @@ PySharpe organizes its optimization engine around a tiered evidence system. High
 PySharpe is built from the ground up for the Canadian retail investor. It models the structural frictions that generic optimizers ignore:
 
 - **2-D Asset Location Matrix** — Simultaneously solves both *what to hold* (asset allocation) and *where to hold it* (account placement) across TFSA, RRSP, FHSA, LIRA, RRIF, and Non-Registered accounts. Uses tax-adjusted expected returns that account for US foreign withholding tax (FWT) treaty protection, unrecoverable fund-level FWT on CAD-wrapped US ETFs, and account-specific income taxation.
-- **Tax-Loss Harvesting (TLH) Engine** — Identifies unrealized capital losses, proposes switch-fund trades that maintain factor exposure, and enforces the CRA's 61-day superficial loss rule (ITA s. 54). Includes a full ACB tracker using the CRA-mandated weighted-average cost method.
+- **ACB Tracking** — Full Adjusted Cost Base tracker using the CRA-mandated weighted-average cost method (ITA s. 47(1)) for accurate portfolio bookkeeping, return-of-capital adjustments, and unrealized gain/loss monitoring.
 - **Canadian ETF Benchmarks** — Built-in comparison against VEQT, XEQT, VGRO, XGRO, VBAL, and XBAL on equity curves and efficient frontier plots.
 
 ### 📊 Portfolio Optimization
@@ -100,7 +100,7 @@ Smart cash deployment + FX routing"]
         RB["execution/rebalance.py
 Build buy-plans from saved artefacts"]
         TX["execution/tax_tracker.py
-ACB tracking + tax-loss harvesting"]
+ACB tracking"]
     end
 
     subgraph Present["🖥️ Presentation Layer"]
@@ -322,7 +322,7 @@ print(format_rebalance_plan(plan))
 uv run pytest
 ```
 
-191 tests pass (as of current `HEAD`). The suite covers metrics, optimization, the 2-D asset location matrix, tax-location engine, TLH engine, FX routing, rebalancing, backtesting, and the Streamlit app.
+191 tests pass (as of current `HEAD`). The suite covers metrics, optimization, the 2-D asset location matrix, tax-location engine, ACB tracking, FX routing, rebalancing, backtesting, and the Streamlit app.
 
 ---
 
