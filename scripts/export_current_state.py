@@ -107,9 +107,7 @@ def main() -> int:
         if args.holdings_csv:
             holdings = _load_holdings_csv(args.holdings_csv).set_index("ticker")
             if "shares" not in holdings.columns:
-                raise DataValidationError(
-                    "Holdings CSV must include a shares column."
-                )
+                raise DataValidationError("Holdings CSV must include a shares column.")
             shares = holdings["shares"].astype(float)
         else:
             shares = _load_holdings_json(args.holdings_json).astype(float)

@@ -115,6 +115,30 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "OptimisationPerformance",
     ),
     "OptimisationResult": ("pysharpe.optimization", "OptimisationResult"),
+    # Black-Litterman
+    "blend_views": ("pysharpe.optimization.black_litterman", "blend_views"),
+    "build_views_uncertainty": (
+        "pysharpe.optimization.black_litterman",
+        "build_views_uncertainty",
+    ),
+    "compute_implied_returns": (
+        "pysharpe.optimization.black_litterman",
+        "compute_implied_returns",
+    ),
+    # Covariance shrinkage estimators
+    "compute_linear_shrinkage": (
+        "pysharpe.optimization.estimators",
+        "compute_linear_shrinkage",
+    ),
+    "compute_nonlinear_shrinkage": (
+        "pysharpe.optimization.estimators",
+        "compute_nonlinear_shrinkage",
+    ),
+    # HRP (non‑inversion fallback)
+    "HierarchicalRiskParity": (
+        "pysharpe.optimization.hrp",
+        "HierarchicalRiskParity",
+    ),
     # Tax location engine
     "AssetLocationEngine": (
         "pysharpe.optimization.tax_location",
@@ -145,10 +169,40 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "AllocationConfig": ("pysharpe.execution.allocator", "AllocationConfig"),
     "allocate_contribution": ("pysharpe.execution.allocator", "allocate_contribution"),
     "score_opportunities": ("pysharpe.execution.allocator", "score_opportunities"),
+    # Execution / cash-flow rebalancing
+    "CashFlowRebalanceResult": (
+        "pysharpe.execution.cash_flow_rebalance",
+        "CashFlowRebalanceResult",
+    ),
+    "RebalanceConfig": (
+        "pysharpe.execution.cash_flow_rebalance",
+        "RebalanceConfig",
+    ),
+    "allocate_contribution_cash_flow": (
+        "pysharpe.execution.cash_flow_rebalance",
+        "allocate_contribution_cash_flow",
+    ),
+    "evaluate_taxable_rebalance": (
+        "pysharpe.execution.cash_flow_rebalance",
+        "evaluate_taxable_rebalance",
+    ),
     # Tax tracker / ACB
     "ACBPosition": ("pysharpe.execution.tax_tracker", "ACBPosition"),
     "ACBTracker": ("pysharpe.execution.tax_tracker", "ACBTracker"),
     "TradeRecord": ("pysharpe.execution.tax_tracker", "TradeRecord"),
+    # Tax compliance guardrails
+    "SuperficialLossGuardrail": (
+        "pysharpe.guardrails.tax_compliance",
+        "SuperficialLossGuardrail",
+    ),
+    "SuperficialLossViolation": (
+        "pysharpe.guardrails.tax_compliance",
+        "SuperficialLossViolation",
+    ),
+    "build_default_identical_map": (
+        "pysharpe.guardrails.tax_compliance",
+        "build_default_identical_map",
+    ),
     # Analysis helpers
     "apply_category_mapping": (
         "pysharpe.analysis",
@@ -224,6 +278,23 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "stress_test_execution_friction": (
         "pysharpe.validation.friction",
         "stress_test_execution_friction",
+    ),
+    # Validation / DSR and aggregate metrics
+    "ValidationMetrics": (
+        "pysharpe.validation.metrics",
+        "ValidationMetrics",
+    ),
+    "compute_dsr": (
+        "pysharpe.validation.metrics",
+        "compute_dsr",
+    ),
+    "compute_validation_metrics": (
+        "pysharpe.validation.metrics",
+        "compute_validation_metrics",
+    ),
+    "estimate_effective_trials": (
+        "pysharpe.validation.metrics",
+        "estimate_effective_trials",
     ),
     # Validation / sample-size
     "SampleReliability": (
@@ -314,6 +385,12 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         BrokerageExportConfig,
         export_buy_orders,
     )
+    from pysharpe.execution.cash_flow_rebalance import (  # noqa: F401
+        CashFlowRebalanceResult,
+        RebalanceConfig,
+        allocate_contribution_cash_flow,
+        evaluate_taxable_rebalance,
+    )
     from pysharpe.execution.rebalance import (  # noqa: F401
         RebalancePlan,
         build_rebalance_plan,
@@ -323,6 +400,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         ACBPosition,
         ACBTracker,
         TradeRecord,
+    )
+    from pysharpe.guardrails.tax_compliance import (  # noqa: F401
+        SuperficialLossGuardrail,
+        SuperficialLossViolation,
+        build_default_identical_map,
     )
     from pysharpe.metrics import (  # noqa: F401
         annualize_return,
@@ -340,6 +422,18 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         OptimisationPerformance,
         OptimisationResult,
         PortfolioWeights,
+    )
+    from pysharpe.optimization.black_litterman import (  # noqa: F401
+        blend_views,
+        build_views_uncertainty,
+        compute_implied_returns,
+    )
+    from pysharpe.optimization.estimators import (  # noqa: F401
+        compute_linear_shrinkage,
+        compute_nonlinear_shrinkage,
+    )
+    from pysharpe.optimization.hrp import (  # noqa: F401
+        HierarchicalRiskParity,
     )
     from pysharpe.optimization.tax_location import (  # noqa: F401
         AssetLocationEngine,
@@ -363,6 +457,12 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         TrialRecord,
         compute_pbo,
         validate_economic_justification,
+    )
+    from pysharpe.validation.metrics import (  # noqa: F401
+        ValidationMetrics,
+        compute_dsr,
+        compute_validation_metrics,
+        estimate_effective_trials,
     )
     from pysharpe.validation.resampling import (  # noqa: F401
         BootstrapResult,

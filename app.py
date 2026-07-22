@@ -22,7 +22,6 @@ from pysharpe.app.analytics import (
     compute_metrics,
 )
 from pysharpe.app.backtest import render_backtest_tab
-from pysharpe.app.rebalance_ui import render_execution_tab
 from pysharpe.app.charts import render_frontier_comparison
 from pysharpe.app.data import (
     _STREAMLIT_SERVICE,  # noqa: F401 - test visibility
@@ -37,6 +36,7 @@ from pysharpe.app.data import (
     select_price_data,
 )
 from pysharpe.app.dca import render_dca_projection as _render_dca_projection
+from pysharpe.app.rebalance_ui import render_execution_tab
 from pysharpe.portfolio_optimization import optimise_from_prices
 from pysharpe.visualization import simulate_dca  # noqa: F401 - re-exported for tests
 

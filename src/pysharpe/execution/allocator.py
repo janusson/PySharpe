@@ -22,7 +22,7 @@ from pysharpe.optimization.tax_location import (
 )
 
 if TYPE_CHECKING:
-    from pysharpe.config import ExecutionConfig
+    pass
 
 logger = logging.getLogger(__name__)
 

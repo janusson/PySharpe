@@ -191,9 +191,16 @@ class DataLinker:
 
         if enhanced.empty or len(enhanced) < 2:
             empty_cols = [
-                "date", "price", "price_rolling_avg", "price_lag_1",
-                "short_ma", "long_ma", "ma_crossover_signal",
-                "vol_30d", "vol_hist", "volatility_ratio",
+                "date",
+                "price",
+                "price_rolling_avg",
+                "price_lag_1",
+                "short_ma",
+                "long_ma",
+                "ma_crossover_signal",
+                "vol_30d",
+                "vol_hist",
+                "volatility_ratio",
             ]
             return pd.DataFrame(columns=empty_cols)
 

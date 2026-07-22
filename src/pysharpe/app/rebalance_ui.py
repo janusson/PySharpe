@@ -6,7 +6,6 @@ CSVs, configuring execution parameters, and generating a RebalancePlan.
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -19,7 +18,7 @@ except ImportError:  # pragma: no cover
 
 import shutil
 
-from pysharpe.config import ExecutionConfig, get_ticker_metadata
+from pysharpe.config import ExecutionConfig
 from pysharpe.execution.rebalance import RebalancePlan, build_rebalance_plan
 
 

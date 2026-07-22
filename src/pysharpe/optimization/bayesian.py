@@ -67,10 +67,7 @@ def _is_compilation_error(exc: BaseException) -> bool:
     Uses PyTensor's own ``CompileError`` exception type rather than brittle
     string-matching against error messages.
     """
-    return (
-        _PytensorCompileError is not None
-        and isinstance(exc, _PytensorCompileError)
-    )
+    return _PytensorCompileError is not None and isinstance(exc, _PytensorCompileError)
 
 
 class BayesianOptimizer:

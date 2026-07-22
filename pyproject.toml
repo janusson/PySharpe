@@ -101,3 +101,8 @@ filterwarnings = [
     # Streamlit's "No runtime found" appears during test imports outside the server.
     "ignore:No runtime found:UserWarning:streamlit",
 ]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+]

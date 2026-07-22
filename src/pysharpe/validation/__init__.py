@@ -1,4 +1,4 @@
-"""PySharpe validation: trial ledger, overfitting diagnostics, and resampling."""
+"""PySharpe validation: trial ledger, overfitting diagnostics, resampling, and DSR."""
 
 from .friction import (  # noqa: F401 - re-exported via __all__
     FrictionProfile,
@@ -12,6 +12,12 @@ from .ledger import (  # noqa: F401 - re-exported via __all__
     TrialRecord,
     compute_pbo,
     validate_economic_justification,
+)
+from .metrics import (  # noqa: F401 - re-exported via __all__
+    ValidationMetrics,
+    compute_dsr,
+    compute_validation_metrics,
+    estimate_effective_trials,
 )
 from .resampling import (  # noqa: F401 - re-exported via __all__
     BootstrapResult,
@@ -63,6 +69,13 @@ _RESAMPLING_EXPORTS: list[str] = [
     "optimal_block_length",
 ]
 
+_METRICS_EXPORTS: list[str] = [
+    "ValidationMetrics",
+    "compute_dsr",
+    "compute_validation_metrics",
+    "estimate_effective_trials",
+]
+
 _SAMPLE_SIZE_EXPORTS: list[str] = [
     "SampleReliability",
     "calculate_min_btl",
@@ -72,6 +85,7 @@ _SAMPLE_SIZE_EXPORTS: list[str] = [
 __all__: list[str] = [
     *_FRICTION_EXPORTS,
     *_LEDGER_EXPORTS,
+    *_METRICS_EXPORTS,
     *_RESAMPLING_EXPORTS,
     *_SAMPLE_SIZE_EXPORTS,
 ]

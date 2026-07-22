@@ -88,9 +88,21 @@ class TestMACrossoverSignal:
     #    day 5-9:  decreasing  103 →  99
     #    day 10-14: increasing  100 → 104
     PRICES = [
-        100.0, 101.0, 102.0, 103.0, 104.0,   # 0-4
-        103.0, 102.0, 101.0, 100.0,  99.0,   # 5-9
-        100.0, 101.0, 102.0, 103.0, 104.0,   # 10-14
+        100.0,
+        101.0,
+        102.0,
+        103.0,
+        104.0,  # 0-4
+        103.0,
+        102.0,
+        101.0,
+        100.0,
+        99.0,  # 5-9
+        100.0,
+        101.0,
+        102.0,
+        103.0,
+        104.0,  # 10-14
     ]
 
     def test_signal_values_against_pandas_reference(self):
@@ -100,7 +112,9 @@ class TestMACrossoverSignal:
         linker.register_data("market_data", df)
 
         short_w, long_w = 3, 5
-        result = linker.calculate_trend_signals(short_window=short_w, long_window=long_w)
+        result = linker.calculate_trend_signals(
+            short_window=short_w, long_window=long_w
+        )
         linker.close()
 
         # --- Compute expected MA crossovers with pandas ---
@@ -108,7 +122,8 @@ class TestMACrossoverSignal:
         expected_short = prices.rolling(window=short_w, min_periods=1).mean()
         expected_long = prices.rolling(window=long_w, min_periods=1).mean()
         expected_signal = np.where(
-            expected_short > expected_long, 1,
+            expected_short > expected_long,
+            1,
             np.where(expected_short < expected_long, -1, 0),
         )
 
@@ -282,8 +297,7 @@ class TestWindowParameters:
 
     def test_custom_windows_produce_different_signals(self):
         """Different window sizes should produce different MA crossover results."""
-        prices = [100.0, 102.0, 101.0, 103.0, 100.0,
-                  102.0, 101.0, 104.0, 103.0, 105.0]
+        prices = [100.0, 102.0, 101.0, 103.0, 100.0, 102.0, 101.0, 104.0, 103.0, 105.0]
 
         linker_a = DataLinker()
         df_a = _make_price_frame(prices)
