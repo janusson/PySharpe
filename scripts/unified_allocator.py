@@ -89,7 +89,7 @@ def generate_signals(prices_df: pd.DataFrame) -> pd.DataFrame:
 def main():
     parser = argparse.ArgumentParser(description="Scheduled PySharpe Allocation Runner")
     parser.add_argument(
-        "--portfolio", required=True, help="Portfolio name (e.g., 'demo')"
+        "--portfolio", required=True, help="Portfolio name (e.g., 'cad_portfolio')"
     )
     parser.add_argument(
         "--holdings",

@@ -205,3 +205,34 @@ def test_bayesian_optimizer_implements_protocol(sample_data):
     assert isinstance(result.expected_return, float)
     assert isinstance(result.volatility, float)
     assert isinstance(result.sharpe_ratio, float)
+
+
+def test_shrinkage_expected_return_does_not_collapse_with_correlated_assets():
+    """Highly correlated assets must still produce differentiated expected returns.
+
+    When sample covariance is near-singular (common with broad-market ETFs),
+    the old implementation fell back to returning the grand mean for every
+    asset, forcing equal-weight allocations from the optimizer.  Ledoit-Wolf
+    shrunk covariance must keep the inversion well-conditioned.
+    """
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(99)
+    n_days = 252
+    # Two assets with 0.95 daily correlation
+    base = rng.normal(0.0005, 0.01, n_days)
+    a = base + rng.normal(0, 0.002, n_days)
+    b = base + rng.normal(0, 0.003, n_days)
+
+    prices = pd.DataFrame(
+        {"VFV": 100 * (1 + a).cumprod(), "VDY": 100 * (1 + b).cumprod()},
+        index=pd.date_range("2024-01-01", periods=n_days, freq="B"),
+    )
+
+    mu = shrinkage_expected_return(prices)
+
+    # The two expected returns must NOT be identical.
+    assert not np.isclose(mu["VFV"], mu["VDY"]), (
+        f"Shrunk returns collapsed to identical values: VFV={mu['VFV']:.6f}, "
+        f"VDY={mu['VDY']:.6f}.  This forces equal-weight allocations."
+    )

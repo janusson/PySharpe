@@ -412,3 +412,57 @@ def test_optimisation_constraints(tmp_path):
     )
     assert port_mer_combined <= 0.01 + 1e-5
     assert weights_combined.get("B", 0) <= 0.6 + 1e-5
+
+
+def test_optimise_from_prices_converges_on_differentiated_weights():
+    """With max_weight=1.0, Ledoit-Wolf shrinkage alone prevents equal-weight collapse.
+
+    Five synthetic assets with deliberately differentiated risk/return
+    profiles (high return/high vol → negative return → near-zero/low vol)
+    are passed to the optimizer with no artificial per-asset ceiling.
+    Covariance shrinkage must be sufficient to give the solver enough
+    differentiation to allocate non-uniformly — no manual slack heuristic
+    (e.g. ``1/(n-2) + 0.01``) is needed.
+    """
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2020-01-01", periods=300, freq="B")
+
+    # Five assets with deliberately differentiated returns
+    returns = pd.DataFrame(index=dates)
+    returns["HighRet"] = rng.normal(0.002, 0.03, 300)  # high return, high vol
+    returns["MedRet"] = rng.normal(0.001, 0.02, 300)  # medium
+    returns["LowRet"] = rng.normal(0.0002, 0.01, 300)  # low return, low vol
+    returns["NegRet"] = rng.normal(-0.0005, 0.015, 300)  # negative return
+    returns["ZeroRet"] = rng.normal(0.0, 0.005, 300)  # near-zero, very low vol
+
+    prices = (1 + returns).cumprod() * 100
+
+    from pysharpe.portfolio_optimization import optimise_from_prices
+
+    result = optimise_from_prices(prices, base_currency="CAD", max_weight=1.0)
+
+    weights = result.weights.allocations
+    assert len(weights) >= 3, (
+        f"Only {len(weights)} non-zero weights: {weights}. "
+        "Expected at least 3 differentiated allocations."
+    )
+
+    # The weights must NOT all be equal — the optimizer must be free to
+    # differentiate based on risk/return without an artificial ceiling.
+    unique_weights = set(round(w, 4) for w in weights.values())
+    assert len(unique_weights) > 1, (
+        f"All weights are identical ({unique_weights}). "
+        f"Full weights: {weights}. "
+        "Equal-weight collapse means the shrinkage covariance is near-singular "
+        "or the return estimates provide no differentiation."
+    )
+
+    # Risk/return differentiation must produce a meaningful weight spread
+    # (well beyond numerical noise from the solver).
+    weight_values = list(weights.values())
+    spread = max(weight_values) - min(weight_values)
+    assert spread > 0.05, (
+        f"Weights are too uniform (spread={spread:.4f}): {weights}. "
+        "Shrinkage covariance or return estimates are failing to "
+        "differentiate assets with clearly distinct profiles."
+    )

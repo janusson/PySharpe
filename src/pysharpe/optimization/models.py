@@ -16,9 +16,9 @@ class PortfolioWeights:
 
     Example:
         >>> from pysharpe.optimization.models import PortfolioWeights
-        >>> weights = PortfolioWeights({"AAPL": 0.6, "MSFT": 0.4})
+        >>> weights = PortfolioWeights({"VFV.TO": 0.6, "VCN.TO": 0.4})
         >>> weights.non_zero()
-        {'AAPL': 0.6, 'MSFT': 0.4}
+        {'VFV.TO': 0.6, 'VCN.TO': 0.4}
     """
 
     allocations: dict[str, float]
@@ -62,8 +62,8 @@ class OptimisationResult:
 
     Example:
         >>> from pysharpe.optimization.models import OptimisationPerformance, OptimisationResult, PortfolioWeights
-        >>> result = OptimisationResult('demo', PortfolioWeights({'AAPL': 0.6}), OptimisationPerformance(0.1, 0.15, 0.9, "2020-01-01", "2021-01-01"))
-        >>> 'demo' in result.summary
+        >>> result = OptimisationResult('cad_portfolio', PortfolioWeights({'VFV.TO': 0.6}), OptimisationPerformance(0.1, 0.15, 0.9, "2020-01-01", "2021-01-01"))
+        >>> 'cad_portfolio' in result.summary
         True
     """
 

@@ -150,31 +150,62 @@ uv pip install -e .[all]
 
 ## Quick Start
 
-### 1. Optimize a portfolio
+> **Prerequisite:** [Install PySharpe](#installation) (`uv pip install -e .[all]`).
+
+### 0. Create a portfolio definition
+
+Create a CSV file in `data/portfolio/` listing your ETF tickers — one per line.
+PySharpe is tuned for **broad-market CAD-denominated ETFs** (not single stocks).
 
 ```bash
-pysharpe optimise --portfolio demo --export-dir data/exports/
+# Example: a diversified all-equity Canadian portfolio
+echo -e "VFV.TO\nVCN.TO\nVIU.TO\nVEE.TO\nVDY.TO" > data/portfolio/my_portfolio.csv
 ```
 
-Produces `demo_weights.txt` (target allocations) and `demo_collated.csv` (historical prices).
+> 💡 Several example portfolios are already in `data/portfolio/` — try `cad_portfolio`
+> or `canadian_etfs` to get started immediately.
+
+### 1. Optimize the portfolio
+
+```bash
+pysharpe optimise \
+  --portfolio my_portfolio \
+  --period 10y \
+  --return-model shrinkage \
+  --max-weight 0.25 \
+  --base-currency CAD \
+  --export-dir data/exports/
+```
+
+This downloads 10 years of daily prices, converts USD assets to CAD (no lookahead bias),
+estimates expected returns with Bayes-Stein shrinkage, runs efficient-frontier optimization,
+and enforces constraints from `portfolio_config.json` (MER caps, geographic bounds, TFSA
+account type). Produces the optimized target weights and collated price history in
+`data/exports/`.
 
 ### 2. Generate a buy plan
 
 ```bash
 pysharpe rebalance \
-  --portfolio demo \
-  --holdings-json '{"AAPL": 2, "MSFT": 1}' \
-  --new-cash 1000 \
+  --portfolio my_portfolio \
+  --holdings-json '{"VFV.TO": 15000, "VCN.TO": 10000, "VIU.TO": 5000, "VEE.TO": 3000, "VDY.TO": 7000}' \
+  --new-cash 2000 \
   --export-dir data/exports/
 ```
 
-PySharpe merges your holdings with the optimized targets, computes drift, scores opportunities, and prints exactly how many dollars and shares to buy.
+PySharpe computes your current weights vs. the optimized targets, calculates drift per
+asset, scores opportunities (60% path drift + 40% valuation/mean-reversion), and prints
+exactly how many dollars and shares to buy — with whole-share rounding and account-specific
+tax-efficiency scoring for TFSA/RRSP/Non-Registered accounts.
 
 ### 3. Launch the dashboard
 
 ```bash
 uv run streamlit run app.py
 ```
+
+Explore the efficient frontier, run historical backtests with Canadian ETF benchmarks
+(VEQT, XEQT, VGRO, etc.), and iterate on weight tweaks interactively.
 
 ---
 
@@ -285,7 +316,7 @@ fwt_drag = engine.compute_fwt_drag(voo, "RRSP")    # 0.0 (treaty-protected)
 
 # Rebalance plan from saved artefacts
 plan = build_rebalance_plan(
-    "demo",
+    "cad_portfolio",
     new_cash=5000,
     holdings_csv="holdings.csv",
     export_dir="data/exports/",

@@ -46,6 +46,7 @@ def _fetch_latest_price(ticker: str) -> float:
         interval="1d",
         progress=False,
         threads=False,
+        auto_adjust=True,
     )
     if history.empty:
         raise DataIngestionError(f"No price history for {ticker}.")

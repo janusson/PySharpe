@@ -6,10 +6,87 @@
     "is_us_domiciled": false,
     "is_cad_denominated": true
   },
+  "VCN.TO": {
+    "proxy": "XIU.TO",
+    "fx_adjust": false,
+    "start_date": "1999-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "QQC.TO": {
+    "proxy": "QQQ",
+    "fx_adjust": true,
+    "start_date": "2010-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "VDY.TO": {
+    "proxy": "VYM",
+    "fx_adjust": true,
+    "start_date": "2006-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "VIU.TO": {
+    "proxy": "VEA",
+    "fx_adjust": true,
+    "start_date": "2010-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "VEE.TO": {
+    "proxy": "VWO",
+    "fx_adjust": true,
+    "start_date": "2010-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "VMO.TO": {
+    "proxy": "MTUM",
+    "fx_adjust": true,
+    "start_date": "2013-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "VVL.TO": {
+    "proxy": "IWVL.L",
+    "fx_adjust": true,
+    "start_date": "2014-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "FCUQ.TO": {
+    "proxy": "QUAL",
+    "fx_adjust": true,
+    "start_date": "2013-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "FCUV.TO": {
+    "proxy": "VLUE",
+    "fx_adjust": true,
+    "start_date": "2013-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
+  "ZGLD.TO": {
+    "proxy": "GLD",
+    "fx_adjust": true,
+    "start_date": "2004-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": true
+  },
   "BTC": {
     "proxy": "BTC-USD",
     "fx_adjust": false,
     "start_date": "2014-01-01",
+    "is_us_domiciled": false,
+    "is_cad_denominated": false
+  },
+  "FETH.TO": {
+    "proxy": "ETH-USD",
+    "fx_adjust": false,
+    "start_date": "2015-01-01",
     "is_us_domiciled": false,
     "is_cad_denominated": false
   }

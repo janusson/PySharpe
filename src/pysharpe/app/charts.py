@@ -132,52 +132,179 @@ def render_metrics_table(metrics_result: MetricResults) -> pd.DataFrame:
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Frontier data helper (shared between plot and comparison-table renderers)
+# ---------------------------------------------------------------------------
+
+
+def _compute_frontier_data(
+    price_data: pd.DataFrame,
+    custom_weights: dict[str, float],
+    opt_result: OptimisationResult | None = None,
+) -> tuple[
+    OptimisationResult,  # user_port
+    OptimisationResult,  # opt_result
+    pd.DataFrame,  # benchmarks_df
+    np.ndarray,  # frontier_rets
+    np.ndarray,  # frontier_vols
+]:
+    """Compute all data needed for frontier plotting and comparison.
+
+    If *opt_result* is provided the optimisation step is skipped —
+    callers that have already optimised can reuse the result.
+    """
+
+    optimizer = SharpeOptimizer(price_data)
+    assets = optimizer.assets
+    user_weights_array = np.array([custom_weights.get(asset, 0.0) for asset in assets])
+
+    user_ret, user_vol, user_sharpe = optimizer.calculate_portfolio_performance(
+        user_weights_array
+    )
+    user_perf = OptimisationPerformance(
+        expected_return=user_ret,
+        volatility=user_vol,
+        sharpe_ratio=user_sharpe,
+        start_date=str(price_data.index.min().date()),
+        end_date=str(price_data.index.max().date()),
+    )
+    user_port = OptimisationResult(
+        name="Custom Mix",
+        weights=PortfolioWeights(custom_weights),
+        performance=user_perf,
+    )
+
+    # Use caller-provided optimisation result or compute fresh.
+    if opt_result is None:
+        opt_result = optimise_from_prices(price_data, base_currency="CAD")
+
+    # Fetch Benchmarks
+    start_str = str(price_data.index.min().date())
+    end_str = str(price_data.index.max().date())
+    benchmarks_df = fetch_benchmark_metrics(
+        list(CANADIAN_BENCHMARKS.keys()), start_date=start_str, end_date=end_str
+    )
+
+    # Generate Frontier Points
+    frontier_rets, frontier_vols = generate_efficient_frontier(price_data)
+
+    return user_port, opt_result, benchmarks_df, frontier_rets, frontier_vols
+
+
+# ---------------------------------------------------------------------------
+# Public rendering entry points
+# ---------------------------------------------------------------------------
+
+
+def run_full_analysis(
+    price_data: pd.DataFrame,
+    custom_weights: dict[str, float],
+) -> dict:
+    """Execute the full analytics pipeline and return cached results.
+
+    Computes portfolio metrics, runs the Sharpe optimisation, fetches
+    benchmarks, and generates efficient frontier coordinates — all in
+    one pass so the results can be stored in ``st.session_state`` and
+    reused across tabs without re-executing heavy solvers.
+
+    Returns a dict suitable for assignment to ``st.session_state``::
+
+        st.session_state.opt_results = run_full_analysis(prices, weights)
+
+    The returned dict contains:
+    - ``opt_result``: :class:`OptimisationResult` from :func:`optimise_from_prices`
+    - ``user_port``: :class:`OptimisationResult` for the custom weights
+    - ``benchmarks_df``: benchmark comparison DataFrame
+    - ``frontier_rets``: efficient frontier return coordinates
+    - ``frontier_vols``: efficient frontier volatility coordinates
+    """
+
+    optimizer = SharpeOptimizer(price_data)
+    assets = optimizer.assets
+    user_weights_array = np.array([custom_weights.get(asset, 0.0) for asset in assets])
+
+    user_ret, user_vol, user_sharpe = optimizer.calculate_portfolio_performance(
+        user_weights_array
+    )
+    user_perf = OptimisationPerformance(
+        expected_return=user_ret,
+        volatility=user_vol,
+        sharpe_ratio=user_sharpe,
+        start_date=str(price_data.index.min().date()),
+        end_date=str(price_data.index.max().date()),
+    )
+    user_port = OptimisationResult(
+        name="Custom Mix",
+        weights=PortfolioWeights(custom_weights),
+        performance=user_perf,
+    )
+
+    # Run the portfolio optimisation
+    opt_result = optimise_from_prices(price_data, base_currency="CAD")
+
+    # Fetch Benchmarks
+    start_str = str(price_data.index.min().date())
+    end_str = str(price_data.index.max().date())
+    benchmarks_df = fetch_benchmark_metrics(
+        list(CANADIAN_BENCHMARKS.keys()), start_date=start_str, end_date=end_str
+    )
+
+    # Generate Frontier Points
+    frontier_rets, frontier_vols = generate_efficient_frontier(price_data)
+
+    return {
+        "opt_result": opt_result,
+        "user_port": user_port,
+        "benchmarks_df": benchmarks_df,
+        "frontier_rets": frontier_rets,
+        "frontier_vols": frontier_vols,
+    }
+
+
 def render_frontier_comparison(
     price_data: pd.DataFrame, custom_weights: dict[str, float]
 ) -> None:
-    """Render the Efficient Frontier overlay plot and comparison table."""
+    """Render the Efficient Frontier overlay plot and comparison table.
+
+    Convenience wrapper that calls :func:`render_frontier_plot` and
+    :func:`render_performance_comparison` together.  For the refactored
+    tab layout, use the individual functions directly.
+    """
+
+    render_frontier_plot(price_data, custom_weights)
+    st.markdown("### Performance Comparison")
+    render_performance_comparison(price_data, custom_weights)
+
+
+def render_frontier_plot(
+    price_data: pd.DataFrame,
+    custom_weights: dict[str, float],
+    opt_result: OptimisationResult | None = None,
+    cached: dict | None = None,
+) -> None:
+    """Render only the Efficient Frontier matplotlib plot (no table).
+
+    When *cached* is provided (e.g. from ``st.session_state.opt_results``)
+    the function uses pre-computed frontier data and skips all heavy
+    computation.  When *cached* is ``None`` it falls back to
+    :func:`_compute_frontier_data` (which may trigger a fresh optimisation
+    if *opt_result* is also ``None``).
+    """
 
     if price_data.empty or len(price_data.columns) < 2:
         return
 
     try:
-        # Prepare Custom Mix Performance
-        optimizer = SharpeOptimizer(price_data)
-        assets = optimizer.assets
-        user_weights_array = np.array(
-            [custom_weights.get(asset, 0.0) for asset in assets]
-        )
-
-        user_ret, user_vol, user_sharpe = optimizer.calculate_portfolio_performance(
-            user_weights_array
-        )
-        user_perf = OptimisationPerformance(
-            expected_return=user_ret,
-            volatility=user_vol,
-            sharpe_ratio=user_sharpe,
-            start_date=str(price_data.index.min().date()),
-            end_date=str(price_data.index.max().date()),
-        )
-        user_port = OptimisationResult(
-            name="Custom Mix",
-            weights=PortfolioWeights(custom_weights),
-            performance=user_perf,
-        )
-
-        # Prepare Optimized Portfolio using the canonical engine
-        opt_result = optimise_from_prices(price_data, base_currency="CAD")
-
-        # Fetch Benchmarks
-        start_str = str(price_data.index.min().date())
-        end_str = str(price_data.index.max().date())
-        benchmarks_df = fetch_benchmark_metrics(
-            list(CANADIAN_BENCHMARKS.keys()), start_date=start_str, end_date=end_str
-        )
-
-        # Generate Frontier Points
-        frontier_rets, frontier_vols = generate_efficient_frontier(price_data)
-
-        # Plot
+        if cached is not None:
+            user_port = cached["user_port"]
+            opt_result = cached["opt_result"]
+            benchmarks_df = cached["benchmarks_df"]
+            frontier_rets = cached["frontier_rets"]
+            frontier_vols = cached["frontier_vols"]
+        else:
+            user_port, opt_result, benchmarks_df, frontier_rets, frontier_vols = (
+                _compute_frontier_data(price_data, custom_weights, opt_result)
+            )
         fig = plot_portfolio_comparison(
             frontier_returns=frontier_rets,
             frontier_vols=frontier_vols,
@@ -187,11 +314,37 @@ def render_frontier_comparison(
             prices=price_data,
         )
         st.pyplot(fig)
+    except Exception as e:
+        st.error(f"Error generating Efficient Frontier plot: {e}")
 
-        # Markdown Table Comparison
-        st.markdown("### Performance Comparison")
 
-        comp_data = []
+def render_performance_comparison(
+    price_data: pd.DataFrame,
+    custom_weights: dict[str, float],
+    opt_result: OptimisationResult | None = None,
+    cached: dict | None = None,
+) -> None:
+    """Render only the Performance Comparison markdown table.
+
+    When *cached* is provided the function uses pre-computed data and
+    skips all heavy computation.
+    """
+
+    if price_data.empty or len(price_data.columns) < 2:
+        return
+
+    try:
+        if cached is not None:
+            user_port = cached["user_port"]
+            opt_result = cached["opt_result"]
+            benchmarks_df = cached["benchmarks_df"]
+        else:
+            user_port, opt_result, benchmarks_df, _, _ = _compute_frontier_data(
+                price_data, custom_weights, opt_result
+            )
+
+        user_perf = user_port.performance
+        comp_data: list[dict[str, str]] = []
         comp_data.append(
             {
                 "Portfolio": "Custom Mix",
@@ -220,14 +373,16 @@ def render_frontier_comparison(
             )
 
         st.table(pd.DataFrame(comp_data))
-
     except Exception as e:
-        st.error(f"Error generating Efficient Frontier plot: {e}")
+        st.error(f"Error generating Performance Comparison: {e}")
 
 
 __all__ = [
     "plot_cumulative_returns",
     "plot_weights",
     "render_metrics_table",
+    "run_full_analysis",
     "render_frontier_comparison",
+    "render_frontier_plot",
+    "render_performance_comparison",
 ]

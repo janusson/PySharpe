@@ -1,69 +1,144 @@
-# CLAUDE.md
+# PySharpe Architecture & Development Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Commands
+## Quick-Start Commands
 
 ```bash
-# Install for development (all extras + linting/testing tools)
-uv pip install -e .[dev]
+# Install (recommended: uv)
+uv pip install -e .[all]
 
 # Run all tests
 uv run pytest
 
-# Run a single test file
+# Run a single test file or test
 uv run pytest tests/test_metrics.py
-
-# Run a single test by name
 uv run pytest tests/test_metrics.py::test_sharpe_ratio
 
-# Lint
+# Lint & format (ruff is authoritative)
 uv run ruff check .
-
-# Format
 uv run ruff format .
 
 # Run the Streamlit dashboard
 uv run streamlit run app.py
 
-# Run the CLI
+# CLI entry point
 uv run pysharpe --help
 ```
 
-## Architecture
+## Architecture Overview
 
-The package lives in `src/pysharpe/`. The public API is exposed via lazy `__getattr__` in `__init__.py` — heavyweight submodules (PyMC, statsmodels, etc.) are imported on first access only to avoid slow startup. Always add new public symbols to both the `_EXPORT_MAP` dict and the `TYPE_CHECKING` block in `__init__.py`.
+PySharpe follows a layered pipeline from data ingestion through computation to
+execution and presentation.
 
-**Settings** (`config.py`) — A frozen `PySharpeSettings` dataclass is the single source of truth for directory layout (`data/`, `data/portfolio/`, `data/price_hist/`, `data/exports/`, `data/cache/`). Always access it via `get_settings()` (LRU-cached singleton). Override the root with the `PYSHARPE_DATA_DIR` env var. `proxy_map.json` in the working directory is loaded automatically at startup to resolve ticker aliases.
+```
+Config Layer   →  config.py (LRU-cached singleton), portfolio_config.json, proxy_map.json
+Data Pipeline  →  YFinance → DuckDB cache → FX (CAD, no .bfill()) → CSV collation → DuckDB linkage
+Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, GARCH, VAR)
+Execution      →  allocator.py (60/40 VA) + rebalance.py + tax_tracker.py + cash_flow_rebalance.py
+Presentation   →  cli.py (5 subcommands) + app.py (Streamlit, 4 tabs) + visualization/
+```
 
-**Data pipeline** (two stages):
-1. `data/fetcher.py` — Abstract `PriceFetcher` with two implementations: `YFinancePriceFetcher` (live yfinance calls) and `DuckDBCachedPriceFetcher` (write-through DuckDB cache at `data/cache/pysharpe_cache.db`). FX conversion happens here when `base_currency` is not the native currency.
-2. `data/collation.py` — Joins per-ticker price CSVs into a single collated DataFrame. Used by the download workflow.
+See `docs/flowchart.md` for the full mermaid diagram with data-flow connections.
 
-**Workflows** (`workflows.py`) — Two top-level orchestrators: `download_portfolios()` and `optimise_portfolios()`. The CLI (`cli.py`) calls these. Portfolio definitions are CSV files in `data/portfolio/`; collated data and optimisation artefacts go to `data/exports/`.
+## Package Layout
 
-**Optimisation** (`optimization/`):
-- `sharpe_optimizer.py` — EfficientFrontier wrapper (PyPortfolioOpt) with optional MER and geographic constraints.
-- `bayesian.py` — PyMC-based posterior estimation of asset returns; produces expected returns and covariance for use in place of historical estimates.
-- `models.py` — Shared frozen dataclasses: `PortfolioWeights`, `OptimisationPerformance`, `OptimisationResult`.
-- `portfolio_optimization.py` (top-level) — `optimise_portfolio()` ties collation → optimizer → artefact writes together.
+```
+src/pysharpe/
+├── __init__.py              # Lazy __getattr__ public API
+├── config.py                # PySharpeSettings, get_settings()
+├── metrics.py               # Sharpe, Sortino, CAGR, max drawdown, etc.
+├── portfolio_optimization.py # Top-level: collate → optimize → export
+├── workflows.py             # download_portfolios(), optimise_portfolios()
+├── cli.py                   # 5 subcommands: optimise, rebalance, allocate, simulate-dca, plot
+├── data/
+│   ├── fetcher.py           # YFinancePriceFetcher + DuckDBCachedPriceFetcher
+│   ├── collation.py         # CSV collation into unified DataFrames
+│   ├── linkage.py           # DuckDB cross-dataset joins + proxy stitching
+│   ├── portfolio.py         # PortfolioDefinition, PortfolioRepository
+│   └── workflows.py         # PortfolioDownloadWorkflow
+├── optimization/
+│   ├── sharpe_optimizer.py  # PyPortfolioOpt EfficientFrontier wrapper
+│   ├── bayesian.py          # PyMC posterior return/covariance estimation
+│   ├── black_litterman.py   # Black-Litterman model with investor views
+│   ├── expected_returns.py  # EMA, mean, shrinkage, constant-return
+│   ├── tax_location.py      # 2-D Asset Location Matrix (TFSA/RRSP/NON_REG)
+│   ├── models.py            # PortfolioWeights, OptimisationResult
+│   └── weights.py           # Weight normalization utilities
+├── execution/
+│   ├── allocator.py         # score_opportunities(), allocate_contribution()
+│   ├── rebalance.py         # build_rebalance_plan(), format_rebalance_plan()
+│   ├── cash_flow_rebalance.py # Multi-account contribution routing
+│   ├── tax_tracker.py       # ACB tracking (CRA weighted-average method)
+│   └── brokerage.py         # Whole-share rounding, commissions, slippage
+├── analysis/
+│   ├── backtest_engine.py   # Calendar + drift-band rebalancing backtests
+│   ├── time_series.py       # ADF, GARCH, VAR
+│   ├── benchmarks.py        # Canadian ETF baselines (VEQT, XEQT, etc.)
+│   ├── comparison.py        # Head-to-head fund comparison
+│   ├── scoring.py           # Strategy scoring utilities
+│   └── visualization.py     # Backtest result visualization
+├── validation/
+│   ├── friction.py          # Transaction cost stress-testing
+│   ├── ledger.py            # PBO computation
+│   ├── resampling.py        # Purged cross-validation
+│   └── metrics.py           # Statistical validation metrics
+├── guardrails/
+│   └── tax_compliance.py    # CRA rule enforcement
+├── visualization/
+│   ├── frontier.py          # Efficient frontier plots
+│   ├── dca.py               # DCA projection plots
+│   ├── equity_curve.py      # Portfolio equity curves
+│   └── correlation.py       # Correlation heatmaps
+└── app/
+    ├── analytics.py         # Streamlit analytics page
+    ├── backtest.py          # Streamlit backtest page
+    ├── charts.py            # Shared chart helpers
+    ├── data.py              # Data inspection page
+    ├── dca.py               # DCA projection page
+    └── rebalance_ui.py      # Rebalance UI helpers
+```
 
-**Execution** (`execution/`):
-- `allocator.py` — `score_opportunities()` computes a blended opportunity score (drift 60% + valuation 40% by default, configurable via `AllocationConfig`). `allocate_contribution()` converts scores to dollar amounts.
-- `rebalance.py` — `build_rebalance_plan()` loads saved artefacts (`<name>_weights.txt`, `<name>_collated.csv`), merges with current holdings, then calls the allocator.
+## Key Conventions
 
-**Analysis** (`analysis/`):
-- `time_series.py` — ADF stationarity, GARCH volatility forecasting, VAR modeling.
-- `backtest_engine.py` — Calendar and drift-based rebalancing backtests.
-- `categorization.py` — Groups correlated tickers by category before optimisation.
-- `scoring.py` — Shared scoring utilities used by backtests and benchmarks.
+- **ruff** is the sole formatter and linter (88-char line length, double quotes).
+- **Tests** use synthetic data only with fixed seeds — no network calls.
+- **`get_settings()`** is LRU-cached; call `get_settings.cache_clear()` in tests
+  that vary env vars.
+- **`portfolio_config.json`** in the working directory is auto-loaded for MER/
+  geo constraints. Pass `--config` to override.
+- **`proxy_map.json`** maps tickers to proxy tickers with optional FX and weight
+  adjustments.
 
-**App** (`app/`) — Streamlit pages split across `analytics.py`, `charts.py`, `data.py`, `dca.py`. The entry point is `app.py` in the repo root.
+## Public API Registration
 
-## Key conventions
+The package uses lazy `__getattr__` in `src/pysharpe/__init__.py`. Heavyweight
+submodules (PyMC, statsmodels, etc.) are imported on first access only.
 
-- `portfolio_config.json` in the working directory is auto-loaded by the CLI for MER/geo constraints. Pass `--config` to override.
-- `proxy_map.json` maps tickers to proxy tickers with optional FX and weight adjustments. Loaded by `build_settings()`.
-- Tests use only synthetic data (no network calls). Fixtures live in `tests/conftest.py`. The `data/` directory under `tests/` holds fixture CSVs.
-- `ruff` is the sole formatter and linter (88-char line length, double quotes). `black` is listed in dev deps but ruff-format is authoritative.
-- `get_settings()` is LRU-cached; call `get_settings.cache_clear()` in tests that need to vary env vars.
+**When adding a new public symbol, register it in three places:**
+
+1. **`_EXPORT_MAP` dict** — Maps attribute name to `(module_path, symbol_name)`.
+2. **`TYPE_CHECKING` block** — Static import so type-checkers can resolve it.
+3. **`__all__` list** — So `from pysharpe import *` works correctly.
+
+Missing any of these three means the symbol is inaccessible at runtime or
+invisible to tooling.
+
+## Asset Universe
+
+PySharpe is tuned for **broad-market, CAD-denominated index ETFs**. Example
+tickers: VFV.TO, VCN.TO, QQC.TO, VDY.TO, VIU.TO, VEE.TO, VMO.TO, VVL.TO.
+
+Prohibited: single-stock models, sentiment analysis, options-pricing logic,
+predictive ML, day-trading algorithms, gamified UI.
+
+## Investment Philosophy
+
+- **Primary objective:** Deterministic Value Averaging (VA), not Markowitz MPT.
+- **Opportunity score:** 60% path drift + 40% valuation/mean-reversion (by default).
+- **Tax-advantaged:** TFSA assumed; no tax-loss harvesting (TFSA prohibits).
+- **Foreign withholding tax:** Modeled as strict yield reduction on US dividends.
+- **MER values:** Always decimal fractions (< 0.10), never percentage points.
+
+## Test Targeting
+
+See `docs/TEST_MAP.md` for the complete test-to-module mapping table to run
+only the relevant test subset instead of the full suite.

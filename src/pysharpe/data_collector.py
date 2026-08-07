@@ -131,9 +131,9 @@ def read_tickers_from_file(path: Path) -> set[str]:
         >>> from pathlib import Path
         >>> from pysharpe.data_collector import read_tickers_from_file
         >>> file_path = Path('portfolio.csv')
-        >>> _ = file_path.write_text('AAPL\nMSFT\n', encoding='utf-8')
+        >>> _ = file_path.write_text('VFV.TO\nVCN.TO\n', encoding='utf-8')
         >>> read_tickers_from_file(file_path)
-        {'AAPL', 'MSFT'}
+        {'VFV.TO', 'VCN.TO'}
         >>> file_path.unlink()
     """
 
@@ -211,8 +211,8 @@ def download_portfolio_prices(
 
     Example:
         >>> from pysharpe.data_collector import download_portfolio_prices
-        >>> download_portfolio_prices(['AAPL'], period='1y', interval='1d', start=None, end=None)  # doctest: +SKIP
-        {'AAPL': ...}
+        >>> download_portfolio_prices(['VFV.TO'], period='1y', interval='1d', start=None, end=None)  # doctest: +SKIP
+        {'VFV.TO': ...}
     """
 
     service = _build_collation_service(
@@ -249,7 +249,7 @@ def collate_prices(
 
     Example:
         >>> from pysharpe.data_collector import collate_prices
-        >>> collate_prices('demo', 'tests/data', ['AAPL'])  # doctest: +SKIP
+        >>> collate_prices('cad_portfolio', 'tests/data', ['VFV.TO'])  # doctest: +SKIP
         ...
     """
 
@@ -289,8 +289,8 @@ def process_portfolio(
     Example:
         >>> from pysharpe.data_collector import process_portfolio
         >>> from pathlib import Path
-        >>> csv_path = Path('demo.csv')
-        >>> _ = csv_path.write_text('AAPL', encoding='utf-8')
+        >>> csv_path = Path('cad_portfolio.csv')
+        >>> _ = csv_path.write_text('VFV.TO', encoding='utf-8')
         >>> process_portfolio(csv_path, period='1y', interval='1d')  # doctest: +SKIP
         ...
         >>> csv_path.unlink()
@@ -377,9 +377,9 @@ class SecurityDataCollector:
 
     Example:
         >>> from pysharpe.data_collector import SecurityDataCollector
-        >>> collector = SecurityDataCollector('AAPL')  # doctest: +SKIP
+        >>> collector = SecurityDataCollector('VFV.TO')  # doctest: +SKIP
         >>> collector.get_company_name()  # doctest: +SKIP
-        'Apple Inc.'
+        'Vanguard S&P 500 Index ETF'
     """
 
     def __init__(self, ticker: str):
@@ -397,8 +397,8 @@ class SecurityDataCollector:
         """Return the preferred company display name.
 
         Example:
-            >>> SecurityDataCollector('AAPL').get_company_name()  # doctest: +SKIP
-            'Apple Inc.'
+            >>> SecurityDataCollector('VFV.TO').get_company_name()  # doctest: +SKIP
+            'Vanguard S&P 500 Index ETF'
         """
 
         info = self._info
@@ -408,7 +408,7 @@ class SecurityDataCollector:
         """Return the raw info payload from yfinance.
 
         Example:
-            >>> SecurityDataCollector('AAPL').get_company_info()  # doctest: +SKIP
+            >>> SecurityDataCollector('VFV.TO').get_company_info()  # doctest: +SKIP
             {...}
         """
 
@@ -418,7 +418,7 @@ class SecurityDataCollector:
         """Persist the info payload to ``destination`` as JSON.
 
         Example:
-            >>> SecurityDataCollector('AAPL').download_info()  # doctest: +SKIP
+            >>> SecurityDataCollector('VFV.TO').download_info()  # doctest: +SKIP
             PosixPath('...')
         """
 
@@ -553,7 +553,7 @@ class SecurityDataCollector:
         """Download historical prices for the security and persist them.
 
         Example:
-            >>> SecurityDataCollector('AAPL').download_price_history()  # doctest: +SKIP
+            >>> SecurityDataCollector('VFV.TO').download_price_history()  # doctest: +SKIP
             ...
         """
 

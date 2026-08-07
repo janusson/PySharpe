@@ -345,10 +345,8 @@ class BayesianOptimizer:
         )
 
         if not res.success:
-            logger.warning(f"Bayesian optimization failed: {res.message}")
-            weights_array = initial_guess
-        else:
-            weights_array = res.x
+            raise RuntimeError(f"Bayesian portfolio optimisation failed: {res.message}")
+        weights_array = res.x
 
         weights_dict = dict(zip(self.assets_, weights_array))
 

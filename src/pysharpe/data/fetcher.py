@@ -364,7 +364,11 @@ class YFinancePriceFetcher(PriceFetcher):
     """
 
     def __init__(self, history_kwargs: dict[str, object] | None = None) -> None:
-        self._history_overrides = history_kwargs or {}
+        # Default to auto_adjust=True so that the returned `Close` column
+        # is already adjusted for dividends and stock splits.  This ensures
+        # all downstream return calculations (portfolio_optimization,
+        # sharpe_optimizer, visualization) use adjusted prices.
+        self._history_overrides = history_kwargs or {"auto_adjust": True}
 
     def _lazy_module(self):
         try:

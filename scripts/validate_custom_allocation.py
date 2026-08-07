@@ -288,14 +288,10 @@ def _optimise_bounded(
     )
 
     if not result.success:
-        logger.warning(
-            "SLSQP did not converge: %s. Using initial guess.", result.message
-        )
-        w_opt = x0
-    else:
-        w_opt = result.x
-        w_opt = np.abs(w_opt)  # Guard against tiny negatives.
-        w_opt = w_opt / w_opt.sum()
+        raise RuntimeError(f"SLSQP did not converge: {result.message}")
+    w_opt = result.x
+    w_opt = np.abs(w_opt)  # Guard against tiny negatives.
+    w_opt = w_opt / w_opt.sum()
 
     weights_map = {t: float(w) for t, w in zip(assets, w_opt) if w > 1e-8}
     _, _, is_sharpe = opt.calculate_portfolio_performance(w_opt)

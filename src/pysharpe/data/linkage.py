@@ -350,11 +350,12 @@ class HistoryLinker:
 
         # Calculate the scalar to match prices at T0
         scalar = target_price.loc[t0] / proxy_price.loc[t0]
+        t0_display = t0.date() if hasattr(t0, "date") else str(t0)
         logger.info(
             "Stitching %s with %s at %s (scalar: %.4f)",
             target_ticker,
             proxy_ticker,
-            t0.date(),
+            t0_display,
             scalar,
         )
 

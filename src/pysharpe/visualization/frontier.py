@@ -22,13 +22,25 @@ def generate_efficient_frontier(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Generate the points of the Efficient Frontier curve.
 
+    The frontier is computed **only on the upper (efficient) half** of the
+    mean-variance parabola — target returns are bounded below by the
+    Global Minimum Variance (GMV) portfolio return, never by the minimum
+    individual-asset return.  This eliminates the mathematically sub-optimal
+    lower arc where solvers routinely fail.
+
+    Expected returns (*mu*) are derived from ``Adj Close`` (total return)
+    prices.  The covariance matrix uses Ledoit-Wolf shrinkage for guaranteed
+    positive semi-definiteness.
+
     Args:
-        prices: Historical price data with tickers as columns.
-        points: Number of points to generate along the frontier.
+        prices: Historical **adjusted close** price data with tickers as columns.
+        points: Number of points to generate along the efficient frontier.
         frequency: Observation frequency (252 for daily).
 
     Returns:
-        tuple containing (target_returns, calculated_volatilities)
+        tuple containing (valid_returns, calculated_volatilities).
+        Both arrays are sorted by ascending return (and thus ascending
+        volatility on the efficient half).
     """
     if prices.empty:
         raise ValueError("Prices DataFrame cannot be empty.")
@@ -42,19 +54,40 @@ def generate_efficient_frontier(
             "PyPortfolioOpt is required to generate the efficient frontier."
         ) from exc
 
+    # ------------------------------------------------------------------
+    # Expected returns and covariance (both derived from adjusted close)
+    # ------------------------------------------------------------------
     mu = mean_historical_return(prices, frequency=frequency)
     S = CovarianceShrinkage(prices, frequency=frequency).ledoit_wolf()
 
-    min_return = float(mu.min())
     max_return = float(mu.max())
 
-    # Avoid generating points if min and max returns are practically the same
-    if np.isclose(min_return, max_return):
-        return np.array([min_return]), np.array([np.sqrt(np.diag(S)[0])])
+    # Edge case: all returns identical → single-point frontier.
+    if np.isclose(float(mu.min()), max_return):
+        return np.array([max_return]), np.array([np.sqrt(np.diag(S)[0])])
 
-    target_returns = np.linspace(min_return, max_return, points)
-    calculated_volatilities = []
-    valid_returns = []
+    # ------------------------------------------------------------------
+    # Global Minimum Variance (GMV) portfolio — the leftmost point
+    # ------------------------------------------------------------------
+    try:
+        ef_mvp = EfficientFrontier(mu, S)
+        ef_mvp.min_volatility()
+        gmv_ret, gmv_vol, _ = ef_mvp.portfolio_performance()
+        gmv_return = float(gmv_ret)
+    except Exception as exc:
+        logger.warning(
+            "Could not compute Global Minimum Variance portfolio: %s. "
+            "Falling back to minimum individual-asset return.",
+            exc,
+        )
+        gmv_return = float(mu.min())
+
+    # ------------------------------------------------------------------
+    # Target return sweep: strictly from GMV return to max expected return
+    # ------------------------------------------------------------------
+    target_returns = np.linspace(gmv_return, max_return, points)
+    calculated_volatilities: list[float] = []
+    valid_returns: list[float] = []
 
     for target in target_returns:
         try:
@@ -63,8 +96,33 @@ def generate_efficient_frontier(
             ret, vol, _ = ef.portfolio_performance()
             calculated_volatilities.append(vol)
             valid_returns.append(ret)
-        except Exception as e:
-            logger.debug("Could not optimize for return %.4f: %s", target, e)
+        except Exception:
+            # Solver failed for this target — skip cleanly without
+            # appending NaN and without dropping the entire curve.
+            continue
+
+    # ------------------------------------------------------------------
+    # Ensure the max-Sharpe portfolio is included as the right endpoint.
+    # It may extend beyond the highest grid point because the tangency
+    # portfolio's return can exceed the highest individual-asset return.
+    # ------------------------------------------------------------------
+    if valid_returns:
+        try:
+            ef_tangent = EfficientFrontier(mu, S)
+            ef_tangent.max_sharpe()
+            max_ret, max_vol, _ = ef_tangent.portfolio_performance()
+            if max_ret > max(valid_returns):
+                calculated_volatilities.append(max_vol)
+                valid_returns.append(max_ret)
+        except Exception as exc:
+            logger.debug("Could not compute max-Sharpe portfolio: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Safety net: if ALL grid points failed, at minimum return the GMV.
+    # ------------------------------------------------------------------
+    if not valid_returns:
+        valid_returns.append(gmv_return)
+        calculated_volatilities.append(float(gmv_vol))
 
     return np.array(valid_returns), np.array(calculated_volatilities)
 

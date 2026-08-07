@@ -9,22 +9,25 @@ from pysharpe.metrics import cagr, maximum_drawdown
 def main():
     # 1. Load Collated Data
     # Assuming you have run 'pysharpe optimise' at least once to generate this
-    collated_path = Path("data/exports/demo_collated.csv")
+    collated_path = Path("data/exports/cad_portfolio_collated.csv")
 
     if not collated_path.exists():
         print(f"Error: {collated_path} not found.")
-        print("Please run 'pysharpe optimise --portfolio demo' first to fetch data.")
+        print(
+            "Please run 'pysharpe optimise --portfolio cad_portfolio' first "
+            "to fetch data."
+        )
         return
 
     print(f"Loading data from {collated_path}...")
     prices = pd.read_csv(collated_path, parse_dates=True, index_col="Date")
 
     # 2. Define Target Allocations (must match columns in CSV)
-    # Adjust these to match the tickers in your demo.csv
+    # Adjust these to match the tickers in your portfolio CSV.
     # For this example, we'll try to detect them or use a generic split
     assets = prices.columns.tolist()
     n = len(assets)
-    # Simple equal weight strategy for demo
+    # Simple equal weight strategy for demonstration
     target_weights = {ticker: 1.0 / n for ticker in assets}
 
     print(f"Backtesting with equal weights ({n} assets)...")

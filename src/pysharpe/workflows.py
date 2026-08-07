@@ -52,7 +52,7 @@ def download_portfolios(
     Example:
         >>> from pysharpe.workflows import download_portfolios
         >>> download_portfolios(period='1y', interval='1d')  # doctest: +SKIP
-        {'demo': ...}
+        {'cad_portfolio': ...}
     """
 
     settings = get_settings()
@@ -91,7 +91,7 @@ def optimise_portfolios(
     include_unmapped_categories: bool = True,
     return_model: str = "shrinkage",
     base_currency: str = "CAD",
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
     shrinkage_floor: float = 0.3,
     execution_config: ExecutionConfig | None = None,
     proxy_map: dict[str, dict[str, object]] | None = None,
@@ -116,7 +116,7 @@ def optimise_portfolios(
             present in ``category_map`` as standalone categories.
         return_model: Expected return calculation method. 'ema' or 'mean'. Defaults to 'ema'.
         base_currency: The target currency for all assets (default "CAD").
-        max_weight: Maximum allowable weight for any single asset (default 0.20).
+        max_weight: Maximum allowable weight for any single asset (default 1.0).
         shrinkage_floor: Minimum shrinkage intensity for 'shrinkage' return model
             (0.0-1.0, default 0.3). Higher values pull estimates more aggressively
             toward the grand mean, reducing recency bias.
@@ -127,7 +127,7 @@ def optimise_portfolios(
     Example:
         >>> from pysharpe.workflows import optimise_portfolios
         >>> optimise_portfolios(make_plot=False)  # doctest: +SKIP
-        {'demo': OptimisationResult(...)}
+        {'cad_portfolio': OptimisationResult(...)}
     """
 
     settings = get_settings()

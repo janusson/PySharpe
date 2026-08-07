@@ -37,12 +37,19 @@ def load_raw(csv_path: Path) -> pd.DataFrame:
 
 
 def parse_records(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
-    """Normalise raw price history into a single-ticker dataframe."""
+    """Normalise raw price history into a single-ticker dataframe.
+
+    Prefers ``Adj Close`` when available (dividend/split-adjusted prices),
+    falling back to ``Close`` for backward compatibility with data that
+    was fetched before ``auto_adjust=True`` became the default.
+    """
 
     if raw.empty:
         return pd.DataFrame(columns=[ticker])
 
-    required = {"Date", "Close"}
+    # Prefer adjusted close when available; fall back to raw close.
+    price_col = "Adj Close" if "Adj Close" in raw.columns else "Close"
+    required = {"Date", price_col}
     missing = required.difference(raw.columns)
     if missing:
         raise ValueError(f"Unexpected columns for {ticker}: missing {sorted(missing)}")
@@ -60,7 +67,7 @@ def parse_records(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
         parsed_dates.append(ts)
 
     timestamps = pd.Series(parsed_dates, index=raw.index, dtype="datetime64[ns]")
-    closes = pd.to_numeric(raw["Close"], errors="coerce")
+    closes = pd.to_numeric(raw[price_col], errors="coerce")
     mask = (~timestamps.isna()) & (~closes.isna())
 
     if not mask.any():
@@ -333,7 +340,7 @@ class CollationService:
             ...         import pandas as pd
             ...         return pd.DataFrame({"Date": ["2024-01-01"], "Close": [1.0]})
             >>> service = CollationService(_Fetcher())
-            >>> service.process_portfolio("demo", ("AAA",), period="1y", interval="1d", start=None, end=None).empty
+            >>> service.process_portfolio("cad_portfolio", ("VFV.TO",), period="1y", interval="1d", start=None, end=None).empty
             False
         """
 

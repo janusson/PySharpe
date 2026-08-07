@@ -76,7 +76,7 @@ class PortfolioDownloadWorkflow:
             >>> from pathlib import Path
             >>> workflow = PortfolioDownloadWorkflow(fetcher=None)  # doctest: +SKIP
             >>> workflow.process_portfolio(  # doctest: +SKIP
-            ...     PortfolioDefinition('demo', ('AAPL',), Path('demo.csv')),
+            ...     PortfolioDefinition('cad_portfolio', ('VFV.TO',), Path('cad_portfolio.csv')),
             ...     period='1y', interval='1d', start=None, end=None,
             ... )
         """

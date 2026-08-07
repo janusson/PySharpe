@@ -15,6 +15,11 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+try:
+    from sklearn.covariance import LedoitWolf
+except ImportError:  # pragma: no cover
+    LedoitWolf = None  # type: ignore[assignment]
+
 from pysharpe.exceptions import ExecutionConfigError
 from pysharpe.optimization.tax_location import (
     AccountType,
@@ -58,7 +63,7 @@ class SharpeOptimizerConfig:
         Random portfolios to generate for the initial guess. Default 10 000.
     max_weight : float
         Per-asset maximum weight (applied across all accounts for that
-        asset).  Default 0.20.
+        asset).  Default 1.0.
     """
 
     risk_free_rate: float = 0.025
@@ -72,7 +77,7 @@ class SharpeOptimizerConfig:
     )
     account_capacities: dict[AccountType, float] = field(default_factory=dict)
     num_portfolios_monte_carlo: int = 10000
-    max_weight: float = 0.20
+    max_weight: float = 1.0
 
 
 class SharpeOptimizer:
@@ -155,9 +160,9 @@ class SharpeOptimizer:
         self._net_returns = self._build_net_return_matrix()
 
         # ------------------------------------------------------------------
-        # Asset-level covariance (N × N)
+        # Asset-level covariance (N × N) with Ledoit-Wolf shrinkage
         # ------------------------------------------------------------------
-        self._cov = self.returns.cov().values * self.num_periods_per_year
+        self._cov = self._estimate_covariance()
 
         logger.info(
             "SharpeOptimizer initialised: %d assets × %d accounts = %d variables. "
@@ -232,6 +237,34 @@ class SharpeOptimizer:
     # ------------------------------------------------------------------
     # 2-D → asset-level aggregation
     # ------------------------------------------------------------------
+
+    def _estimate_covariance(self) -> np.ndarray:
+        """Estimate the annualised asset covariance matrix using Ledoit-Wolf shrinkage.
+
+        Ledoit-Wolf shrinkage guarantees a positive semi-definite estimator
+        even when the sample covariance is singular (e.g. fewer observations
+        than assets).  This prevents ``scipy.optimize`` from encountering
+        matrix-inversion failures inside SLSQP.
+
+        Returns
+        -------
+        np.ndarray
+            (N × N) annualised, shrunk covariance matrix.
+        """
+        if LedoitWolf is not None:
+            lw = LedoitWolf()
+            lw.fit(self.returns.values)
+            cov_daily = lw.covariance_
+        else:
+            # Graceful fallback when sklearn is not installed.
+            # The sample covariance may be singular for small datasets.
+            logger.warning(
+                "scikit-learn not available; falling back to sample covariance "
+                "(may be singular for small datasets)."
+            )
+            cov_daily = self.returns.cov().values
+
+        return cov_daily * self.num_periods_per_year
 
     def _asset_weights_from_2d(self, weights_2d: np.ndarray) -> np.ndarray:
         """Sum 2-D weights across accounts to get per-asset weights.  (N,)"""
@@ -345,12 +378,6 @@ class SharpeOptimizer:
         if self._num_assets == 0:
             return OptimizationResult({}, 0.0, 0.0, 0.0)
 
-        if self.config.max_weight * self._num_assets < 1.0:
-            raise ValueError(
-                f"max_weight ({self.config.max_weight}) too restrictive "
-                f"for {self._num_assets} assets."
-            )
-
         # --- Bounds ---
         bounds = tuple((0.0, self.config.max_weight) for _ in range(self._num_vars))
 
@@ -419,14 +446,12 @@ class SharpeOptimizer:
                 constraints=constraints,
             )
         except np.linalg.LinAlgError as exc:
-            logger.error(
-                "Linear-algebra error: %s. Falling back to equal weights.", exc
-            )
-            return self._fallback_result()
+            raise RuntimeError(
+                f"Linear-algebra error during SLSQP optimisation: {exc}"
+            ) from exc
 
         if not result.success:
-            logger.error("Optimisation failed: %s", result.message)
-            return self._fallback_result()
+            raise RuntimeError(f"SLSQP optimisation failed: {result.message}")
 
         w_opt = result.x
         w_opt /= w_opt.sum()  # guard against float drift
@@ -452,33 +477,6 @@ class SharpeOptimizer:
             p_ret * 100,
             p_vol * 100,
         )
-        return OptimizationResult(
-            weights=weights_map,
-            expected_return=float(p_ret),
-            volatility=float(p_vol),
-            sharpe_ratio=float(p_sr),
-        )
-
-    def _fallback_result(self) -> OptimizationResult:
-        """Equal-weight fallback when optimisation fails."""
-        w = np.full(self._num_vars, 1.0 / self._num_vars)
-        p_ret, p_vol, p_sr = self.calculate_portfolio_performance(w)
-
-        if self._accounts:
-            w2d = w.reshape(self._num_assets, self._num_accounts)
-            weights_map = {}
-            for i, ticker in enumerate(self.assets):
-                for j, acct_val in enumerate(self._account_values):
-                    w_val = float(w2d[i, j])
-                    if w_val > 1e-8:
-                        weights_map[(ticker, acct_val)] = w_val
-        else:
-            weights_map = {
-                t: float(w_val)
-                for t, w_val in zip(self.assets, w.tolist())
-                if w_val > 1e-8
-            }
-
         return OptimizationResult(
             weights=weights_map,
             expected_return=float(p_ret),

@@ -11,6 +11,7 @@ import datetime as dt
 import io
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -33,6 +34,33 @@ class ColumnContext:
 class ContainerContext:
     def __init__(self, owner: "StreamlitStub") -> None:
         self.owner = owner
+
+    def __enter__(self) -> "StreamlitStub":
+        return self.owner
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class ExpanderContext:
+    def __init__(
+        self, owner: "StreamlitStub", label: str, expanded: bool = False
+    ) -> None:
+        self.owner = owner
+        self.label = label
+        self.expanded = expanded
+
+    def __enter__(self) -> "StreamlitStub":
+        return self.owner
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class SpinnerContext:
+    def __init__(self, owner: "StreamlitStub", text: str = "") -> None:
+        self.owner = owner
+        self.text = text
 
     def __enter__(self) -> "StreamlitStub":
         return self.owner
@@ -171,6 +199,9 @@ class StreamlitStub:
     def caption(self, message: str) -> None:
         self.write_calls.append(message)
 
+    def markdown(self, message: str) -> None:
+        self.write_calls.append(message)
+
     def subheader(self, message: str) -> None:
         self.subheader_calls.append(message)
 
@@ -208,8 +239,21 @@ class StreamlitStub:
     def button(self, label: str, **kwargs) -> bool:  # noqa: ARG002 - kwargs unused
         return self.button_states.get(label, False)
 
+    def expander(self, label: str, expanded: bool = False) -> ExpanderContext:
+        return ExpanderContext(self, label, expanded)
+
+    def spinner(self, text: str = "") -> SpinnerContext:
+        return SpinnerContext(self, text)
+
+    def stop(self) -> None:
+        raise StreamlitStop()
+
     def set_button_state(self, label: str, value: bool) -> None:
         self.button_states[label] = value
+
+
+class StreamlitStop(Exception):
+    """Raised by st.stop() to halt Streamlit execution."""
 
 
 class DummyChart:
@@ -513,8 +557,7 @@ def test_main_renders_dashboard(
         sharpe=pd.Series({"AAPL": 0.65, "MSFT": 0.80}),
     )
 
-    streamlit_stub.set_button_state("Compute Metrics", True)
-    streamlit_stub.set_button_state("Optimise Portfolio", True)
+    streamlit_stub.set_button_state("Run Analytics & Optimization", True)
 
     portfolio_data = app.PortfolioData(
         tickers=("AAPL", "MSFT"),
@@ -570,11 +613,24 @@ def test_main_renders_dashboard(
         weights=PortfolioWeights({"AAPL": 0.6, "MSFT": 0.4}),
         performance=OptimisationPerformance(0.1, 0.15, 0.8, "2024-01-01", "2024-01-03"),
     )
-    monkeypatch.setattr(
-        app,
-        "optimise_from_prices",
-        lambda *args, **kwargs: fake_opt_result,
-    )
+
+    def fake_run_full_analysis(*args, **kwargs):
+        return {
+            "opt_result": fake_opt_result,
+            "user_port": fake_opt_result,
+            "benchmarks_df": pd.DataFrame(
+                {
+                    "Ticker": ["VEQT.TO"],
+                    "Annualized Return": [0.09],
+                    "Annualized Volatility": [0.14],
+                    "Sharpe Ratio": [0.64],
+                }
+            ),
+            "frontier_rets": np.array([0.05, 0.10, 0.15]),
+            "frontier_vols": np.array([0.08, 0.12, 0.18]),
+        }
+
+    monkeypatch.setattr(app, "run_full_analysis", fake_run_full_analysis)
     monkeypatch.setattr(
         app,
         "plot_weights",
@@ -596,7 +652,5 @@ def test_main_renders_dashboard(
 
     assert streamlit_stub.title_calls[0] == "PySharpe Interactive Dashboard"
     assert any("Downloaded" in msg for msg in streamlit_stub.success_calls)
-    assert any("Price Preview" in call for call in streamlit_stub.subheader_calls)
     assert "returns" in plot_calls and "weights" in plot_calls
     assert len(streamlit_stub.download_button_calls) == 3
-    assert streamlit_stub.placeholder_calls[2].emptied is True

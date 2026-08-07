@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -22,7 +23,11 @@ from pysharpe.app.analytics import (
     compute_metrics,
 )
 from pysharpe.app.backtest import render_backtest_tab
-from pysharpe.app.charts import render_frontier_comparison
+from pysharpe.app.charts import (
+    render_frontier_plot,
+    render_performance_comparison,
+    run_full_analysis,
+)
 from pysharpe.app.data import (
     _STREAMLIT_SERVICE,  # noqa: F401 - test visibility
     SETTINGS,
@@ -37,7 +42,6 @@ from pysharpe.app.data import (
 )
 from pysharpe.app.dca import render_dca_projection as _render_dca_projection
 from pysharpe.app.rebalance_ui import render_execution_tab
-from pysharpe.portfolio_optimization import optimise_from_prices
 from pysharpe.visualization import simulate_dca  # noqa: F401 - re-exported for tests
 
 _prepare_weight_chart_data = _charts._prepare_weight_chart_data  # noqa: F401
@@ -113,8 +117,8 @@ def sidebar_controls() -> dict[str, object]:
     default_start = (today - pd.Timedelta(days=365)).date()
     default_end = today.date()
 
-    start_date = st.sidebar.date_input("Start", default_start)
-    end_date = st.sidebar.date_input("End", default_end)
+    start_date = st.sidebar.date_input("Start", default_start)  # type: ignore[arg-type]
+    end_date = st.sidebar.date_input("End", default_end)  # type: ignore[arg-type]
     if end_date < start_date:
         st.sidebar.error("End date must be on or after the start date.")
 
@@ -138,8 +142,8 @@ def sidebar_controls() -> dict[str, object]:
             collated=price_frame,
             price_history_dir=SETTINGS.price_history_dir,
             collated_path=None,
-            start=price_frame.index.min() if not price_frame.empty else None,
-            end=price_frame.index.max() if not price_frame.empty else None,
+            start=price_frame.index.min() if not price_frame.empty else None,  # type: ignore[arg-type]
+            end=price_frame.index.max() if not price_frame.empty else None,  # type: ignore[arg-type]
             warnings=(),
             used_cache=False,
         )
@@ -287,10 +291,12 @@ def main() -> None:
         "simulate dollar-cost averaging from a single interface."
     )
 
-    prices: pd.DataFrame = controls["data"]
-    price_data: pd.DataFrame = controls.get("price_data", pd.DataFrame())
-    portfolio_data: PortfolioData | None = controls.get("portfolio_data")  # type: ignore[assignment]
-    download_summary = controls.get("download_summary")
+    prices = cast(pd.DataFrame, controls["data"])
+    price_data = cast(pd.DataFrame, controls.get("price_data", pd.DataFrame()))
+    portfolio_data = cast("PortfolioData | None", controls.get("portfolio_data"))
+    download_summary = cast(
+        "dict[str, object] | None", controls.get("download_summary")
+    )
 
     if prices.empty:
         st.warning(
@@ -299,156 +305,235 @@ def main() -> None:
         )
         return
 
-    if download_summary:
-        tickers_display = ", ".join(download_summary["tickers"])
-        if download_summary.get("used_cache"):
-            st.info(f"Using cached price data for: {tickers_display}")
-        else:
-            st.success(
-                f"Downloaded {len(download_summary['tickers'])} tickers: "
-                f"{tickers_display}"
-            )
-        st.caption(
-            f"Price history directory: `{download_summary['price_history_dir']}`"
-        )
-        if download_summary.get("collated_path"):
-            st.caption(f"Collated CSV: `{download_summary['collated_path']}`")
-        for warning_message in download_summary.get("warnings", ()) or ():
-            st.warning(warning_message)
-        stats_frame = pd.DataFrame(
-            {
-                "start": [download_summary.get("start")],
-                "end": [download_summary.get("end")],
-                "rows": [download_summary.get("rows")],
-                "tickers": [len(download_summary["tickers"])],
-            },
-            index=["Portfolio"],
-        )
-        st.dataframe(stats_frame)
-        if portfolio_data and not portfolio_data.collated.empty:
-            st.subheader("Collated Portfolio Preview")
-            st.dataframe(portfolio_data.collated.head().style.format("{:.2f}"))
-
-    tab_analytics, tab_backtest, tab_execute = st.tabs(
-        ["Analytics", "Backtest", "Execute"]
+    # ===================================================================
+    # Tab layout -- exactly four tabs
+    # ===================================================================
+    tab_overview, tab_frontier, tab_dca, tab_debug = st.tabs(
+        [
+            "\U0001f4ca Overview",
+            "\U0001f4c8 Efficient Frontier",
+            "\U0001f4b0 DCA Simulation",
+            "\U0001f6e0\ufe0f Raw Data & Logs",
+        ]
     )
 
-    with tab_analytics:
-        st.subheader("Price Preview")
-        preview = controls.get("preview", pd.DataFrame())
-        if preview.empty:
-            preview = prices.tail(60)
-        preview = preview.tail(60)
-        price_columns = set(price_data.columns)
-        preview_columns = [
-            column
-            for column in preview.columns
-            if (column in price_columns)
-            or ("close" in str(column).lower())
-            or ("volume" in str(column).lower())
-        ]
-        if preview_columns:
-            preview = preview.loc[:, preview_columns]
-        if preview.columns.duplicated().any():
-            preview = preview.loc[:, ~preview.columns.duplicated()]
-        st.dataframe(preview.style.format("{:.2f}"))
+    # ===================================================================
+    # Tab 4: Raw Data & Logs (all diagnostic output lives here)
+    # ===================================================================
+    with tab_debug:
+        st.caption(
+            "Diagnostic information, file paths, and unfiltered data tables. "
+            "Use this tab to inspect raw downloads or troubleshoot issues."
+        )
 
-        st.subheader("Ticker Verification")
-        metadata = controls.get("metadata", pd.DataFrame())
-        if metadata.empty:
-            st.info("No ticker metadata available for the current selection.")
-        else:
-            st.dataframe(metadata)
-
-        metrics_placeholder = st.empty()
-        chart_placeholder = st.empty()
-        weights_placeholder = st.empty()
-
-        if st.button("Compute Metrics", type="primary"):
-            if price_data.empty or price_data.select_dtypes("number").empty:
-                st.warning("No suitable Close/Adj Close series found for analytics.")
-            else:
-                metrics_result = compute_metrics(price_data)
-                mean_expected = (
-                    float(metrics_result.expected.mean())
-                    if not metrics_result.expected.empty
-                    else np.nan
-                )
-                if not np.isnan(mean_expected):
-                    st.session_state["dca_rate_default"] = mean_expected
-                    if not st.session_state.get("dca_rate_override", False):
-                        st.session_state["dca_rate_value"] = mean_expected
-                        st.session_state["dca_rate_pending_reset"] = True
-                    else:
-                        st.session_state["dca_rate_pending_reset"] = False
+        if download_summary:
+            with st.expander("Download Summary", expanded=False):
+                ds_tickers = cast("tuple[str, ...]", download_summary["tickers"])
+                tickers_display = ", ".join(ds_tickers)
+                if download_summary.get("used_cache"):
+                    st.info(f"Using cached price data for: {tickers_display}")
                 else:
-                    st.session_state["dca_rate_pending_reset"] = False
-                controls["dca_rate"] = float(
-                    st.session_state.get(
-                        "dca_rate_value",
-                        st.session_state.get("dca_rate_default", 0.08),
+                    st.success(
+                        f"Downloaded {len(ds_tickers)} tickers: {tickers_display}"
                     )
+                st.caption(
+                    f"Price history directory: `{download_summary['price_history_dir']}`"
                 )
-                with metrics_placeholder.container():
-                    summary = render_metrics_table(metrics_result)
-                    st.download_button(
-                        "Download Metrics CSV",
-                        data=summary.to_csv().encode("utf-8"),
-                        file_name="pysharpe_metrics.csv",
-                        mime="text/csv",
-                    )
-                with chart_placeholder.container():
-                    st.subheader("Cumulative Returns")
-                    plot_cumulative_returns(price_data)
-                weights_placeholder.empty()
+                if download_summary.get("collated_path"):
+                    st.caption(f"Collated CSV: `{download_summary['collated_path']}`")
+                ds_warnings = cast("tuple", download_summary.get("warnings", ()) or ())
+                for warning_message in ds_warnings:
+                    st.warning(warning_message)
+                stats_frame = pd.DataFrame(
+                    {
+                        "start": [download_summary.get("start")],
+                        "end": [download_summary.get("end")],
+                        "rows": [download_summary.get("rows")],
+                        "tickers": [len(ds_tickers)],
+                    },
+                    index=["Portfolio"],
+                )
+                st.dataframe(stats_frame)
+                if portfolio_data and not portfolio_data.collated.empty:
+                    st.markdown("**Collated Portfolio Preview**")
+                    st.dataframe(portfolio_data.collated.head().style.format("{:.2f}"))
 
-        if st.button("Optimise Portfolio"):
-            if price_data.empty or price_data.select_dtypes("number").empty:
-                st.warning("Cannot optimise without Close/Adj Close price history.")
+        with st.expander("Price Preview (last 60 rows)", expanded=False):
+            preview = cast(pd.DataFrame, controls.get("preview", pd.DataFrame()))
+            if preview.empty:
+                preview = prices.tail(60)
+            preview = preview.tail(60)
+            price_columns = set(price_data.columns)
+            preview_columns = [
+                column
+                for column in preview.columns
+                if (column in price_columns)
+                or ("close" in str(column).lower())
+                or ("volume" in str(column).lower())
+            ]
+            if preview_columns:
+                preview = preview.loc[:, preview_columns]
+            if preview.columns.duplicated().any():
+                preview = preview.loc[:, ~preview.columns.duplicated()]
+            st.dataframe(preview.style.format("{:.2f}"))
+
+        with st.expander("Ticker Metadata", expanded=False):
+            metadata = cast(pd.DataFrame, controls.get("metadata", pd.DataFrame()))
+            if metadata.empty:
+                st.info("No ticker metadata available for the current selection.")
             else:
-                try:
-                    opt_result = optimise_from_prices(price_data, base_currency="CAD")
-                    weights = opt_result.weights
-                except Exception as exc:
-                    st.warning(f"Optimisation failed: {exc}")
-                    weights = None
-                if weights:
-                    with weights_placeholder.container():
-                        st.subheader("Portfolio Weights")
-                        plot_weights(weights)
-                        weight_series = pd.Series(weights.allocations, name="weight")
-                        st.download_button(
-                            "Download Weights CSV",
-                            data=weight_series.to_csv().encode("utf-8"),
-                            file_name="pysharpe_weights.csv",
-                            mime="text/csv",
+                st.dataframe(metadata)
+
+    # ===================================================================
+    # Tab 1: Overview (charts, metrics, weights, performance comparison)
+    # ===================================================================
+    with tab_overview:
+        # -- Unified Run Analytics & Optimize button -------------------------
+        run_col, _ = st.columns([1, 1])
+        with run_col:
+            if st.button(
+                "Run Analytics & Optimization", type="primary", use_container_width=True
+            ):
+                if price_data.empty or price_data.select_dtypes("number").empty:
+                    st.warning(
+                        "No suitable Close/Adj Close series found for analytics."
+                    )
+                else:
+                    with st.spinner(
+                        "Computing metrics, running optimisation, and generating frontier..."
+                    ):
+                        # 1) Metrics
+                        metrics_result = compute_metrics(price_data)
+                        mean_expected = (
+                            float(metrics_result.expected.mean())
+                            if not metrics_result.expected.empty
+                            else np.nan
+                        )
+                        if not np.isnan(mean_expected):
+                            st.session_state["dca_rate_default"] = mean_expected
+                            if not st.session_state.get("dca_rate_override", False):
+                                st.session_state["dca_rate_value"] = mean_expected
+                                st.session_state["dca_rate_pending_reset"] = True
+                            else:
+                                st.session_state["dca_rate_pending_reset"] = False
+                        else:
+                            st.session_state["dca_rate_pending_reset"] = False
+                        controls["dca_rate"] = float(
+                            st.session_state.get(
+                                "dca_rate_value",
+                                st.session_state.get("dca_rate_default", 0.08),
+                            )
                         )
 
-        st.subheader("Efficient Frontier & Custom Mix")
-        if not price_data.empty and len(price_data.columns) >= 2:
-            render_frontier_comparison(price_data, controls.get("custom_weights", {}))
+                        # 2) Optimisation + frontier + benchmarks (one shot)
+                        try:
+                            cached = run_full_analysis(
+                                price_data,
+                                cast(
+                                    "dict[str, float]",
+                                    controls.get("custom_weights", {}),
+                                ),
+                            )
+                        except RuntimeError as exc:
+                            st.error(f"Optimization Failed: {str(exc)}")
+                            st.stop()
 
+                        # 3) Store unified results in session state
+                        cached["metrics_result"] = metrics_result
+                        st.session_state["opt_results"] = cached
+
+        # -- Conditional rendering (reads strictly from session state) --------
+        cached = st.session_state.get("opt_results")
+        if cached is not None:
+            metrics_result = cached["metrics_result"]
+            st.subheader("Portfolio Metrics")
+            summary = render_metrics_table(metrics_result)
+            st.download_button(
+                "Download Metrics CSV",
+                data=summary.to_csv().encode("utf-8"),
+                file_name="pysharpe_metrics.csv",
+                mime="text/csv",
+            )
+            st.subheader("Cumulative Returns")
+            plot_cumulative_returns(price_data)
+
+            opt_result = cached["opt_result"]
+            weights = opt_result.weights
+            if weights and weights.allocations:
+                st.subheader("Portfolio Weights")
+                plot_weights(weights)
+                weight_series = pd.Series(weights.allocations, name="weight")
+                st.download_button(
+                    "Download Weights CSV",
+                    data=weight_series.to_csv().encode("utf-8"),
+                    file_name="pysharpe_weights.csv",
+                    mime="text/csv",
+                )
+
+            # -- Performance Comparison table (from cache) --------------------
+            if not price_data.empty and len(price_data.columns) >= 2:
+                st.subheader("Performance Comparison")
+                render_performance_comparison(
+                    price_data,
+                    cast("dict[str, float]", controls.get("custom_weights", {})),
+                    cached=cached,
+                )
+
+        # -- Backtest (preserved from previous layout) -----------------------
+        with st.expander("Portfolio Backtesting", expanded=False):
+            render_backtest_tab(prices)
+
+        # -- Execute / Rebalancing (preserved from previous layout) -----------
+        with st.expander("Execution & Rebalancing", expanded=False):
+            render_execution_tab(
+                price_data,
+                default_cash=cast(float, controls.get("dca_monthly", 1000.0)),
+            )
+
+    # ===================================================================
+    # Tab 2: Efficient Frontier
+    # ===================================================================
+    with tab_frontier:
+        st.subheader("Efficient Frontier")
+        if not price_data.empty and len(price_data.columns) >= 2:
+            cached = st.session_state.get("opt_results")
+            if cached is not None:
+                render_frontier_plot(
+                    price_data,
+                    cast("dict[str, float]", controls.get("custom_weights", {})),
+                    cached=cached,
+                )
+            else:
+                st.info(
+                    "Click 'Run Analytics & Optimization' in the Overview tab "
+                    "to generate the efficient frontier."
+                )
+        else:
+            st.info(
+                "Add at least 2 tickers with price history to view the "
+                "efficient frontier."
+            )
+
+    # ===================================================================
+    # Tab 3: DCA Simulation (independent of optimization — slider-only)
+    # ===================================================================
+    with tab_dca:
         st.subheader("Dollar-Cost Averaging Simulation")
         dca_df = render_dca_projection(
-            controls["dca_months"],
-            controls["dca_initial"],
-            controls["dca_monthly"],
-            float(st.session_state.get("dca_rate_value", controls["dca_rate"])),
+            cast(int, controls["dca_months"]),
+            cast(float, controls["dca_initial"]),
+            cast(float, controls["dca_monthly"]),
+            float(
+                st.session_state.get(
+                    "dca_rate_value", cast(float, controls["dca_rate"])
+                )
+            ),
         )
         st.download_button(
             "Download DCA Projection CSV",
             data=dca_df.to_csv(index=False).encode("utf-8"),
             file_name="pysharpe_dca_projection.csv",
             mime="text/csv",
-        )
-
-    with tab_backtest:
-        render_backtest_tab(prices)
-
-    with tab_execute:
-        render_execution_tab(
-            price_data,
-            default_cash=controls.get("dca_monthly", 1000.0),
         )
 
 

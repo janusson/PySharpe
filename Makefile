@@ -46,4 +46,8 @@ clean:  ## Remove build artifacts, caches, and coverage files
 
 check: lint format-check  ## Quick CI check (lint + format only)
 
-all: check test-cov build  ## Full CI pipeline (lint, format-check, tests, coverage, build)
+all: check test-cov build repomix  ## Full CI pipeline (lint, format-check, tests, coverage, build, repomix)
+
+repomix:  ## Generate repomix packed output
+	@echo "Generating repomix packed output..."
+	repomix

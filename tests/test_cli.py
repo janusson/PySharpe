@@ -107,7 +107,7 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     assert captured["optimise"]["category_map"] is None
     assert captured["optimise"]["include_unmapped"] is True
     assert captured["optimise"]["base_currency"] == "CAD"
-    assert captured["optimise"]["max_weight"] == 0.20
+    assert captured["optimise"]["max_weight"] == 1.0
     assert captured["optimise"]["shrinkage_floor"] == 0.3
     output = capsys.readouterr().out
     assert "Artefacts written" in output

@@ -685,8 +685,8 @@ def _build_parser() -> argparse.ArgumentParser:
     optimise.add_argument(
         "--max-weight",
         type=float,
-        default=0.20,
-        help="Maximum allowable weight for any single asset (default: 0.20).",
+        default=1.0,
+        help="Maximum allowable weight for any single asset (default: 1.0).",
     )
     optimise.add_argument(
         "--plot-holdings-history",

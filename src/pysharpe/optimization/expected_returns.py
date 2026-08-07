@@ -6,9 +6,13 @@ that reduce estimation error and mitigate recency bias.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 from pypfopt.expected_returns import mean_historical_return
+
+logger = logging.getLogger(__name__)
 
 
 def shrinkage_expected_return(
@@ -23,9 +27,10 @@ def shrinkage_expected_return(
     assets are shrunk more aggressively, while assets with strong,
     precisely-estimated differences are shrunk less.
 
-    This directly counters recency bias — an asset whose recent returns
-    are extreme will be pulled back toward the pack unless the data
-    strongly indicates otherwise.
+    Uses Ledoit-Wolf shrunk covariance for the shrinkage-intensity
+    computation to guarantee a well-conditioned inverse, preventing the
+    silent collapse to identical expected returns that forces equal-weight
+    allocations when sample covariance is near-singular.
 
     Based on Jorion (1986) "Bayes-Stein Estimation for Portfolio Analysis".
 
@@ -69,8 +74,21 @@ def shrinkage_expected_return(
         return mean_historical_return(prices, frequency=frequency)
 
     # Annualized sample moments
-    mu_sample = returns.mean().values * frequency  # shape (n_assets,)
-    cov = returns.cov().values * frequency  # shape (n_assets, n_assets)
+    mu_sample = returns.mean().to_numpy(dtype=float) * frequency  # shape (n_assets,)
+
+    # Use Ledoit-Wolf shrunk covariance for robust inversion.
+    # Sample covariance is frequently near-singular with correlated ETFs
+    # (e.g. VFV+VDY+VIU all tracking broad equity markets), causing
+    # LinAlgError and a fallback to identical expected returns — which in
+    # turn forces equal-weight allocations from the optimizer.
+    try:
+        from sklearn.covariance import LedoitWolf
+
+        lw = LedoitWolf()
+        lw.fit(returns.values)
+        cov = lw.covariance_ * frequency
+    except ImportError:
+        cov = returns.cov().to_numpy(dtype=float) * frequency
 
     # Grand mean (equal-weighted portfolio)
     mu_grand = float(mu_sample.mean())
@@ -79,7 +97,15 @@ def shrinkage_expected_return(
     try:
         inv_cov = np.linalg.inv(cov)
     except np.linalg.LinAlgError:
-        return pd.Series(np.full(n_assets, mu_grand), index=returns.columns)
+        # The Ledoit-Wolf shrunk covariance should always be well-conditioned
+        # and invertible.  If we still fail (extremely degenerate data),
+        # fall back to raw historical means to preserve return differentiation
+        # rather than collapsing to the grand mean for every asset.
+        logger.warning(
+            "Covariance matrix is singular even after Ledoit-Wolf shrinkage. "
+            "Falling back to raw historical means."
+        )
+        return mean_historical_return(prices, frequency=frequency)
 
     # Mahalanobis distance of sample means from grand mean.
     # Large δ² → assets really are different → less shrinkage.

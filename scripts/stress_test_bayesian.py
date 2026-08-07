@@ -52,9 +52,14 @@ def fetch_data() -> pd.DataFrame:
     logger.info(f"Downloading 10-year price data for proxies: {tickers}")
 
     # Download 10 years of data to stress the model
-    data = yf.download(tickers, start="2014-01-01", end="2024-01-01", progress=False)[
-        "Close"
-    ]
+    # auto_adjust=True ensures Close = adjusted close (no phantom returns from distributions).
+    data = yf.download(
+        tickers,
+        start="2014-01-01",
+        end="2024-01-01",
+        progress=False,
+        auto_adjust=True,
+    )["Close"]
 
     # Drop rows with NaNs to ensure clean data for PyMC
     data = data.dropna()

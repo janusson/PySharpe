@@ -84,7 +84,20 @@ def _clean_numeric_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _resolve_field_frame(
     raw_data: pd.DataFrame, field_priority: Iterable[str]
 ) -> pd.DataFrame:
-    """Extract the first matching field from yfinance output."""
+    """Extract the first matching field from yfinance output.
+
+    For MultiIndex columns (``group_by="ticker"``), matches field names
+    at the top level with strict equality.  For flat columns, matches
+    column names via exact equality first, then substring matching as a
+    fallback — this ensures ``"Adj Close"`` is not accidentally matched
+    by the ``"Close"`` substring pattern.
+
+    When ``auto_adjust=True`` is used with yfinance, the returned
+    DataFrame has ``Close`` = adjusted close and no separate ``Adj Close``
+    column.  The priority ordering (``"Adj Close"`` first) still works
+    correctly: if ``Adj Close`` is absent, the function falls through to
+    ``Close`` which is already adjusted.
+    """
 
     if raw_data.empty:
         return pd.DataFrame()
@@ -98,14 +111,33 @@ def _resolve_field_frame(
         else:
             extracted = raw_data.select_dtypes("number")
     else:
+        # Flat columns: prefer exact match (e.g. "Adj Close"), then
+        # substring match as a fallback (e.g. "Close" matching "AAPL Close").
         extracted = raw_data.select_dtypes("number")
-        matching = [
-            col
-            for col in extracted.columns
-            if any(field.lower() in str(col).lower() for field in field_priority)
-        ]
-        if matching:
-            extracted = extracted.loc[:, matching]
+        if extracted.empty:
+            return pd.DataFrame()
+
+        cols_lower = {str(c).lower(): str(c) for c in extracted.columns}
+        chosen: list[str] = []
+        for field in field_priority:
+            field_lower = field.lower()
+            # 1) Exact case-insensitive match
+            if field_lower in cols_lower:
+                chosen.append(cols_lower[field_lower])
+                break
+        if not chosen:
+            # 2) Substring fallback — "close" appears inside "AAPL Close"
+            for field in field_priority:
+                field_lower = field.lower()
+                matched = [
+                    orig for low, orig in cols_lower.items() if field_lower in low
+                ]
+                if matched:
+                    chosen.extend(matched)
+                    break
+
+        if chosen:
+            extracted = extracted.loc[:, chosen]
 
     if isinstance(extracted, pd.Series):
         extracted = extracted.to_frame()
@@ -410,12 +442,16 @@ def load_preview_data(tickers: list[str], end_date: dt.date) -> pd.DataFrame:
         end=end_ts.to_pydatetime(),
         progress=False,
         group_by="ticker",
-        auto_adjust=False,
+        auto_adjust=True,
     )
 
     if raw_download.empty:
         return pd.DataFrame()
 
+    # With auto_adjust=True, yfinance returns adjusted data in the "Close"
+    # column (no separate "Adj Close").  We still prefer "Adj Close" first
+    # for robustness against cached data that may have been stored before
+    # this fix.
     closes = _clean_numeric_frame(
         _resolve_field_frame(raw_download, ("Adj Close", "Close"))
     )

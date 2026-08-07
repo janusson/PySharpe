@@ -25,9 +25,9 @@ class PortfolioDefinition:
     Example:
         >>> from pathlib import Path
         >>> from pysharpe.data.portfolio import PortfolioDefinition
-        >>> definition = PortfolioDefinition("growth", ("AAPL", "MSFT"), Path("growth.csv"))
+        >>> definition = PortfolioDefinition("cad_growth", ("VFV.TO", "VCN.TO"), Path("cad_growth.csv"))
         >>> definition.ticker_set
-        {'AAPL', 'MSFT'}
+        {'VFV.TO', 'VCN.TO'}
     """
 
     name: str
@@ -45,8 +45,8 @@ class PortfolioDefinition:
         Example:
             >>> from pathlib import Path
             >>> from pysharpe.data.portfolio import PortfolioDefinition
-            >>> PortfolioDefinition("demo", ("AAPL", "AAPL", "MSFT"), Path("demo.csv")).ticker_set
-            {'AAPL', 'MSFT'}
+            >>> PortfolioDefinition("cad_portfolio", ("VFV.TO", "VFV.TO", "VCN.TO"), Path("cad_portfolio.csv")).ticker_set
+            {'VFV.TO', 'VCN.TO'}
         """
 
         return set(self.tickers)
@@ -67,9 +67,9 @@ def read_tickers(path: Path) -> list[str]:
     Example:
         >>> from pathlib import Path
         >>> path = Path('example.csv')
-        >>> _ = path.write_text('ticker,value\\nAAPL,100\\nMSFT,200', encoding='utf-8')
+        >>> _ = path.write_text('ticker,value\\nVFV.TO,100\\nVCN.TO,200', encoding='utf-8')
         >>> read_tickers(path)
-        ['AAPL', 'MSFT']
+        ['VFV.TO', 'VCN.TO']
         >>> path.unlink()
     """
 
@@ -217,10 +217,10 @@ class PortfolioRepository:
             >>> from pysharpe.data.portfolio import PortfolioRepository
             >>> repo = PortfolioRepository()
             >>> portfolio_dir = repo.directory
-            >>> (portfolio_dir / 'demo.csv').write_text('AAPL', encoding='utf-8')
+            >>> (portfolio_dir / 'cad_portfolio.csv').write_text('VFV.TO', encoding='utf-8')
             >>> repo.refresh()
-            >>> repo.get_portfolio('demo').name
-            'demo'
+            >>> repo.get_portfolio('cad_portfolio').name
+            'cad_portfolio'
         """
 
         if name in self._portfolios:

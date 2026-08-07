@@ -5,6 +5,67 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
 
 ---
 
+### 2026 — Equal-weight collapse from near-singular sample covariance
+- **Symptom**: VFV.TO, VDY.TO, and VIU.TO all received identical optimized
+  weights (e.g. all 0.20 or all 0.25) despite different risk profiles.
+- **Root cause**: Sample covariance matrices for highly correlated broad-market
+  ETFs become near-singular (rank-deficient).  Two cascading failures result:
+  1. ``shrinkage_expected_return()`` used sample covariance for the Bayes-Stein
+     computation.  The near-singular matrix caused a ``LinAlgError``, which fell
+     back to the grand mean for every asset — producing identical expected
+     returns and robbing the optimizer of any differentiation signal.
+  2. The global ``max_weight`` ceiling (default 0.20) further constrained the
+     feasible region.  With ``max_weight * n_assets ≈ 1.0``, the simplex
+     collapsed to a single equal-weight point, leaving zero degrees of freedom
+     even after the covariance issue was resolved.
+- **Fix**:
+  1. Replaced sample covariance with **Ledoit-Wolf shrunk covariance** for the
+     shrinkage-intensity matrix inside ``shrinkage_expected_return()``.  The
+     shrunk estimate is guaranteed positive-definite, preventing the
+     ``LinAlgError`` and eliminating the grand-mean fallback.
+  2. Removed the global ``max_weight`` artificial ceiling entirely (default now
+     ``1.0`` / 100%).  The optimizer operates with full degrees of freedom inside
+     the weight simplex.  Concentration risk is handled natively by the
+     Ledoit-Wolf shrinkage already applied to the covariance.
+  3. Removed the ``1/(n-2) + 0.01`` slack heuristic — it was mathematically
+     unsafe for small portfolios (N=2 → ``ZeroDivisionError``) and
+     philosophically wrong: an optimizer should not silently override the
+     user's stated constraints.
+- **Regression test**: ``test_optimise_from_prices_converges_on_differentiated_weights``
+- **Grep guard**: ``grep -rn 'shrinkage_expected_return\|LedoitWolf' src/pysharpe/portfolio_optimization.py``
+
+### 2026 — int object has no attribute 'date' in HistoryLinker
+- **Symptom**: ``AttributeError: 'int' object has no attribute 'date'`` in
+  ``linkage.py:357`` when stitching proxy data. Crashed the
+  `process_all_portfolios` workflow.
+- **Root cause**: ``common_dates.min()`` returns an ``int`` when the index is
+  integer-based (e.g. in tests with stub fetchers).  ``t0.date()`` was called
+  unconditionally assuming ``t0`` would always be a ``pd.Timestamp``.
+- **Fix**: Guard ``t0.date()`` with ``hasattr(t0, "date")``, falling back to
+  ``str(t0)`` for display.
+- **Regression test**: ``test_process_all_portfolios_uses_repository``
+- **Grep guard**: ``grep -rn '\.date()' src/pysharpe/data/linkage.py``
+
+### 2026 — Silent equal-weight fallbacks in optimizer execution paths
+- **Symptom**: When `scipy.optimize.minimize` or `EfficientFrontier` failed
+  (singular covariance, infeasible constraints, solver non-convergence), the
+  optimizer silently returned equal-weight allocations.  Users saw plausible-looking
+  weights with normal Sharpe ratios, masking the underlying failure.
+- **Root cause**: Both `SharpeOptimizer.optimize()` and `BayesianOptimizer.optimize()`
+  had `if not result.success: return _fallback_result()` patterns.  The
+  `validate_custom_allocation.py` script had its own `if not result.success: w_opt = x0`
+  branch.  `optimise_from_prices` silently fell back to sample covariance when
+  scikit-learn was missing.
+- **Fix**:
+  1. All `scipy` failure paths now raise ``RuntimeError`` with ``result.message``.
+  2. `SharpeOptimizer._estimate_covariance()` now uses ``sklearn.covariance.LedoitWolf``
+     to guarantee PSD covariance estimates.
+  3. `optimise_from_prices` raises ``RuntimeError`` when Ledoit-Wolf fails
+     (no sample-covariance fallback).
+  4. ``_fallback_result()`` was removed entirely.
+- **Regression test**: ``test_sharpe_optimizer_optimize_raises_on_failure``
+- **Grep guard**: ``grep -rn '_fallback_result\|if not result.success' src/pysharpe/ --include='*.py'``
+
 ### 2024 — MER double-division
 - **Symptom**: Reported portfolio MER was 100× smaller than intended. An ETF
   with a 0.17% MER showed as 0.0017%.
@@ -82,19 +143,21 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
 - **Regression test**: Covered by existing collation tests.
 - **Grep guard**: `grep -rn 'groupby.*axis=1' src/pysharpe/ --include='*.py'`
 
-### 2024 — max_weight too restrictive for small portfolios
+### 2024 (superseded) — max_weight too restrictive for small portfolios
 - **Symptom**: `ValueError: The max_weight constraint (0.2) is too restrictive
   for 4 assets to sum to 1.0.` Small portfolios (≤ 4 assets) with the default
-  `max_weight=0.20` are infeasible because 4 × 0.20 = 0.80 < 1.0.
+  `max_weight=0.20` were infeasible because 4 × 0.20 = 0.80 < 1.0.
 - **Root cause**: Both `optimise_from_prices` and
   `optimise_portfolio_for_sharpe` raised a hard `ValueError` when
   `max_weight * n_assets < 1.0` instead of auto-adjusting.
-- **Fix**: Replaced `ValueError` with a `logger.warning` and auto-adjust
-  `max_weight` to `1.0 / n_assets` (the minimum feasible per-asset weight
-  cap). The optimizer still enforces the cap — it just relaxes it enough
-  to be mathematically possible.
-- **Regression test**: None yet (the old constraint was never tested).
-- **Grep guard**: `grep -rn 'max_weight.*too restrictive' src/pysharpe/ --include='*.py'`
+- **Historical fix (2024)**: Replaced `ValueError` with a `logger.warning` and
+  auto-adjusted `max_weight` to `1.0 / n_assets`.
+- **Final fix (2026)**: The auto-adjust was an artificial hack that masked the
+  deeper problem (see **2026 — Equal-weight collapse** above).  The default
+  `max_weight` is now ``1.0`` (unconstrained) across the entire pipeline, and
+  the auto-adjust logic — including the unsafe ``1/(n-2) + 0.01`` variant — has
+  been removed entirely.  Concentration risk is handled natively by
+  Ledoit-Wolf covariance shrinkage.
 
 ---
 

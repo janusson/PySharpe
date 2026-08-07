@@ -207,7 +207,7 @@ def optimise_portfolio(
     include_unmapped_categories: bool = True,
     return_model: str = "shrinkage",
     base_currency: str = "CAD",
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
     shrinkage_floor: float = 0.3,
     execution_config: ExecutionConfig | None = None,
     proxy_map: dict[str, dict[str, object]] | None = None,
@@ -244,7 +244,7 @@ def optimise_portfolio(
 
     Example:
         >>> from pysharpe.portfolio_optimization import optimise_portfolio
-        >>> optimise_portfolio('demo', make_plot=False)  # doctest: +SKIP
+        >>> optimise_portfolio('cad_portfolio', make_plot=False)  # doctest: +SKIP
         OptimisationResult(...)
     """
 
@@ -293,7 +293,7 @@ def optimise_from_prices(
     include_unmapped_categories: bool = True,
     return_model: str = "shrinkage",
     base_currency: str = "CAD",
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
     shrinkage_floor: float = 0.3,
     execution_config: ExecutionConfig | None = None,
     proxy_map: dict[str, dict[str, object]] | None = None,
@@ -320,7 +320,7 @@ def optimise_from_prices(
             appear in ``category_map`` as standalone categories.
         return_model: Expected return calculation method. 'ema' or 'mean'.
         base_currency: FX target currency applied before optimisation.
-        max_weight: Maximum allowable weight for any single asset (default 0.20).
+        max_weight: Maximum allowable weight for any single asset (default 1.0).
         execution_config: Optional execution settings controlling tax drag
             during expected-return estimation.
         proxy_map: Optional proxy metadata used to determine US domicile and
@@ -334,19 +334,6 @@ def optimise_from_prices(
             f"Portfolio optimization requires a minimum of {MIN_ASSETS} assets to ensure basic diversification. "
             "For fewer assets, use direct manual allocation."
         )
-
-    n_assets = len(prices.columns)
-    if max_weight * n_assets < 1.0:
-        adjusted = 1.0 / n_assets
-        logger.warning(
-            "max_weight %.4f is too restrictive for %d assets (max sum = %.4f); "
-            "auto-adjusting to %.4f.",
-            max_weight,
-            n_assets,
-            max_weight * n_assets,
-            adjusted,
-        )
-        max_weight = adjusted
 
     tickers = list(prices.columns)
 
@@ -428,11 +415,12 @@ def optimise_from_prices(
 
     try:
         cov = CovarianceShrinkage(prices).ledoit_wolf()
-    except (ImportError, ModuleNotFoundError):  # pragma: no cover - sklearn optional
-        logger.warning(
-            "scikit-learn is missing. Falling back to sample covariance instead of Ledoit-Wolf shrinkage."
-        )
-        cov = prices.pct_change().dropna().cov()
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to compute Ledoit-Wolf shrinkage covariance. "
+            "Ensure scikit-learn is installed. "
+            f"Underlying error: {exc}"
+        ) from exc
 
     ef = EfficientFrontier(mu, cov, weight_bounds=(0.0, max_weight))
 
@@ -542,7 +530,7 @@ def _optimise_portfolio_impl(
     plot_strategy: AllocationPlotStrategy,
     return_model: str,
     base_currency: str,
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
     shrinkage_floor: float = 0.3,
     execution_config: ExecutionConfig | None = None,
     proxy_map: dict[str, dict[str, object]] | None = None,
@@ -590,7 +578,7 @@ def optimise_portfolio_for_sharpe(
     max_portfolio_mer: float | None = None,
     make_plot: bool = True,
     base_currency: str = "CAD",
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
 ) -> OptimisationResult:
     """Optimises a portfolio to maximize the Sharpe ratio using the custom SharpeOptimizer.
 
@@ -604,7 +592,7 @@ def optimise_portfolio_for_sharpe(
         max_portfolio_mer: Maximum allowable weighted MER for the portfolio.
         make_plot: When ``True`` generate a pie chart of positive weights.
         base_currency: The target currency for all assets (default "CAD").
-        max_weight: The maximum allowable weight for any single asset. Defaults to 0.20 (20%).
+        max_weight: The maximum allowable weight for any single asset. Defaults to 1.0 (100%).
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -624,19 +612,6 @@ def optimise_portfolio_for_sharpe(
             f"Portfolio optimization requires a minimum of {MIN_ASSETS} assets to ensure basic diversification. "
             "For fewer assets, use direct manual allocation."
         )
-
-    n_assets = len(prices.columns)
-    if max_weight * n_assets < 1.0:
-        adjusted = 1.0 / n_assets
-        logger.warning(
-            "max_weight %.4f is too restrictive for %d assets (max sum = %.4f); "
-            "auto-adjusting to %.4f.",
-            max_weight,
-            n_assets,
-            max_weight * n_assets,
-            adjusted,
-        )
-        max_weight = adjusted
 
     first_valid_dates = prices.apply(lambda col: col.first_valid_index())
     limiting_ticker = first_valid_dates.idxmax()  # Used for metadata
@@ -713,7 +688,7 @@ def optimise_all_portfolios(
     return_model: str = "shrinkage",
     sharpe_optimizer_config: SharpeOptimizerConfig | None = None,
     base_currency: str = "CAD",
-    max_weight: float = 0.20,
+    max_weight: float = 1.0,
 ) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -735,7 +710,7 @@ def optimise_all_portfolios(
             If provided, `optimise_portfolio_for_sharpe` will be used instead of
             the default `optimise_portfolio`.
         base_currency: The target currency for all assets (default "CAD").
-        max_weight: The maximum allowable weight for any single asset. Defaults to 0.20 (20%).
+        max_weight: The maximum allowable weight for any single asset. Defaults to 1.0 (100%).
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -743,7 +718,7 @@ def optimise_all_portfolios(
     Example:
         >>> from pysharpe.portfolio_optimization import optimise_all_portfolios
         >>> optimise_all_portfolios(make_plot=False)  # doctest: +SKIP
-        {'demo': OptimisationResult(...)}
+        {'cad_portfolio': OptimisationResult(...)}
     """
 
     results: dict[str, OptimisationResult] = {}
