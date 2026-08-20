@@ -1,6 +1,38 @@
 # Changelog
 
-## v0.3.0 (unreleased)
+## v1.0.0 (2026-08-14)
+
+First production release.
+
+### Developer Infrastructure
+
+- **Makefile**: `install`, `lint` (ruff check + format), `typecheck` (pyright with warnings fatal), `test` (pytest with a 75% coverage floor), `build_docs` (MkDocs `--strict`), `clean` (artefacts, caches, and local data directories — `.gitkeep` preserved), and `check` (full pre-commit gate).
+- **CI** (`.github/workflows/ci.yml`): three parallel jobs — lint+typecheck, tests with coverage, and a strict docs build — on every push and pull request.
+- **Strict typing**: pyright configured with warnings-as-errors; the codebase holds 0 errors / 0 warnings.
+- **Docs**: MkDocs Material + mkdocstrings API reference (`docs/api.md`), test map, gotchas log, and the Astro showcase article (`docs/articles/pysharpe_showcase.mdx`).
+
+### Mathematical Core Hardening
+
+- **Covariance estimators** (`optimization/estimators.py`): analytical Ledoit-Wolf (2004) linear shrinkage and nonlinear shrinkage (2017/2020), listwise missing-data handling, and `ensure_strictly_psd` eigen-clipping so every output is strictly positive definite; structural failures raise `DataValidationError`.
+- **HRP** (`optimization/hrp.py`): zero-variance assets handled explicitly in recursive bisection (variance floors) — no `ZeroDivisionError` possible; covariance inputs validated for symmetry, finiteness, and PSD.
+- **Black-Litterman & Bayesian** (`optimization/black_litterman.py`, `optimization/bayesian.py`): posterior covariances hardened to strict PSD; `BayesianOptimizer.optimize_efficient_frontier()` feeds PyPortfolioOpt the posterior (shrunk) covariance — never the sample — with solver failures surfaced instead of silently falling back.
+
+### Validation & Backtesting
+
+- **PurgedKFold** (`validation/resampling.py`): strict embargo separation between every consecutive test-fold pair (trailing remainders excluded, never clamped); autocorrelation-decay gap sizing via `autocorrelation_decay_lag` and `PurgedKFold.from_returns`.
+- **DSR** (`validation/metrics.py`): `compute_dsr(..., theta=...)` deflates the observed Sharpe by Lo's √θ autocorrelation factor before deflation; `compute_validation_metrics` computes θ from the returns automatically.
+- **Backtest engine** (`analysis/backtest_engine.py`): explicit bid-ask spread (half-spread per side), slippage, and per-order commissions; walk-forward backtests forward cost parameters to every window; missing prices handled by dropping fully-missing columns with a warning then listwise row deletion; costs never use future prices.
+
+### Test Suite
+
+- 976 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
+- Edge-case coverage: perfectly/near-perfectly correlated shrinkage, NaN-in-fold walk-forwards, same-day VFV↔VOO superficial-loss trades across TFSA/NON_REG, and ±30-day window boundaries.
+
+### Presentation
+
+- README and docs overhaul with CI badges, engineering-rigor section, uv-first quickstart, and the `.agents/skills/` agentic-development framework.
+
+## v0.3.0 (development log — superseded by v1.0.0)
 
 ### Features
 

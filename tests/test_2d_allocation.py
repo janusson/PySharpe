@@ -689,3 +689,325 @@ class TestAppendOverflowRow:
         assert new_row["target_account"] == AccountType.NON_REG.value
         score = new_row.get("opportunity_score")
         assert score is not None and not (isinstance(score, float) and np.isnan(score))
+
+
+# ---------------------------------------------------------------------------
+# Normalisation function mathematical properties
+# ---------------------------------------------------------------------------
+
+
+class TestZScore:
+    """Verify _zscore mathematical correctness."""
+
+    def test_centered_at_zero(self) -> None:
+        """z-scored data has mean ≈ 0."""
+        from pysharpe.execution.allocator import _zscore
+
+        rng = np.random.default_rng(42)
+        series = pd.Series(rng.normal(10.0, 3.0, 1000))
+        result = _zscore(series)
+        assert abs(result.mean()) < 1e-10
+
+    def test_unit_variance(self) -> None:
+        """z-scored data has std ≈ 1."""
+        from pysharpe.execution.allocator import _zscore
+
+        rng = np.random.default_rng(77)
+        series = pd.Series(rng.normal(5.0, 2.0, 1000))
+        result = _zscore(series)
+        assert abs(result.std() - 1.0) < 0.01
+
+    def test_constant_returns_zero(self) -> None:
+        """All-constant series returns all zeros."""
+        from pysharpe.execution.allocator import _zscore
+
+        series = pd.Series([5.0, 5.0, 5.0])
+        result = _zscore(series)
+        assert (result == 0.0).all()
+
+    def test_nan_handling(self) -> None:
+        """NaN values are skipped in mean/std computation."""
+        from pysharpe.execution.allocator import _zscore
+
+        series = pd.Series([1.0, 2.0, 3.0, np.nan, 5.0])
+        result = _zscore(series)
+        # NaN positions are preserved in output
+        assert pd.isna(result.iloc[3])
+        # But valid positions have non-NaN z-scores
+        assert not result.iloc[:3].isna().any()
+        assert not pd.isna(result.iloc[4])
+
+    def test_preserves_relative_ordering(self) -> None:
+        """Higher raw values → higher z-scores."""
+        from pysharpe.execution.allocator import _zscore
+
+        series = pd.Series([1.0, 5.0, 3.0, 4.0, 2.0])
+        result = _zscore(series)
+        # Check monotonicity with raw values
+        for i in range(len(series)):
+            for j in range(i + 1, len(series)):
+                if series.iloc[i] < series.iloc[j]:
+                    assert result.iloc[i] < result.iloc[j], (
+                        f"Order violated: raw[{i}]={series.iloc[i]} < raw[{j}]={series.iloc[j]} "
+                        f"but z[{i}]={result.iloc[i]} >= z[{j}]={result.iloc[j]}"
+                    )
+
+
+class TestMinMax01:
+    """Verify _minmax_01 mathematical correctness."""
+
+    def test_bounds_zero_to_one(self) -> None:
+        """Output must be in [0, 1]."""
+        from pysharpe.execution.allocator import _minmax_01
+
+        rng = np.random.default_rng(42)
+        series = pd.Series(rng.normal(0, 1, 100))
+        result = _minmax_01(series)
+        assert result.min() >= 0.0
+        assert result.max() <= 1.0
+
+    def test_min_maps_to_zero(self) -> None:
+        """Minimum raw value maps to 0."""
+        from pysharpe.execution.allocator import _minmax_01
+
+        series = pd.Series([3.0, 7.0, 5.0])
+        result = _minmax_01(series)
+        assert result.iloc[0] == pytest.approx(0.0, abs=1e-10)  # 3 is min
+
+    def test_max_maps_to_one(self) -> None:
+        """Maximum raw value maps to 1."""
+        from pysharpe.execution.allocator import _minmax_01
+
+        series = pd.Series([3.0, 7.0, 5.0])
+        result = _minmax_01(series)
+        assert result.iloc[1] == pytest.approx(1.0, abs=1e-10)  # 7 is max
+
+    def test_constant_returns_half(self) -> None:
+        """All-equal values return 0.5."""
+        from pysharpe.execution.allocator import _minmax_01
+
+        series = pd.Series([5.0, 5.0, 5.0])
+        result = _minmax_01(series)
+        assert (result == 0.5).all()
+
+    def test_nan_handling(self) -> None:
+        """NaN values are skipped in min/max."""
+        from pysharpe.execution.allocator import _minmax_01
+
+        series = pd.Series([1.0, 5.0, np.nan, 3.0])
+        result = _minmax_01(series)
+        assert result.iloc[0] == pytest.approx(0.0, abs=1e-10)  # 1 is min
+        assert result.iloc[1] == pytest.approx(1.0, abs=1e-10)  # 5 is max
+        assert 0.0 < result.iloc[3] < 1.0  # 3 should be between 0 and 1
+
+
+# ---------------------------------------------------------------------------
+# Scoring mathematical correctness
+# ---------------------------------------------------------------------------
+
+
+class TestUnderweightScore:
+    """Verify underweight score normalization."""
+
+    def _build_simple_df(
+        self, values: list[float], targets: list[float]
+    ) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ticker": [f"ETF{i}" for i in range(len(values))],
+                "current_value": values,
+                "target_weight": targets,
+            }
+        )
+
+    def test_all_at_target_zero_score(self) -> None:
+        """When all assets are at target weights, underweight_score = 0."""
+        df = self._build_simple_df(
+            values=[250.0, 250.0, 500.0],
+            targets=[0.25, 0.25, 0.50],
+        )
+        # current weights: 250/1000=0.25, 250/1000=0.25, 500/1000=0.50
+        # underweights: all 0
+        result = score_opportunities(df)
+        assert (result["underweight_score"] == 0.0).all()
+
+    def test_severely_underweight_gets_max_score(self) -> None:
+        """Most underweight asset gets underweight_score = 1.0."""
+        df = self._build_simple_df(
+            values=[0.0, 500.0, 500.0],  # ETF0: 0%, ETF1: 50%, ETF2: 50%
+            targets=[0.50, 0.25, 0.25],  # ETF0: target 50%, ETF1: 25%, ETF2: 25%
+        )
+        # current weights: 0/1000=0, 500/1000=0.5, 500/1000=0.5
+        # underweights: 0.5-0=0.5, 0.25-0.5=-0.25→0, 0.25-0.5=-0.25→0
+        result = score_opportunities(df)
+        # ETF0 is the most underweight → score 1.0
+        row_etf0 = result[result["ticker"] == "ETF0"].iloc[0]
+        assert row_etf0["underweight_score"] == pytest.approx(1.0, abs=1e-10)
+
+    def test_overweight_scores_zero(self) -> None:
+        """Overweight assets get underweight_score = 0."""
+        df = self._build_simple_df(
+            values=[700.0, 300.0],
+            targets=[0.50, 0.50],
+        )
+        # current: 0.7, 0.3
+        # underweights: max(0, 0.5-0.7)=0, max(0, 0.5-0.3)=0.2
+        result = score_opportunities(df)
+        # The overweight asset gets 0
+        row_over = result[result["ticker"] == "ETF0"].iloc[0]
+        assert row_over["underweight_score"] == 0.0
+
+    def test_scores_sum_to_at_least_zero(self) -> None:
+        """Underweight scores are non-negative (weights below target only)."""
+        rng = np.random.default_rng(42)
+        n = 10
+        values = rng.uniform(10, 200, n)
+        targets = rng.dirichlet(np.ones(n))  # random portfolio weights summing to 1
+        df = pd.DataFrame(
+            {
+                "ticker": [f"E{i}" for i in range(n)],
+                "current_value": values,
+                "target_weight": targets,
+            }
+        )
+        result = score_opportunities(df)
+        assert (result["underweight_score"] >= 0.0).all()
+        assert (result["underweight_score"] <= 1.0).all()
+
+
+class TestScoreBlendWeights:
+    """Verify the scoring blend respects the authoritative 60/40 weights."""
+
+    def _build_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ticker": ["A", "B", "C"],
+                "current_value": [500.0, 300.0, 200.0],
+                "target_weight": [0.60, 0.20, 0.20],
+                "pe_ratio": [20.0, 15.0, 25.0],
+                "pb_ratio": [3.0, 1.5, 4.0],
+            }
+        )
+
+    def test_no_tax_defaults_to_60_40(self) -> None:
+        """Without tax chars, scores use 60% underweight + 40% valuation."""
+        df = self._build_df()
+        result = score_opportunities(df)
+
+        # Manually compute expected scores with 60/40 blend
+        for _, row in result.iterrows():
+            expected = 0.6 * row["underweight_score"] + 0.4 * row["valuation_score"]
+            assert abs(row["opportunity_score"] - expected) < 1e-10, (
+                f"{row['ticker']}: expected {expected:.6f}, got {row['opportunity_score']:.6f}"
+            )
+
+    def test_composite_score_between_zero_and_one(self) -> None:
+        """Composite opportunity score must be in [0, 1]."""
+        rng = np.random.default_rng(99)
+        n = 5
+        values = rng.uniform(10, 500, n)
+        targets = rng.dirichlet(np.ones(n))
+        df = pd.DataFrame(
+            {
+                "ticker": [f"ETF{i}" for i in range(n)],
+                "current_value": values,
+                "target_weight": targets,
+            }
+        )
+        result = score_opportunities(df)
+        assert (result["opportunity_score"] >= 0.0).all()
+        assert (result["opportunity_score"] <= 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# Allocation mathematical properties
+# ---------------------------------------------------------------------------
+
+
+class TestAllocationMath:
+    """Verify allocate_contribution mathematical invariants."""
+
+    def _build_scored(self) -> pd.DataFrame:
+        df = pd.DataFrame(
+            {
+                "ticker": ["VFV", "VDY", "QQC"],
+                "current_value": [300.0, 400.0, 300.0],
+                "target_weight": [0.30, 0.40, 0.30],
+            }
+        )
+        return score_opportunities(df)
+
+    def test_total_allocation_equals_contribution(self) -> None:
+        """Sum of recommended allocations = contribution (for simple case)."""
+        df = self._build_scored()
+        contribution = 1000.0
+        result = allocate_contribution(df, contribution)
+        total = result["recommended_allocation"].sum()
+        assert total == pytest.approx(contribution, rel=1e-9)
+
+    def test_allocations_non_negative(self) -> None:
+        """Recommended allocations are never negative."""
+        df = self._build_scored()
+        result = allocate_contribution(df, 500.0)
+        assert (result["recommended_allocation"] >= 0.0).all()
+
+    def test_rejects_non_positive_contribution(self) -> None:
+        """Zero or negative contribution raises ValueError."""
+        df = self._build_scored()
+        with pytest.raises(ValueError, match="positive"):
+            allocate_contribution(df, 0.0)
+        with pytest.raises(ValueError, match="positive"):
+            allocate_contribution(df, -100.0)
+
+    def test_rank_is_monotonic_with_allocation(self) -> None:
+        """Higher recommended_allocation → lower rank number (better rank)."""
+        df = self._build_scored()
+        result = allocate_contribution(df, 500.0)
+        sorted_result = result.sort_values("recommended_allocation", ascending=False)
+        # First row should have rank 1
+        assert sorted_result.iloc[0]["allocation_rank"] == 1.0
+
+    def test_weight_increase_positive(self) -> None:
+        """Recommended weight increase is non-negative."""
+        df = self._build_scored()
+        result = allocate_contribution(df, 500.0)
+        assert (result["recommended_weight_increase"] >= 0.0).all()
+
+    def test_rank_deterministic(self) -> None:
+        """Same input → same output (deterministic allocation)."""
+        df1 = self._build_scored()
+        df2 = self._build_scored()
+        r1 = allocate_contribution(df1, 500.0)
+        r2 = allocate_contribution(df2, 500.0)
+        pd.testing.assert_frame_equal(r1, r2)
+
+    def test_empty_portfolio_equal_allocation(self) -> None:
+        """With zero portfolio value, assets get equal allocation."""
+        df = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "current_value": [0.0, 0.0],  # Both zero
+                "target_weight": [0.5, 0.5],
+            }
+        )
+        df = score_opportunities(df)
+        result = allocate_contribution(df, 1000.0)
+        # Equal target weights with zero current → equal raw allocation
+        assert result["recommended_allocation"].iloc[0] == pytest.approx(
+            result["recommended_allocation"].iloc[1], rel=1e-6
+        )
+
+    def test_allocation_preserves_required_columns(self) -> None:
+        """Output must have all expected columns."""
+        df = self._build_scored()
+        result = allocate_contribution(df, 500.0)
+        required = {
+            "raw_allocation",
+            "recommended_allocation",
+            "spillover_allocation",
+            "allocation_rank",
+            "recommended_weight_increase",
+        }
+        assert required.issubset(set(result.columns)), (
+            f"Missing columns: {required - set(result.columns)}"
+        )

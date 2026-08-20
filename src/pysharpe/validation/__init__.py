@@ -28,6 +28,7 @@ from .resampling import (  # noqa: F401 - re-exported via __all__
     RegimeDependencyWarning,
     RegimeLabeler,
     RegimeSegmentationResult,
+    autocorrelation_decay_lag,
     bootstrap_regime_paths,
     check_regime_dependency,
     compute_regime_survival_rates,
@@ -63,6 +64,7 @@ _RESAMPLING_EXPORTS: list[str] = [
     "RegimeDependencyWarning",
     "RegimeLabeler",
     "RegimeSegmentationResult",
+    "autocorrelation_decay_lag",
     "bootstrap_regime_paths",
     "check_regime_dependency",
     "compute_regime_survival_rates",
@@ -83,9 +85,38 @@ _SAMPLE_SIZE_EXPORTS: list[str] = [
 ]
 
 __all__: list[str] = [
-    *_FRICTION_EXPORTS,
-    *_LEDGER_EXPORTS,
-    *_METRICS_EXPORTS,
-    *_RESAMPLING_EXPORTS,
-    *_SAMPLE_SIZE_EXPORTS,
+    # Friction
+    "FrictionProfile",
+    "FrictionStep",
+    "stress_test_execution_friction",
+    # Ledger
+    "DuckDBLedger",
+    "ExecutionStatus",
+    "PBOResult",
+    "TrialRecord",
+    "compute_pbo",
+    "validate_economic_justification",
+    # Metrics
+    "ValidationMetrics",
+    "compute_dsr",
+    "compute_validation_metrics",
+    "estimate_effective_trials",
+    # Resampling
+    "BootstrapResult",
+    "PurgedFold",
+    "PurgedKFold",
+    "Regime",
+    "RegimeDependencyReport",
+    "RegimeDependencyWarning",
+    "RegimeLabeler",
+    "RegimeSegmentationResult",
+    "autocorrelation_decay_lag",
+    "bootstrap_regime_paths",
+    "check_regime_dependency",
+    "compute_regime_survival_rates",
+    "optimal_block_length",
+    # Sample size
+    "SampleReliability",
+    "calculate_min_btl",
+    "evaluate_trade_sample",
 ]

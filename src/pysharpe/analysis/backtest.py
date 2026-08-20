@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 from pypfopt import EfficientFrontier
@@ -83,7 +85,7 @@ def optimize_portfolio(
     """
     ef = EfficientFrontier(expected_returns, cov_matrix)
     ef.max_sharpe()
-    return ef.clean_weights()
+    return cast(dict[str, float], ef.clean_weights())
 
 
 def simulate_returns(

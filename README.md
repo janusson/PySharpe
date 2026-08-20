@@ -2,17 +2,124 @@
 
 > **Evidence-based portfolio optimization for Canadian investors.** Construct, compare, and validate long-term investment portfolios using modern financial research — with every recommendation traceable to published literature, transparent assumptions, and reproducible quantitative analysis.
 
+<p align="center">
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg" alt="Build status"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/janusson/PySharpe/ci.yml?label=docs" alt="Docs build"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-75%25%2B-success" alt="Coverage gate"></a>
+  <a href="https://github.com/janusson/PySharpe/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12"></a>
+  <a href="https://github.com/janusson/PySharpe/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
+  <a href="https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json"><img src="https://img.shields.io/badge/pyright-strict%20%2B%20warnings--fatal-3178c6" alt="Pyright strict"></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/ruff-lint%20%2B%20format-d7ff64" alt="Ruff"></a>
+  <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/uv-locked%20dependencies-261230" alt="uv"></a>
+</p>
+
 ---
 
-## Mission
+PySharpe is a portfolio research platform that **does not predict the market**. It
+mathematically manages risk, minimizes uncompensated drag, and optimizes for
+after-tax real wealth. Every model, constraint, and default parameter is grounded
+in published research and calibrated to the structural realities of Canadian
+retail investing — registered account types, foreign withholding tax treaties,
+CAD/USD conversion frictions, and CRA tax rules.
 
-PySharpe is a portfolio research platform that **does not predict the market**. It mathematically manages risk, minimizes uncompensated drag, and optimizes for after-tax real wealth. Every model, constraint, and default parameter is grounded in published research and calibrated to the structural realities of Canadian retail investing — registered account types, foreign withholding tax treaties, CAD/USD conversion frictions, and CRA tax rules.
+## Quickstart
+
+```bash
+# 1. Clone and install with uv (Python ≥ 3.12)
+git clone https://github.com/janusson/PySharpe.git
+cd PySharpe
+uv pip install -e ".[all]"
+
+# 2. Launch the Streamlit dashboard
+uv run streamlit run app.py
+
+# 3. Or drive it from the CLI
+uv run pysharpe --help
+```
+
+A complete walkthrough — portfolio definition → optimization → buy plan — is in
+[Quick Start](#quick-start) below. Everything from data download to rebalancing
+is reproducible with a locked dependency set (`uv.lock`) and synthetic-data test
+suites.
 
 ---
+
+## Engineering Rigor
+
+PySharpe is built as production software, not a research notebook. The same
+discipline that guards the math guards the code:
+
+| Guard | How it's enforced |
+| ----- | ----------------- |
+| **Strict typing** | [Pyright](https://microsoft.github.io/pyright/) runs on every PR in `standard` mode with **warnings promoted to fatal** (`pyright --warnings src/`) — the suite holds **0 errors, 0 warnings**. |
+| **Lint & format** | [Ruff](https://docs.astral.sh/ruff/) is the sole linter *and* formatter (88-char, double-quote, import-sorted). CI fails on any drift. |
+| **Dependency lock** | [uv](https://docs.astral.sh/uv/) manages the environment; `uv sync --locked` in CI means a build is bit-reproducible from `uv.lock`. |
+| **CI gate** | Three parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, and a **strict MkDocs build** (`--strict`: warnings are fatal). |
+| **Test suite** | **975+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
+| **DuckDB write-through cache** | Price downloads are cached behind DuckDB and invalidated by file `mtime` — stale data is impossible, and queries are SQL-fast. |
+| **Lookahead guardrails** | FX conversion *excludes* rows without rate coverage (never `.bfill()`), covariance estimators harden to strict positive-definiteness, and purged/embargoed CV enforces fold separation from the asset's own autocorrelation decay. |
+| **Domain error contracts** | A dedicated exception hierarchy (`DataValidationError`, `DataIngestionError`, `ExecutionConfigError`) replaces raw stack traces with actionable messages. |
+| **Self-documenting** | MkDocs Material site built from docstrings (griffe-parsed, `--strict`-clean), plus `docs/TEST_MAP.md` and `docs/GOTCHAS.md` that accumulate every failure pattern. |
+
+## Signature Features
+
+### 🇨🇦 2-D Asset Location Engine — *what* to hold *and where* to hold it
+
+Simultaneously solves the asset allocation **and** the account placement problem
+across TFSA, RRSP, FHSA, LIRA, RRIF, and Non-Registered accounts. Tax-adjusted
+expected returns account for US foreign withholding tax (FWT) treaty protection,
+unrecoverable fund-level FWT on CAD-wrapped US ETFs, and account-specific income
+taxation — so US equities land in the RRSP (treaty-protected) while Canadian
+dividends stay in the TFSA.
+
+### ⚖️ CRA Superficial Loss Guardrail & ACB Tracking
+
+A compliance interlock that understands CRA rules, not just math:
+
+- **Superficial loss enforcement** — a loss-sale in a Non-Registered account
+  conflicts with *any* identical-property purchase in a sheltered account within
+  ±30 days (same-day included). Identical-property maps cover S&P 500 pairs
+  (VFV ↔ VOO ↔ SPY), NASDAQ-100, TSX 60, and more; violating buys are blocked and
+  re-routed to the next-best non-identical asset.
+- **ACB tracking** — CRA-mandated weighted-average cost method (ITA s. 47(1))
+  with commission-adjusted cost bases and return-of-capital handling.
+
+### 🤖 `.agents/skills/` — the agentic development framework
+
+The repository ships its own **modular context protocol for LLM coding agents**:
+each domain owns a skill package (`pysharpe-allocation`, `pysharpe-optimization`,
+`pysharpe-data-pipeline`, `pysharpe-backtesting`, `pysharpe-metrics`, …) encoding
+that domain's architecture, guardrails, test maps, and *prohibitions*. Agents
+load only the skills a task touches — so an allocation change cannot silently
+violate the 60/40 VA scoring blend, and a data-pipeline change cannot reintroduce
+`.bfill()` lookahead. The repo is engineered to be developed *by* AI agents as
+rigorously as it is developed *for* investors.
+
+### 🧮 The Quant Core
+
+- **Value Averaging allocator** — deterministic, path-targeted contributions
+  (60% path drift + 40% fundamental valuation/mean-reversion), not a black-box
+  mean-variance solver.
+- **Shrinkage everywhere it matters** — Bayes-Stein expected returns (Jorion
+  1986), analytical Ledoit-Wolf linear (2004) and nonlinear (2017/2020)
+  covariance shrinkage, eigen-clipped to strict positive-definiteness.
+- **Bayesian estimation** — PyMC posteriors (LKJ priors) feed a PyPortfolioOpt
+  `EfficientFrontier` through the *posterior* covariance — never the sample —
+  with a FAST_COMPILE fallback that keeps CI green without a C compiler.
+- **Hierarchical Risk Parity** — inverse-variance-free diversification for
+  ill-conditioned correlation structures, zero-variance-safe by construction.
+- **Backtest-overfitting defenses** — Deflated Sharpe Ratio with Lo's
+  autocorrelation adjustment, Probability of Backtest Overfitting, and
+  Combinatorial Purged Cross-Validation with autocorrelation-decay gap sizing.
+- **Cost-realistic backtests** — bid-ask spread (half-spread per side),
+  slippage, and per-order commissions at every rebalance, using only
+  execution-date prices.
 
 ## The Evidence Canon
 
-PySharpe organizes its optimization engine around a tiered evidence system. Higher tiers are opt-in and must demonstrably improve on the null hypothesis net of taxes, fees, and behavioral friction.
+PySharpe organizes its optimization engine around a tiered evidence system.
+Higher tiers are opt-in and must demonstrably improve on the null hypothesis
+net of taxes, fees, and behavioral friction.
 
 | Tier | Label | Behavior | Examples |
 |------|-------|----------|----------|
@@ -23,42 +130,34 @@ PySharpe organizes its optimization engine around a tiered evidence system. High
 
 ---
 
-## Features
-
-### 🇨🇦 Canadian Investor Toolchain
-
-PySharpe is built from the ground up for the Canadian retail investor. It models the structural frictions that generic optimizers ignore:
-
-- **2-D Asset Location Matrix** — Simultaneously solves both *what to hold* (asset allocation) and *where to hold it* (account placement) across TFSA, RRSP, FHSA, LIRA, RRIF, and Non-Registered accounts. Uses tax-adjusted expected returns that account for US foreign withholding tax (FWT) treaty protection, unrecoverable fund-level FWT on CAD-wrapped US ETFs, and account-specific income taxation.
-- **ACB Tracking** — Full Adjusted Cost Base tracker using the CRA-mandated weighted-average cost method (ITA s. 47(1)) for accurate portfolio bookkeeping, return-of-capital adjustments, and unrealized gain/loss monitoring.
-- **Canadian ETF Benchmarks** — Built-in comparison against VEQT, XEQT, VGRO, XGRO, VBAL, and XBAL on equity curves and efficient frontier plots.
+## Feature Catalog
 
 ### 📊 Portfolio Optimization
 
-- **Bayes-Stein Shrinkage** (default) — Shrinks individual expected returns toward the grand mean, directly countering recency bias. Data-driven shrinkage intensity with a configurable floor. *Jorion (1986).*
-- **Ledoit-Wolf Covariance Shrinkage** — Regularized covariance estimation for improved out-of-sample stability. *Ledoit & Wolf (2004).*
+- **Bayes-Stein Shrinkage** (default) — Shrinks individual expected returns toward the grand mean, directly countering recency bias. *Jorion (1986).*
+- **Ledoit-Wolf Covariance Shrinkage** — Analytical linear (2004) and nonlinear (2017/2020) estimators with strict positive-definiteness guarantees. *Ledoit & Wolf.*
 - **Bayesian Posterior Estimation** — PyMC-based MCMC sampling of the full posterior distribution of asset returns and covariances. Compatible with Black-Litterman frameworks.
-- **Efficient Frontier Optimization** — Max-Sharpe portfolio construction via PyPortfolioOpt, with support for MER caps, geographic exposure bounds, per-asset weight limits, and category grouping of correlated tickers.
-- **Expected Return Models** — Choose from EMA, arithmetic mean, shrinkage (default), or constant-return (pure risk minimization).
+- **Efficient Frontier Optimization** — Max-Sharpe portfolio construction via PyPortfolioOpt, with MER caps, geographic exposure bounds, per-asset weight limits, and category grouping of correlated tickers.
+- **Expected Return Models** — EMA, arithmetic mean, shrinkage (default), or constant-return (pure risk minimization).
 
 ### 🏦 Execution & Rebalancing
 
-- **Smart Contribution Allocation** — Deploys new cash to assets that have drifted below target, blended with multi-factor valuation scores (P/E, P/B, dividend yield, momentum) and tax-efficiency.
+- **Smart Contribution Allocation** — Deploys new cash to assets that have drifted below target, blended with multi-factor valuation scores and tax-efficiency.
 - **Multi-Account Rebalancing** — Split contributions across TFSA/RRSP/Non-Reg proportionally, with per-account buy plans, tax-aware scoring, and contribution room tracking with automatic NON_REG spillover.
 - **Whole-Share Rounding** — Floors recommended share counts to whole units, tracks leftover cash, and accounts for brokerage commissions and slippage.
 
-### 🔬 Research & Analysis
+### 🔬 Research & Validation
 
-- **Historical Backtesting** — Simulate portfolio performance with calendar (monthly/quarterly/annual), absolute drift-band, relative drift-band, and volatility-threshold rebalancing. Models transaction fees and slippage.
-- **Walk-Forward Validation** — Rolling-window train/test evaluation with purged cross-validation support.
-- **Time-Series Modeling** — ADF stationarity tests, GARCH volatility forecasting, and Vector Autoregression (VAR) for asset interdependency analysis.
-- **Data Linkage (DuckDB)** — High-performance SQL window functions, rolling averages, lagged features, and macro-economic dataset joins via embedded DuckDB.
-- **Head-to-Head Fund Comparison** — Side-by-side risk/return metrics (CAGR, volatility, drawdown, Sharpe, Sortino, Calmar, rolling tracking error, return correlation) for any two assets using the same data pipeline.
-- **Proxy History Stitching** — Extend short-lived ETFs with longer proxy histories, with optional FX adjustment for cross-currency backfills.
+- **Historical Backtesting** — Calendar, absolute drift-band, relative drift-band, and volatility-threshold rebalancing with bid-ask spread, slippage, and commission modeling.
+- **Walk-Forward Validation** — Rolling train/test evaluation with purged cross-validation and autocorrelation-aware embargo sizing.
+- **Overfitting Diagnostics** — Deflated Sharpe Ratio (with Lo's autocorrelation adjustment), Probability of Backtest Overfitting, effective-trials estimation.
+- **Time-Series Modeling** — ADF stationarity tests, GARCH volatility forecasting, and VAR modeling.
+- **Head-to-Head Fund Comparison** — Side-by-side risk/return metrics (CAGR, volatility, drawdown, Sharpe, Sortino, Calmar, rolling tracking error) for any two assets.
+- **Proxy History Stitching** — Extend short-lived ETFs with longer proxy histories, with optional FX adjustment.
 
 ### 🖥️ Interfaces
 
-- **Streamlit Dashboard** — Interactive web UI with analytics, backtesting, DCA projections, efficient frontier visualization, and weight-tweak sliders.
+- **Streamlit Dashboard** — Analytics, backtesting, DCA projections, efficient frontier visualization, and weight-tweak sliders.
 - **CLI** — Scriptable `pysharpe optimise`, `rebalance`, `allocate`, `simulate-dca`, and `plot` subcommands.
 - **Library API** — Fully importable Python modules for Jupyter notebooks and automated pipelines.
 
@@ -72,15 +171,13 @@ PySharpe follows a layered pipeline architecture — from data ingestion through
 flowchart TD
     subgraph Input["📥 Data Layer"]
         D1["data/fetcher.py
-YFinance downloader"]
+YFinance → DuckDB write-through cache"]
         D2["data/collation.py
 CSV parsing & merging"]
         D3["data/portfolio.py
 Portfolio definitions"]
         D4["data/linkage.py
 DuckDB cross-dataset joins"]
-        D5["data/workflows.py
-Orchestrated download pipeline"]
     end
 
     subgraph Compute["⚙️ Computation Layer"]
@@ -89,14 +186,14 @@ Sharpe, Sortino, vol, CAGR, MDD"]
         PO["portfolio_optimization.py
 Efficient Frontier (pypfopt + cvxpy)"]
         OPT["optimization/
-Bayesian, tax-location, weights, expected-returns"]
+Bayesian, shrinkage, HRP, tax-location"]
         AN["analysis/
-Backtest engine, benchmarks, GARCH, VAR, scoring"]
+Backtest engine, benchmarks, GARCH, VAR"]
     end
 
     subgraph Execute["📊 Execution Layer"]
         AL["execution/allocator.py
-Smart cash deployment + FX routing"]
+Value Averaging (60/40) cash deployment"]
         RB["execution/rebalance.py
 Build buy-plans from saved artefacts"]
         TX["execution/tax_tracker.py
@@ -105,7 +202,7 @@ ACB tracking"]
 
     subgraph Present["🖥️ Presentation Layer"]
         CLI["cli.py
-5 subcommands (allocate, rebalance, optimise, simulate-dca, plot)"]
+5 subcommands"]
         APP["app.py
 Streamlit dashboard (4 tabs)"]
         VIZ["visualization/
@@ -121,36 +218,33 @@ Frontier, DCA, equity curves, correlation"]
 
 ## Installation
 
-PySharpe uses modular dependency groups:
+PySharpe requires **Python ≥ 3.12** and is managed with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 # Core library (data + math, no visualization)
-pip install -e .
+uv pip install -e .
 
-# CLI tools (adds matplotlib, seaborn)
-pip install -e .[cli]
+# Everything: CLI + dashboard + development tooling
+uv pip install -e ".[all]"
 
-# Web dashboard (adds streamlit, altair, plotly)
-pip install -e .[gui]
-
-# Everything
-pip install -e .[all]
-
-# Development (includes linters, test runners)
-pip install -e .[dev]
+# Development (ruff, pyright, pytest, mkdocs)
+uv pip install -e ".[dev]"
 ```
 
-Using `uv` (recommended):
+`make` wraps the full developer workflow:
 
-```bash
-uv pip install -e .[all]
-```
-
----
+| Target | Action |
+| ------ | ------ |
+| `make install` | `uv pip install -e ".[dev]"` |
+| `make lint` | ruff check + format check |
+| `make typecheck` | pyright with warnings-as-errors |
+| `make test` | pytest with coverage (fails below 75%) |
+| `make check` | Full pre-commit gate: lint + typecheck + test |
+| `make build_docs` | MkDocs strict build |
 
 ## Quick Start
 
-> **Prerequisite:** [Install PySharpe](#installation) (`uv pip install -e .[all]`).
+> **Prerequisite:** [Install PySharpe](#installation) (`uv pip install -e ".[all]"`).
 
 ### 0. Create a portfolio definition
 
@@ -168,7 +262,7 @@ echo -e "VFV.TO\nVCN.TO\nVIU.TO\nVEE.TO\nVDY.TO" > data/portfolio/my_portfolio.c
 ### 1. Optimize the portfolio
 
 ```bash
-pysharpe optimise \
+uv run pysharpe optimise \
   --portfolio my_portfolio \
   --period 10y \
   --return-model shrinkage \
@@ -177,26 +271,25 @@ pysharpe optimise \
   --export-dir data/exports/
 ```
 
-This downloads 10 years of daily prices, converts USD assets to CAD (no lookahead bias),
-estimates expected returns with Bayes-Stein shrinkage, runs efficient-frontier optimization,
-and enforces constraints from `portfolio_config.json` (MER caps, geographic bounds, TFSA
-account type). Produces the optimized target weights and collated price history in
-`data/exports/`.
+This downloads 10 years of daily prices (cached through DuckDB), converts USD
+assets to CAD (no lookahead bias), estimates expected returns with Bayes-Stein
+shrinkage, runs efficient-frontier optimization, and enforces constraints from
+`portfolio_config.json` (MER caps, geographic bounds, TFSA account type).
 
 ### 2. Generate a buy plan
 
 ```bash
-pysharpe rebalance \
+uv run pysharpe rebalance \
   --portfolio my_portfolio \
   --holdings-json '{"VFV.TO": 15000, "VCN.TO": 10000, "VIU.TO": 5000, "VEE.TO": 3000, "VDY.TO": 7000}' \
   --new-cash 2000 \
   --export-dir data/exports/
 ```
 
-PySharpe computes your current weights vs. the optimized targets, calculates drift per
-asset, scores opportunities (60% path drift + 40% valuation/mean-reversion), and prints
-exactly how many dollars and shares to buy — with whole-share rounding and account-specific
-tax-efficiency scoring for TFSA/RRSP/Non-Registered accounts.
+PySharpe computes your current weights vs. the optimized targets, scores
+opportunities (60% path drift + 40% valuation/mean-reversion), and prints exactly
+how many dollars and shares to buy — with whole-share rounding and tax-aware
+account placement across TFSA/RRSP/Non-Registered accounts.
 
 ### 3. Launch the dashboard
 
@@ -204,8 +297,8 @@ tax-efficiency scoring for TFSA/RRSP/Non-Registered accounts.
 uv run streamlit run app.py
 ```
 
-Explore the efficient frontier, run historical backtests with Canadian ETF benchmarks
-(VEQT, XEQT, VGRO, etc.), and iterate on weight tweaks interactively.
+Explore the efficient frontier, run historical backtests with Canadian ETF
+benchmarks (VEQT, XEQT, VGRO, …), and iterate on weight tweaks interactively.
 
 ---
 
@@ -215,7 +308,7 @@ Explore the efficient frontier, run historical backtests with Canadian ETF bench
 
 ```bash
 # Full optimization pipeline
-pysharpe optimise \
+uv run pysharpe optimise \
   --portfolio my_portfolio \
   --export-dir data/exports/ \
   --return-model shrinkage \
@@ -223,20 +316,18 @@ pysharpe optimise \
   --max-weight 0.20 \
   --base-currency CAD
 
-# For small portfolios (≤ 4 assets), max-weight auto-adjusts if infeasible
-
 # Rebalance with tax-aware multi-account support
-pysharpe rebalance \
+uv run pysharpe rebalance \
   --portfolio my_portfolio \
   --holdings-csv holdings.csv \
   --new-cash 5000 \
   --export-dir data/exports/
 
 # DCA projection
-pysharpe simulate-dca --months 240 --initial 10000 --monthly 500 --rate 0.07
+uv run pysharpe simulate-dca --months 240 --initial 10000 --monthly 500 --rate 0.07
 
 # Smart cash allocation
-pysharpe allocate --portfolio current_state.csv --amount 2000
+uv run pysharpe allocate --portfolio current_state.csv --amount 2000
 ```
 
 ### Streamlit Dashboard
@@ -278,50 +369,27 @@ PySharpe auto-detects `portfolio_config.json` in the working directory. Example:
 ```python
 import pandas as pd
 from pysharpe import metrics
-from pysharpe.analysis.comparison import compare_two_funds
-from pysharpe.execution import build_rebalance_plan, format_rebalance_plan
 from pysharpe.optimization import (
-    TaxProfile,
-    AssetTaxCharacteristics,
     AssetLocationEngine,
-    SharpeOptimizer,
-    SharpeOptimizerConfig,
+    AssetTaxCharacteristics,
+    TaxProfile,
 )
-from pysharpe.optimization.expected_returns import shrinkage_expected_return
+from pysharpe.optimization.estimators import compute_nonlinear_shrinkage
 
-# Compute metrics
+# Metrics (stateless, vectorized)
 prices = pd.read_csv("my_prices.csv", index_col=0, parse_dates=True)
 returns = metrics.compute_returns(prices)
 sharpe = metrics.sharpe_ratio(returns)
-sortino = metrics.sortino_ratio(returns)
-cagr = metrics.cagr(prices.iloc[:, 0])
-mdd = metrics.maximum_drawdown(prices.iloc[:, 0])
-mdd_dur = metrics.max_drawdown_duration(prices.iloc[:, 0])
-calmar = metrics.calmar_ratio(prices.iloc[:, 0])
-te = metrics.tracking_error(returns.iloc[:, 0], returns.iloc[:, 1])
 
-# Head-to-head fund comparison
-comparison = compare_two_funds("VFV.TO", "QQC.TO", start_date="2020-01-01")
-print(comparison)
-
-# Shrinkage expected returns (default engine model)
-mu = shrinkage_expected_return(prices, shrinkage_floor=0.3)
+# Shrinkage covariance with strict positive-definiteness guarantees
+cov = compute_nonlinear_shrinkage(returns)
 
 # Canadian tax-aware optimization
 profile = TaxProfile(marginal_tax_rate=0.45)
 voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
 engine = AssetLocationEngine(profile)
-fwt_drag = engine.compute_fwt_drag(voo, "TFSA")   # 0.00195
-fwt_drag = engine.compute_fwt_drag(voo, "RRSP")    # 0.0 (treaty-protected)
-
-# Rebalance plan from saved artefacts
-plan = build_rebalance_plan(
-    "cad_portfolio",
-    new_cash=5000,
-    holdings_csv="holdings.csv",
-    export_dir="data/exports/",
-)
-print(format_rebalance_plan(plan))
+fwt_tfsa = engine.compute_fwt_drag(voo, "TFSA")  # 0.00195
+fwt_rrsp = engine.compute_fwt_drag(voo, "RRSP")  # 0.0 (treaty-protected)
 ```
 
 ---
@@ -343,17 +411,18 @@ print(format_rebalance_plan(plan))
 
 ## Contributing
 
-1. Create an isolated environment: `uv pip install -e .[dev]`
-2. Format and lint: `ruff format . && ruff check .`
-3. Write or update tests for any behavioral change.
-4. Document public APIs in docstrings and, where appropriate, in this README.
+1. Create an isolated environment: `uv pip install -e ".[dev]"`
+2. Lint, format, and type-check: `make check`
+3. Write or update tests for any behavioral change (synthetic data, fixed seeds).
+4. Document public APIs in docstrings — the strict docs build parses every one.
 
 ```bash
-# Run the full test suite
+# Run the full suite (975+ tests, no network calls)
 uv run pytest
 ```
 
-191 tests pass (as of current `HEAD`). The suite covers metrics, optimization, the 2-D asset location matrix, tax-location engine, ACB tracking, FX routing, rebalancing, backtesting, and the Streamlit app.
+See `docs/TEST_MAP.md` for the test-to-module mapping and `docs/GOTCHAS.md` for
+failure patterns that must never be reintroduced.
 
 ---
 

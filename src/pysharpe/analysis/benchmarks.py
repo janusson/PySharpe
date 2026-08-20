@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import pandas as pd
 
@@ -69,8 +70,9 @@ def fetch_benchmark_metrics(
             )
             if not df.empty:
                 # Ensure index is naive DatetimeIndex for consistency with pysharpe standards
-                if df.index.tz is not None:
-                    df.index = df.index.tz_localize(None)
+                bm_idx = df.index
+                if isinstance(bm_idx, pd.DatetimeIndex) and bm_idx.tz is not None:
+                    df.index = bm_idx.tz_localize(None)
                 price_data[ticker] = df["Close"]
         except Exception as exc:
             logger.warning("Failed to fetch benchmark %s: %s", ticker, exc)
@@ -111,14 +113,17 @@ def fetch_benchmark_metrics(
             }
         ]
     else:
+        ann_return_s = cast(pd.Series, ann_return)
+        ann_vol_s = cast(pd.Series, ann_vol)
+        sharpe_s = cast(pd.Series, sharpe)
         results = []
         for ticker in prices_df.columns:
             results.append(
                 {
                     "Ticker": ticker,
-                    "Annualized Return": ann_return.get(ticker, 0.0),
-                    "Annualized Volatility": ann_vol.get(ticker, 0.0),
-                    "Sharpe Ratio": sharpe.get(ticker, 0.0),
+                    "Annualized Return": ann_return_s.get(ticker, 0.0),
+                    "Annualized Volatility": ann_vol_s.get(ticker, 0.0),
+                    "Sharpe Ratio": sharpe_s.get(ticker, 0.0),
                 }
             )
 

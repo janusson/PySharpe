@@ -10,7 +10,7 @@ import numpy as np
 from . import utils as viz_utils
 
 if TYPE_CHECKING:  # pragma: no cover - type checking aide
-    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
 
 
 def _require_matplotlib():  # pragma: no cover - backward compatibility helper
@@ -97,7 +97,7 @@ def simulate_dca(
 def plot_dca_projection(
     projection: DCAProjection,
     *,
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     show: bool = False,
     title: str | None = None,
 ):
@@ -110,7 +110,7 @@ def plot_dca_projection(
         title: Optional plot title override.
 
     Returns:
-        Matplotlib axes containing the plot.
+        axes (matplotlib.axes.Axes): Matplotlib axes containing the plot.
 
     Example:
         >>> from pysharpe.visualization.dca import plot_dca_projection, simulate_dca

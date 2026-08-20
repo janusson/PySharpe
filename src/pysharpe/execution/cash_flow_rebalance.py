@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
@@ -403,9 +403,10 @@ def allocate_contribution_cash_flow(
         )
 
     # Current weights.
-    current_weights: dict[str, float] = {
-        ticker: val / total_portfolio_value for ticker, val in ticker_values.items()
-    }
+    current_weights: dict[str, float] = cast(
+        dict[str, float],
+        {ticker: val / total_portfolio_value for ticker, val in ticker_values.items()},
+    )
     # Add missing tickers with zero weight.
     for ticker in target_weights:
         if ticker not in current_weights:

@@ -23,7 +23,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import duckdb
 import numpy as np
@@ -439,7 +439,7 @@ def compute_pbo(
 
     from scipy.stats import spearmanr
 
-    rho_raw = spearmanr(is_clean, oos_clean).statistic
+    rho_raw: float | None = cast(float | None, spearmanr(is_clean, oos_clean).statistic)  # pyright: ignore[reportAttributeAccessIssue]
     if rho_raw is None or not np.isfinite(rho_raw):
         # Not enough finite variation after sanitisation — degenerate ranking.
         _log_edge_case_observation(is_sharpes, oos_sharpes)

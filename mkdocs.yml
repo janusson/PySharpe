@@ -1,0 +1,60 @@
+site_name: PySharpe
+site_description: Quantitative portfolio optimization and analysis for Canadian investors
+site_author: PySharpe Developers
+repo_url: https://github.com/janusson/PySharpe/
+repo_name: janusson/PySharpe
+edit_uri: edit/main/docs/
+
+# The superpowers/plan notes are working files, not published pages.
+exclude_docs: |
+  superpowers/**
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Data Flow: flowchart.md
+  - Test Map: TEST_MAP.md
+  - Gotchas: GOTCHAS.md
+  - Benchmarks: benchmarks.md
+  - Proxy Mapping: proxies.md
+  - API Reference: api.md

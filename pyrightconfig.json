@@ -1,0 +1,30 @@
+{
+  "include": ["src"],
+  "exclude": ["**/__pycache__", ".venv", "tests"],
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false,
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false,
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Darwin",
+  "executionEnvironments": [
+    {
+      "root": "src"
+    }
+  ],
+  "ignore": [
+    "src/pysharpe/app/**"
+  ],
+  "reportArgumentType": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "reportOperatorIssue": "warning",
+  "reportPrivateImportUsage": "warning",
+  "reportAssignmentType": "warning",
+  "reportCallIssue": "warning",
+  "reportReturnType": "warning",
+  "reportGeneralTypeIssues": "warning",
+  "reportInvalidTypeForm": "warning",
+  "reportPossiblyUnboundVariable": "warning",
+  "reportUnsupportedDunderAll": "warning"
+}

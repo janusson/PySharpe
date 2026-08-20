@@ -7,7 +7,12 @@ from .black_litterman import (
     build_views_uncertainty,
     compute_implied_returns,
 )
-from .estimators import compute_linear_shrinkage, compute_nonlinear_shrinkage
+from .estimators import (
+    compute_linear_shrinkage,
+    compute_nonlinear_shrinkage,
+    ensure_strictly_psd,
+    prepare_returns,
+)
 from .hrp import HierarchicalRiskParity
 from .models import OptimisationPerformance, OptimisationResult, PortfolioWeights
 from .sharpe_optimizer import SharpeOptimizer, SharpeOptimizerConfig
@@ -43,4 +48,6 @@ __all__ = [
     "compute_implied_returns",
     "compute_linear_shrinkage",
     "compute_nonlinear_shrinkage",
+    "ensure_strictly_psd",
+    "prepare_returns",
 ]

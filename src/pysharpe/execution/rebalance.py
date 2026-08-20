@@ -897,7 +897,10 @@ def build_rebalance_plan(
                 if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
                     original = row["recommended_allocation"]
                     fee = execution_config.fx_fee_decimal
-                    allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
+                    current = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
+                    allocations.at[idx, "recommended_allocation"] = current * (
+                        1.0 - fee
+                    )
                     logger.debug(
                         "Applied %.2f%% FX fee to %s: $%.2f -> $%.2f",
                         fee * 100,
@@ -916,7 +919,7 @@ def build_rebalance_plan(
         leftover_cash = 0.0
         if execution_config is not None and not execution_config.allow_fractional:
             for idx in allocations.index:
-                raw_shares = allocations.at[idx, "recommended_shares"]
+                raw_shares = float(allocations.at[idx, "recommended_shares"])  # pyright: ignore[reportArgumentType]
                 if pd.notna(raw_shares) and raw_shares > 0:
                     floored = np.floor(raw_shares)
                     price = allocations.at[idx, "latest_price"]
@@ -999,7 +1002,7 @@ def build_rebalance_plan(
                 asset = asset_characteristics.get(ticker)
                 if asset is not None:
                     tax_eff = engine.compute_tax_efficiency_score(asset, account)
-                    base = scored.at[idx, "opportunity_score"]
+                    base = float(scored.at[idx, "opportunity_score"])  # pyright: ignore[reportArgumentType]
                     scored.at[idx, "opportunity_score"] = (
                         1.0 - tax_weight
                     ) * base + tax_weight * tax_eff
@@ -1021,7 +1024,8 @@ def build_rebalance_plan(
                     account, ticker, proxy_map=proxy_map
                 )
                 if adjustment < 1.0:
-                    scored.at[idx, "opportunity_score"] *= adjustment
+                    current_score = float(scored.at[idx, "opportunity_score"])  # pyright: ignore[reportArgumentType]
+                    scored.at[idx, "opportunity_score"] = current_score * adjustment
                     logger.debug(
                         "Tax-location penalty x%.2f for %s in %s",
                         adjustment,
@@ -1042,7 +1046,10 @@ def build_rebalance_plan(
                 meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
                 if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
                     fee = execution_config.fx_fee_decimal
-                    allocations.at[idx, "recommended_allocation"] *= 1.0 - fee
+                    current = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
+                    allocations.at[idx, "recommended_allocation"] = current * (
+                        1.0 - fee
+                    )
 
         valid_prices = allocations["latest_price"].where(
             allocations["latest_price"] > 0
@@ -1054,7 +1061,7 @@ def build_rebalance_plan(
         leftover_cash = 0.0
         if execution_config is not None and not execution_config.allow_fractional:
             for idx in allocations.index:
-                raw_shares = allocations.at[idx, "recommended_shares"]
+                raw_shares = float(allocations.at[idx, "recommended_shares"])  # pyright: ignore[reportArgumentType]
                 if pd.notna(raw_shares) and raw_shares > 0:
                     floored = np.floor(raw_shares)
                     price = allocations.at[idx, "latest_price"]

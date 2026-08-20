@@ -12,7 +12,7 @@ from pysharpe.optimization.models import OptimisationResult
 from pysharpe.visualization import utils as viz_utils
 
 if TYPE_CHECKING:  # pragma: no cover
-    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,8 @@ def generate_efficient_frontier(
         ef_mvp = EfficientFrontier(mu, S)
         ef_mvp.min_volatility()
         gmv_ret, gmv_vol, _ = ef_mvp.portfolio_performance()
-        gmv_return = float(gmv_ret)
+        gmv_return = float(gmv_ret)  # pyright: ignore[reportArgumentType]
+        gmv_vol = float(gmv_vol)  # pyright: ignore[reportArgumentType]
     except Exception as exc:
         logger.warning(
             "Could not compute Global Minimum Variance portfolio: %s. "
@@ -81,6 +82,7 @@ def generate_efficient_frontier(
             exc,
         )
         gmv_return = float(mu.min())
+        gmv_vol = float(np.sqrt(np.min(np.diag(S))))
 
     # ------------------------------------------------------------------
     # Target return sweep: strictly from GMV return to max expected return
@@ -94,8 +96,8 @@ def generate_efficient_frontier(
             ef = EfficientFrontier(mu, S)
             ef.efficient_return(target_return=target)
             ret, vol, _ = ef.portfolio_performance()
-            calculated_volatilities.append(vol)
-            valid_returns.append(ret)
+            calculated_volatilities.append(vol)  # pyright: ignore[reportArgumentType]
+            valid_returns.append(ret)  # pyright: ignore[reportArgumentType]
         except Exception:
             # Solver failed for this target — skip cleanly without
             # appending NaN and without dropping the entire curve.
@@ -111,9 +113,9 @@ def generate_efficient_frontier(
             ef_tangent = EfficientFrontier(mu, S)
             ef_tangent.max_sharpe()
             max_ret, max_vol, _ = ef_tangent.portfolio_performance()
-            if max_ret > max(valid_returns):
-                calculated_volatilities.append(max_vol)
-                valid_returns.append(max_ret)
+            if max_ret > max(valid_returns):  # pyright: ignore[reportOperatorIssue]
+                calculated_volatilities.append(max_vol)  # pyright: ignore[reportArgumentType]
+                valid_returns.append(max_ret)  # pyright: ignore[reportArgumentType]
         except Exception as exc:
             logger.debug("Could not compute max-Sharpe portfolio: %s", exc)
 
@@ -135,7 +137,7 @@ def plot_portfolio_comparison(
     benchmarks_df: pd.DataFrame,
     prices: pd.DataFrame | None = None,
     frequency: int = 252,
-) -> plt.Figure:
+) -> Figure:
     """Plot the Efficient Frontier curve overlaid with portfolios and benchmarks.
 
     Args:

@@ -826,3 +826,154 @@ class TestEdgeCases:
         ]
         violations = guardrail.detect_violations(proposed)
         assert len(violations) >= 1
+
+
+# ===========================================================================
+# Same-day cross-account trades of identical-property ETFs (VFV ↔ VOO)
+# ===========================================================================
+
+
+class TestSameDayCrossAccountSuperficialLoss:
+    """Trades of identical-property ETFs executed on the exact same day across
+    a TFSA and a Non-Registered account.
+
+    CRA's superficial loss rule applies when a sale in a taxable account
+    realizes a loss AND identical property is acquired in *any* account
+    (including TFSA/RRSP) within ±30 days — the same day is inside the window.
+    """
+
+    def test_tfsa_buys_voo_same_day_as_non_reg_sells_vfv(self):
+        """NON_REG sells VFV at a loss; TFSA buys VOO on the exact same day."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+
+        sell_vfv = _sell(
+            "VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG"
+        )
+        buy_voo = _buy("VOO", day, account="TFSA")
+
+        violations = guardrail.detect_violations([sell_vfv, buy_voo])
+        assert len(violations) == 1
+        v = violations[0]
+        assert v.sell_trade.ticker == "VFV.TO"
+        assert v.conflicting_buy.ticker == "VOO"
+        assert v.conflicting_buy.account_type == "TFSA"
+        assert v.days_delta == 0
+        assert v.sell_trade.date == v.conflicting_buy.date == day
+
+    def test_same_day_trades_inside_single_proposed_slate(self):
+        """Both legs are proposed together on the same day — the guardrail
+        must catch the conflict inside the slate itself."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG"),
+            _buy("VOO", day, account="TFSA"),
+        ]
+        violations = guardrail.detect_violations(proposed)
+        assert len(violations) == 1
+        assert violations[0].days_delta == 0
+
+    def test_same_day_multiple_identical_buys_produce_multiple_violations(self):
+        """One NON_REG loss-sale conflicts with several identical-property
+        purchases on the same day (VOO in TFSA, SPY in TFSA, VFV in RRSP)."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG"),
+            _buy("VOO", day, account="TFSA"),
+            _buy("SPY", day, account="TFSA"),
+            _buy("VFV.TO", day, account="RRSP"),
+        ]
+        violations = guardrail.detect_violations(proposed)
+        assert len(violations) == 3
+        conflicting = {v.conflicting_buy.ticker for v in violations}
+        assert conflicting == {"VOO", "SPY", "VFV.TO"}
+
+    def test_validate_slate_blocks_tfsa_voo_and_reroutes(self):
+        """The same-day TFSA VOO buy is blocked; cash re-routes to a
+        non-identical asset when an opportunity ranking is supplied."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG"),
+            _buy("VOO", day, account="TFSA"),
+        ]
+        validated, violations = guardrail.validate_trade_slate(
+            proposed,
+            opportunity_ranking={"VDY.TO": 0.9, "QQC.TO": 0.5},
+        )
+        assert len(violations) == 1
+        # The VOO buy is removed; the NON_REG sell survives.
+        remaining = [(t.ticker, t.account_type, t.action) for t in validated]
+        assert ("VOO", "TFSA", "BUY") not in remaining
+        assert ("VFV.TO", "NON_REG", "SELL") in remaining
+        # Re-routed cash lands on the highest-ranked non-identical asset.
+        rerouted = [t for t in validated if t.ticker == "VDY.TO"]
+        assert len(rerouted) == 1
+
+    def test_same_day_with_history_not_just_proposed(self):
+        """The loss-sale happened earlier today (already recorded); the
+        proposed slate contains only the TFSA VOO buy."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        guardrail.record_transaction(
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG")
+        )
+        violations = guardrail.detect_violations([_buy("VOO", day, account="TFSA")])
+        assert len(violations) == 1
+        assert violations[0].days_delta == 0
+
+    def test_same_day_tfsa_sale_is_not_a_violation(self):
+        """A TFSA sale realizes no claimable loss, so a same-day NON_REG buy
+        of identical property does NOT trigger the guardrail."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="TFSA"),
+            _buy("VOO", day, account="NON_REG"),
+        ]
+        violations = guardrail.detect_violations(proposed)
+        assert violations == []
+
+    def test_same_day_non_reg_buyback_is_not_a_violation(self):
+        """The conflicting purchase must be in a tax-sheltered account.
+        A same-day NON_REG buy of VOO does not trigger the rule here."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=90.0, acb_per_share=100.0, account="NON_REG"),
+            _buy("VOO", day, account="NON_REG"),
+        ]
+        violations = guardrail.detect_violations(proposed)
+        assert violations == []
+
+    def test_same_day_gain_sale_is_not_a_violation(self):
+        """The sale must realize a LOSS.  Selling above ACB never triggers
+        the superficial loss rule even with a same-day sheltered buy."""
+        guardrail = SuperficialLossGuardrail()
+        day = _d(0)
+        proposed = [
+            _sell("VFV.TO", day, price=110.0, acb_per_share=100.0, account="NON_REG"),
+            _buy("VOO", day, account="TFSA"),
+        ]
+        violations = guardrail.detect_violations(proposed)
+        assert violations == []
+
+    def test_same_day_identical_exact_window_boundaries(self):
+        """Same-day trades sit at days_delta = 0; trades at ±30 and ±31 days
+        confirm the inclusive window boundary."""
+        guardrail = SuperficialLossGuardrail()
+        sell = _sell(
+            "VFV.TO", _d(0), price=90.0, acb_per_share=100.0, account="NON_REG"
+        )
+
+        inside_plus = _buy("VOO", _d(30), account="TFSA")
+        outside = _buy("VOO", _d(31), account="TFSA")
+        inside_minus = _buy("VOO", _d(-30), account="TFSA")
+        outside_minus = _buy("VOO", _d(-31), account="TFSA")
+
+        assert len(guardrail.detect_violations([sell, inside_plus])) == 1
+        assert len(guardrail.detect_violations([sell, inside_minus])) == 1
+        assert guardrail.detect_violations([sell, outside]) == []
+        assert guardrail.detect_violations([sell, outside_minus]) == []

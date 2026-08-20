@@ -24,6 +24,35 @@ uv run streamlit run app.py
 uv run pysharpe --help
 ```
 
+## Makefile Targets
+
+All developer workflows are available via `make` (see `make help`):
+
+| Target | Action |
+| ------ | ------ |
+| `install` | `uv pip install -e ".[dev]"` |
+| `lint` | ruff check + ruff format --check |
+| `lint-fix` | ruff check --fix |
+| `format` | ruff format (in place) |
+| `typecheck` | pyright --warnings src/ (warnings are fatal) |
+| `test` | pytest with coverage (fails below 75%) |
+| `check` | Full pre-commit gate: lint + typecheck + test |
+| `build_docs` | mkdocs build --strict (warnings are fatal) |
+| `docs-serve` | mkdocs serve (live reload) |
+| `build` | uv build (sdist + wheel) |
+| `repomix` | Pack the codebase for AI analysis into `repomix-output.xml` |
+| `all` | Full pipeline: format in place → lint → typecheck → test → build → build_docs → repomix |
+| `clean` | Remove build artifacts, caches, coverage, `site/` |
+
+Docs are built with **MkDocs Material + mkdocstrings** (`mkdocs.yml`). The
+API reference (`docs/api.md`) is generated from module docstrings. Google-style
+docstrings must use the griffe-compatible `name (type): description` form for
+typed Returns sections — dotted types without a name are not parsed (see
+`docs/GOTCHAS.md`).
+
+CI (`.github/workflows/ci.yml`) enforces all three gates (`make lint`,
+`make typecheck`, `make test`) plus a strict docs build on every pull request.
+
 ## Architecture Overview
 
 PySharpe follows a layered pipeline from data ingestion through computation to
@@ -101,6 +130,38 @@ src/pysharpe/
 
 - **ruff** is the sole formatter and linter (88-char line length, double quotes).
 - **Tests** use synthetic data only with fixed seeds — no network calls.
+- **Covariance estimators** (`optimization/estimators.py`) guarantee strictly
+  positive-definite output (`ensure_strictly_psd` eigen-clip, floor
+  `max(λ_max·1e-12, 1e-15)`), handle missing returns by listwise deletion
+  (never backfilled), and raise `DataValidationError` for structural
+  failures (not `ValueError` — `TypeError` only for non-DataFrame input).
+- **Bayesian / Black-Litterman outputs** are hardened with the same
+  eigen-clip before reaching any solver; `BayesianOptimizer.optimize_efficient_frontier`
+  feeds `EfficientFrontier` the posterior (shrunk) covariance, never the raw
+  sample covariance, and surfaces solver failures instead of falling back.
+- **HRP** (`optimization/hrp.py`) floors cluster variances
+  (`max(max_var·1e-12, 1e-15)`) in recursive bisection so zero-variance
+  assets can never raise `ZeroDivisionError`; user-supplied covariance
+  matrices are validated (finite, symmetric, PSD) via `DataValidationError`.
+- **Validation resampling** (`validation/resampling.py`): `PurgedKFold`
+  guarantees ≥ embargo observations between every adjacent test-fold pair
+  (trailing remainders are excluded, never clamped).  Size the gaps from the
+  asset's autocorrelation decay with `autocorrelation_decay_lag` or
+  `PurgedKFold.from_returns`.
+- **DSR** (`validation/metrics.py`): `compute_dsr(..., theta=1.0)` deflates
+  the observed Sharpe by √θ (Lo 2002 autocorrelation variance-inflation
+  factor) before deflation; `compute_validation_metrics` computes θ from the
+  return series automatically.
+- **Backtest transaction costs** (`analysis/backtest_engine.py`): cost =
+  turnover × (slippage + spread/2) + orders × fee_per_trade, where
+  `spread_pct` is the full bid-ask spread charged as a half-spread per side.
+  `WalkForwardBacktester` forwards the same cost parameters to every
+  sub-window; costs are computed only from execution-date prices and
+  holdings (no future cost information).  Missing prices: all-NaN asset
+  columns are dropped with a warning, then rows are listwise-deleted.
+- **PyMC test isolation**: tests that need the sampler use
+  `pytest.MonkeyPatch` on `pm.sample` / `pytensor.function` — never a real
+  MCMC run — so CI passes even when FAST_COMPILE is broken.
 - **`get_settings()`** is LRU-cached; call `get_settings.cache_clear()` in tests
   that vary env vars.
 - **`portfolio_config.json`** in the working directory is auto-loaded for MER/

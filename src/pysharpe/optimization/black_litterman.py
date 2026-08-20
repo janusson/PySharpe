@@ -44,6 +44,37 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from pysharpe.exceptions import DataValidationError
+
+from .estimators import ensure_strictly_psd
+
+# Eigenvalue tolerance for validating positive semi-definiteness.
+_PSD_TOLERANCE: float = 1e-10
+
+
+def _validate_psd(cov: np.ndarray, *, context: str = "cov_matrix") -> None:
+    """Validate that a covariance matrix is symmetric and positive semi-definite.
+
+    Args:
+        cov: Square covariance matrix.
+        context: Name used in error messages.
+
+    Raises:
+        DataValidationError: If the matrix is asymmetric, non-finite, or has
+            eigenvalues below the numerical tolerance.
+    """
+    if not np.all(np.isfinite(cov)):
+        raise DataValidationError(f"{context} must not contain NaN or infinite values")
+    if not np.allclose(cov, cov.T, rtol=1e-8, atol=0.0):
+        raise DataValidationError(f"{context} must be symmetric")
+    eigenvalues = np.linalg.eigvalsh(cov)
+    tolerance = _PSD_TOLERANCE * max(1.0, float(np.max(np.abs(eigenvalues))))
+    if float(eigenvalues.min()) < -tolerance:
+        raise DataValidationError(
+            f"{context} must be positive semi-definite; "
+            f"smallest eigenvalue is {eigenvalues.min():.3e}"
+        )
+
 
 def compute_implied_returns(
     cov_matrix: np.ndarray | pd.DataFrame,
@@ -90,6 +121,8 @@ def compute_implied_returns(
         )
     if np.any(np.isnan(cov)) or np.any(np.isnan(w)):
         raise ValueError("cov_matrix and market_weights must not contain NaN")
+
+    _validate_psd(cov, context="cov_matrix")
 
     implied: np.ndarray = risk_aversion * cov @ w
 
@@ -197,11 +230,10 @@ def blend_views(
         tau: Prior-weight scalar.
 
     Returns:
-        A ``(posterior_returns, posterior_cov)`` tuple:
-        - **posterior_returns** — E(R) as 1-D ``np.ndarray`` (or ``pd.Series``
-          if *implied_returns* was a Series).
-        - **posterior_cov** — Σ_p as ``(n, n)`` ``np.ndarray`` (or
-          ``pd.DataFrame`` if *cov_matrix* was a DataFrame).
+        A ``(posterior_returns, posterior_cov)`` tuple. ``posterior_returns``
+        is E(R) as a 1-D ``np.ndarray`` (or ``pd.Series`` if *implied_returns*
+        was a Series), and ``posterior_cov`` is Σ_p as an ``(n, n)``
+        ``np.ndarray`` (or ``pd.DataFrame`` if *cov_matrix* was a DataFrame).
 
     Raises:
         ValueError: If dimensions are inconsistent or matrices are singular.
@@ -228,6 +260,28 @@ def blend_views(
             f"Omega shape {Omega_arr.shape} != expected "
             f"({P_arr.shape[0]}, {P_arr.shape[0]})"
         )
+
+    # --- Structural validation (beyond shape) ---------------------------------
+    for name, arr in (
+        ("implied_returns", pi),
+        ("P", P_arr),
+        ("Q", Q_arr),
+        ("Omega", Omega_arr),
+    ):
+        if not np.all(np.isfinite(arr)):
+            raise DataValidationError(f"{name} must not contain NaN or infinite values")
+    omega_diag = np.diag(Omega_arr)
+    if np.any(omega_diag < 0.0):
+        raise DataValidationError(
+            "Omega diagonal entries must be non-negative (view uncertainty "
+            "cannot be negative)"
+        )
+    _validate_psd(sigma, context="cov_matrix")
+
+    # --- Harden the covariance to strict positive definiteness ---------------
+    # Guards the (τΣ)⁻¹ inversion against near-singular input so the solver
+    # never sees a rank-deficient matrix.
+    sigma = ensure_strictly_psd(sigma)
 
     # --- Posterior expected returns ---
     tau_sigma_inv = np.linalg.inv(tau * sigma)  # (τΣ)⁻¹
@@ -260,6 +314,8 @@ def blend_views(
 
     # --- Posterior covariance ---
     sigma_p = sigma + M_inv
+    # Strict positive-definiteness guarantee for downstream solvers.
+    sigma_p = ensure_strictly_psd(sigma_p)
 
     # --- Preserve pandas labels if inputs have them ---
     if isinstance(implied_returns, pd.Series):

@@ -9,16 +9,16 @@ import pandas as pd
 from . import utils as viz_utils
 
 if TYPE_CHECKING:  # pragma: no cover
-    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
 
 
 def plot_correlation_heatmap(
     prices: pd.DataFrame,
     *,
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     show: bool = False,
     title: str | None = None,
-) -> plt.Axes:
+) -> Axes:
     """Generate a correlation heatmap from a price DataFrame.
 
     Calculates daily returns and computes pairwise correlation, gracefully
@@ -64,7 +64,7 @@ def plot_correlation_heatmap(
         title = "Portfolio Asset Correlation Heatmap (Daily Returns)"
     ax.set_title(title, fontweight="bold")
 
-    fig.tight_layout()
+    fig.tight_layout()  # pyright: ignore[reportAttributeAccessIssue]
 
     if show:
         plt.show()

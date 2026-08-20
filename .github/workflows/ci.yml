@@ -7,11 +7,15 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-jobs:
-  lint-and-test:
-    name: Lint & Test
-    runs-on: ubuntu-latest
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  quality:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,11 +34,66 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-extras
 
-      - name: Verify code formatting
-        run: uv run ruff format --check .
+      - name: Lint (ruff check + format)
+        run: make lint
 
-      - name: Run linter
-        run: uv run ruff check .
+      - name: Typecheck (pyright; errors and warnings are fatal)
+        run: make typecheck
 
-      - name: Run test suite
-        run: uv run pytest
+  test:
+    name: Test (coverage gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras
+
+      - name: Run test suite with coverage
+        run: make test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 7
+
+  docs:
+    name: Build docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras
+
+      - name: Build documentation (strict mode)
+        run: make build_docs

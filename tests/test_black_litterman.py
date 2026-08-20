@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysharpe.exceptions import DataValidationError
 from pysharpe.optimization.black_litterman import (
     blend_views,
     build_views_uncertainty,
@@ -446,3 +447,251 @@ class TestIntegration:
 
         # Covariance should be PSD
         assert np.all(np.linalg.eigvalsh(cov_p) >= -1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Edge case mathematical properties
+# ---------------------------------------------------------------------------
+
+
+class TestBlendViewsEdgeCases:
+    """Edge cases and mathematical invariants for blend_views."""
+
+    def test_zero_views_returns_prior(self, cov_4asset, market_weights_4asset):
+        """With K=0 views, posterior returns equal prior returns.
+
+        Posterior covariance is Σ + τΣ (standard BL: uncertainty is added).
+        """
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        P = np.zeros((0, 4))  # No views
+        Q = np.array([])
+        Omega = np.zeros((0, 0))
+        tau = 0.05
+
+        er, cov_p = blend_views(pi, cov_4asset, P, Q, Omega, tau=tau)
+        # Posterior returns = prior (no views to shift)
+        np.testing.assert_allclose(er, pi, rtol=1e-9)
+        # Posterior covariance = Σ + τΣ (uncertainty added)
+        expected_cov = cov_4asset + tau * cov_4asset
+        np.testing.assert_allclose(cov_p, expected_cov, rtol=1e-9)
+
+    def test_extreme_confidence_dominates_view(self, cov_4asset, market_weights_4asset):
+        """99.99% confidence → posterior return ~= view."""
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        P = np.array([[1, 0, 0, 0]])
+        view_return = 0.10  # 10% expected for asset 0
+        Q = np.array([view_return])
+        Omega = build_views_uncertainty(cov_4asset, P, [99.99])
+
+        er, _ = blend_views(pi, cov_4asset, P, Q, Omega)
+        # Posterior for asset 0 should be very close to the view
+        assert abs(er[0] - view_return) < 0.01
+
+    def test_omega_scales_with_tau(self, cov_4asset):
+        """Omega ∝ tau — doubling tau doubles Omega entries."""
+        P = np.array([[1, -1, 0, 0]])
+        conf = [70.0]
+        omega_005 = build_views_uncertainty(cov_4asset, P, conf, tau=0.05)
+        omega_010 = build_views_uncertainty(cov_4asset, P, conf, tau=0.10)
+
+        np.testing.assert_allclose(omega_010, 2.0 * omega_005, rtol=1e-10)
+
+    def test_confidences_near_zero_produce_large_omega(self):
+        """Low confidence → large uncertainty → posterior stays close to prior."""
+        rng = np.random.default_rng(42)
+        cov = np.cov(rng.normal(0, 0.01, (500, 3)).T) * 252
+        w_mkt = np.ones(3) / 3
+        pi = compute_implied_returns(cov, w_mkt)
+
+        P = np.array([[1, 0, 0]])
+        Q = np.array([0.20])  # Very different from prior
+
+        # Extremely low confidence (close to 0)
+        omega_low = build_views_uncertainty(cov, P, [1.0], tau=0.05)
+        er_low, _ = blend_views(pi, cov, P, Q, omega_low)
+
+        # High confidence
+        omega_high = build_views_uncertainty(cov, P, [90.0], tau=0.05)
+        er_high, _ = blend_views(pi, cov, P, Q, omega_high)
+
+        # Low confidence → smaller deviation from prior for the viewed asset
+        deviation_low = abs(er_low[0] - pi[0])
+        deviation_high = abs(er_high[0] - pi[0])
+        assert deviation_low < deviation_high, (
+            f"Low confidence should deviate less: {deviation_low:.6f} vs {deviation_high:.6f}"
+        )
+
+    def test_multiple_views_converge(self, cov_4asset, market_weights_4asset):
+        """Multiple distinct views all contribute to posterior."""
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+
+        # Three independent views
+        P = np.array(
+            [
+                [1, 0, 0, 0],  # Asset 0 outperforms by 4%
+                [0, 1, -1, 0],  # Asset 1 vs 2 spread
+                [0, 0, 0, 1],  # Asset 3 has specific return
+            ]
+        )
+        Q = np.array([0.04, 0.02, 0.03])
+        Omega = build_views_uncertainty(cov_4asset, P, [80.0, 60.0, 70.0])
+
+        er, cov_p = blend_views(pi, cov_4asset, P, Q, Omega)
+
+        # Posterior returns should shift toward each view
+        assert er[0] > pi[0]  # Asset 0 raised by view 1
+        assert er[1] > er[2]  # Asset 1 > Asset 2 from view 2
+        # Posterior covariance must be larger than prior (added uncertainty)
+        assert np.all(np.diag(cov_p) > np.diag(cov_4asset))
+
+    def test_consistent_with_capm_equilibrium(self):
+        """Without views, BL reduces to CAPM equilibrium."""
+        rng = np.random.default_rng(99)
+        n = 5
+        cov = np.cov(rng.normal(0, 0.01, (500, n)).T) * 252
+        w_mkt = rng.dirichlet(np.ones(n))
+        pi = compute_implied_returns(cov, w_mkt, risk_aversion=3.0)
+
+        # CAPM: market portfolio is tangency → slope = Sharpe
+        mkt_return = pi @ w_mkt
+        mkt_var = w_mkt @ cov @ w_mkt
+        mkt_sharpe = mkt_return / np.sqrt(mkt_var) if mkt_var > 0 else 0
+
+        # The implied Sharpe should be positive (market risk premium)
+        assert mkt_sharpe > 0, f"Market Sharpe should be positive, got {mkt_sharpe:.4f}"
+
+
+class TestImpliedReturnsMath:
+    """Mathematical properties of compute_implied_returns."""
+
+    def test_linear_in_risk_aversion(self, cov_4asset, market_weights_4asset):
+        """Π ∝ δ — doubling risk aversion doubles implied returns."""
+        pi_2 = compute_implied_returns(
+            cov_4asset, market_weights_4asset, risk_aversion=2.0
+        )
+        pi_4 = compute_implied_returns(
+            cov_4asset, market_weights_4asset, risk_aversion=4.0
+        )
+        np.testing.assert_allclose(pi_4, 2.0 * pi_2, rtol=1e-10)
+
+    def test_weights_sum_to_one(self, cov_4asset):
+        """Market weights must be a valid simplex."""
+        n = 4
+        # Valid weights: Dirichlet sample
+        rng = np.random.default_rng(55)
+        w = rng.dirichlet(np.ones(n))
+        pi = compute_implied_returns(cov_4asset, w)
+        assert len(pi) == n
+        assert not np.any(np.isnan(pi))
+
+    def test_negative_risk_aversion_reverses_sign(self):
+        """Negative δ flips the sign of implied returns."""
+        rng = np.random.default_rng(42)
+        cov = np.cov(rng.normal(0, 0.01, (100, 3)).T) * 252
+        w = np.ones(3) / 3
+        pi_pos = compute_implied_returns(cov, w, risk_aversion=2.5)
+        pi_neg = compute_implied_returns(cov, w, risk_aversion=-2.5)
+        np.testing.assert_allclose(pi_neg, -pi_pos, rtol=1e-10)
+
+    def test_uniform_weights_with_identity_cov(self):
+        """When Σ = I and weights uniform, Π values are identical."""
+        n = 3
+        cov = np.eye(n)
+        w = np.ones(n) / n
+        pi = compute_implied_returns(cov, w, risk_aversion=1.0)
+        # All implied returns should be equal: 1.0 * ones/n
+        np.testing.assert_allclose(pi, np.ones(n) / n, rtol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Hardening: structural validation and strict-PSD guarantees
+# ---------------------------------------------------------------------------
+
+
+class TestHardeningValidation:
+    """Malformed matrices must fail loudly with DataValidationError."""
+
+    def test_blend_rejects_non_psd_cov(self, cov_4asset, market_weights_4asset):
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        P = np.array([[1, -1, 0, 0]])
+        Q = np.array([0.03])
+        Omega = np.diag([0.001])
+
+        indefinite = np.array(
+            [
+                [2.0, 3.0, 0.0, 0.0],
+                [3.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        with pytest.raises(DataValidationError, match="positive semi-definite"):
+            blend_views(pi, indefinite, P, Q, Omega)
+
+    def test_implied_returns_reject_non_psd_cov(self, market_weights_4asset):
+        indefinite = np.array(
+            [
+                [2.0, 3.0, 0.0, 0.0],
+                [3.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        with pytest.raises(DataValidationError, match="positive semi-definite"):
+            compute_implied_returns(indefinite, market_weights_4asset)
+
+    def test_blend_rejects_negative_omega_diagonal(
+        self, cov_4asset, market_weights_4asset
+    ):
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        P = np.array([[1, -1, 0, 0]])
+        Q = np.array([0.03])
+        Omega = np.diag([-0.001])  # negative uncertainty is invalid
+        with pytest.raises(DataValidationError, match="non-negative"):
+            blend_views(pi, cov_4asset, P, Q, Omega)
+
+    def test_blend_rejects_nan_views(self, cov_4asset, market_weights_4asset):
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        P = np.array([[1, -1, 0, 0]])
+        Q = np.array([np.nan])
+        Omega = np.diag([0.001])
+        with pytest.raises(DataValidationError, match="NaN"):
+            blend_views(pi, cov_4asset, P, Q, Omega)
+
+
+class TestHardeningStrictPSD:
+    """BL outputs must be strictly positive definite even in degenerate regimes."""
+
+    def test_near_singular_cov_completes_and_is_strictly_psd(
+        self, market_weights_4asset
+    ):
+        """A singular (duplicated-column) covariance must not crash the
+        (τΣ)⁻¹ inversion and must produce a strictly PD posterior."""
+        rng = np.random.default_rng(7)
+        base = rng.normal(0, 0.01, 500)
+        returns = np.column_stack(
+            [base, base, rng.normal(0, 0.01, 500), rng.normal(0, 0.01, 500)]
+        )
+        singular_cov = np.cov(returns, rowvar=False) * 252  # rank 3
+
+        pi = compute_implied_returns(singular_cov, market_weights_4asset)
+        P = np.array([[1, -1, 0, 0]])
+        Q = np.array([0.03])
+        Omega = build_views_uncertainty(singular_cov, P, [50.0])
+
+        er, cov_p = blend_views(pi, singular_cov, P, Q, Omega)
+        assert np.all(np.isfinite(er))
+        assert np.all(np.linalg.eigvalsh(cov_p) > 0.0), (
+            "Posterior covariance must be strictly positive definite"
+        )
+
+    def test_zero_views_posterior_strictly_psd(self, cov_4asset, market_weights_4asset):
+        pi = compute_implied_returns(cov_4asset, market_weights_4asset)
+        _, cov_p = blend_views(
+            pi,
+            cov_4asset,
+            np.empty((0, 4)),
+            np.empty(0),
+            np.empty((0, 0)),
+        )
+        assert np.all(np.linalg.eigvalsh(cov_p) > 0.0)

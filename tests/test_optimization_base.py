@@ -236,3 +236,203 @@ def test_shrinkage_expected_return_does_not_collapse_with_correlated_assets():
         f"Shrunk returns collapsed to identical values: VFV={mu['VFV']:.6f}, "
         f"VDY={mu['VDY']:.6f}.  This forces equal-weight allocations."
     )
+
+
+def test_constant_expected_return_all_equal():
+    """constant_expected_return produces identical values for every asset."""
+    from pysharpe.optimization.expected_returns import constant_expected_return
+
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2020-01-01", periods=500, freq="B")
+    prices = pd.DataFrame(
+        {
+            "A": 100 * (1 + rng.normal(0.001, 0.02, 500)).cumprod(),
+            "B": 100 * (1 + rng.normal(0.0005, 0.01, 500)).cumprod(),
+            "C": 100 * (1 + rng.normal(0.002, 0.03, 500)).cumprod(),
+        },
+        index=dates,
+    )
+
+    mu = constant_expected_return(prices)
+
+    # All assets should have identical expected returns (the grand mean)
+    assert len(mu.unique()) == 1, (
+        f"Expected identical returns for all assets, got: {mu.to_dict()}"
+    )
+    # Should match the manual calculation
+    returns = prices.pct_change().dropna()
+    grand_mean = returns.mean().mean() * 252
+    assert abs(mu.iloc[0] - grand_mean) < 1e-10
+
+
+def test_constant_expected_return_single_asset():
+    """constant_expected_return works with a single asset."""
+    from pysharpe.optimization.expected_returns import constant_expected_return
+
+    rng = np.random.default_rng(99)
+    dates = pd.date_range("2020-01-01", periods=100, freq="B")
+    prices = pd.DataFrame(
+        {"SINGLE": 100 * (1 + rng.normal(0.001, 0.015, 100)).cumprod()},
+        index=dates,
+    )
+
+    mu = constant_expected_return(prices)
+    assert isinstance(mu, pd.Series)
+    assert len(mu) == 1
+    assert mu.index[0] == "SINGLE"
+
+
+def test_shrinkage_expected_return_single_asset_falls_back():
+    """shrinkage_expected_return falls back to mean_historical_return for n < 2."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(77)
+    dates = pd.date_range("2020-01-01", periods=100, freq="B")
+    prices = pd.DataFrame(
+        {"ONLY": 100 * (1 + rng.normal(0.001, 0.02, 100)).cumprod()},
+        index=dates,
+    )
+
+    mu = shrinkage_expected_return(prices)
+    # For single asset, should just be the mean historical return
+    from pypfopt.expected_returns import mean_historical_return
+
+    expected = mean_historical_return(prices)
+    assert abs(mu.iloc[0] - expected.iloc[0]) < 1e-10
+
+
+def test_shrinkage_expected_return_insufficient_data_falls_back():
+    """shrinkage_expected_return with too few periods falls back to mean."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(13)
+    # 5 assets, 6 periods → n_periods (5) < n_assets (5) + 2
+    dates = pd.date_range("2024-01-01", periods=6, freq="B")
+    prices = pd.DataFrame(
+        {
+            "A": 100 + rng.normal(0, 1, 6).cumsum(),
+            "B": 100 + rng.normal(0, 1, 6).cumsum(),
+            "C": 100 + rng.normal(0, 1, 6).cumsum(),
+            "D": 100 + rng.normal(0, 1, 6).cumsum(),
+            "E": 100 + rng.normal(0, 1, 6).cumsum(),
+        },
+        index=dates,
+    )
+
+    mu = shrinkage_expected_return(prices)
+    # Should still return a valid Series
+    assert len(mu) == 5
+    assert not mu.isna().any()
+
+
+def test_shrinkage_expected_return_shrinks_toward_grand_mean():
+    """Shrunk estimates should have lower cross-sectional dispersion than raw."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(42)
+    n_days = 500
+    dates = pd.date_range("2020-01-01", periods=n_days, freq="B")
+
+    # Create assets with clearly different mean returns
+    returns = pd.DataFrame(
+        {
+            "High": rng.normal(0.0015, 0.02, n_days),  # ~38% annual
+            "Mid": rng.normal(0.0008, 0.015, n_days),  # ~20% annual
+            "Low": rng.normal(0.0002, 0.01, n_days),  # ~5% annual
+        },
+        index=dates,
+    )
+    prices = (1 + returns).cumprod() * 100
+
+    mu_shrunk = shrinkage_expected_return(prices)
+    mu_raw = returns.mean() * 252
+
+    # The key property: shrunk estimates have lower cross-sectional variance
+    # than raw estimates (shrinkage pulls extremes toward the center)
+    shrunk_std = mu_shrunk.std()
+    raw_std = mu_raw.std()
+    assert shrunk_std < raw_std, (
+        f"Shrunk std ({shrunk_std:.6f}) should be less than raw std ({raw_std:.6f})"
+    )
+
+
+def test_shrinkage_expected_return_respects_shrinkage_floor():
+    """shrinkage_floor forces minimum shrinkage toward grand mean."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(42)
+    # Use only 100 days with 2 very different assets — this keeps phi low
+    # (not enough data to confidently differentiate), letting the floor take effect.
+    n_days = 100
+    dates = pd.date_range("2020-01-01", periods=n_days, freq="B")
+
+    # Very different return profiles to prevent natural shrinkage from dominating
+    returns_df = pd.DataFrame(
+        {
+            "A": rng.normal(0.003, 0.04, n_days),  # High return, high vol
+            "B": rng.normal(-0.001, 0.01, n_days),  # Low/negative, low vol
+        },
+        index=dates,
+    )
+    prices = (1 + returns_df).cumprod() * 100
+
+    # With floor=0.0, data-driven shrinkage only
+    mu_no_floor = shrinkage_expected_return(prices, shrinkage_floor=0.0)
+    # With floor=0.5, minimum 50% shrinkage — forces stronger contraction
+    mu_floor = shrinkage_expected_return(prices, shrinkage_floor=0.5)
+
+    # Cross-sectional dispersion should be lower with the floor
+    std_no_floor = mu_no_floor.std()
+    std_floor = mu_floor.std()
+    assert std_floor <= std_no_floor + 1e-10, (
+        f"Floor=0.5 should not increase dispersion. "
+        f"std_no_floor={std_no_floor:.6f}, std_floor={std_floor:.6f}"
+    )
+
+
+def test_shrinkage_expected_return_floor_at_one():
+    """shrinkage_floor=1.0 forces all estimates to the grand mean."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(42)
+    n_days = 500
+    dates = pd.date_range("2020-01-01", periods=n_days, freq="B")
+    prices = pd.DataFrame(
+        {
+            "A": 100 * (1 + rng.normal(0.001, 0.02, n_days)).cumprod(),
+            "B": 100 * (1 + rng.normal(0.002, 0.03, n_days)).cumprod(),
+        },
+        index=dates,
+    )
+
+    mu = shrinkage_expected_return(prices, shrinkage_floor=1.0)
+    # With floor=1.0, all estimates should equal the grand mean
+    assert np.isclose(mu["A"], mu["B"]), (
+        f"Floor=1.0 should collapse to grand mean: A={mu['A']:.6f}, B={mu['B']:.6f}"
+    )
+
+
+def test_shrinkage_expected_return_all_equal_returns():
+    """When all assets have identically equal returns, shrinkage is appropriate."""
+    from pysharpe.optimization.expected_returns import shrinkage_expected_return
+
+    rng = np.random.default_rng(42)
+    n_days = 500
+    dates = pd.date_range("2020-01-01", periods=n_days, freq="B")
+
+    # Identical returns for both assets
+    base = rng.normal(0.001, 0.02, n_days)
+    prices = pd.DataFrame(
+        {
+            "X": 100 * (1 + base).cumprod(),
+            "Y": 100 * (1 + base).cumprod(),
+        },
+        index=dates,
+    )
+
+    mu = shrinkage_expected_return(prices)
+    # With identical assets, shrunk returns should be very close to each other
+    assert abs(mu["X"] - mu["Y"]) < 0.01, (
+        f"Identical assets should have near-identical shrunk returns: "
+        f"X={mu['X']:.6f}, Y={mu['Y']:.6f}"
+    )

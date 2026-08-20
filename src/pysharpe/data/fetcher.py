@@ -44,9 +44,10 @@ def apply_fx_conversion(
         fetcher = YFinancePriceFetcher()
 
     # Normalize to tz-naive so multiplication against tz-naive FX rates never raises TypeError.
-    if hasattr(prices.index, "tz") and prices.index.tz is not None:
+    if isinstance(prices.index, pd.DatetimeIndex) and prices.index.tz is not None:
+        idx = prices.index
         prices = prices.copy()
-        prices.index = prices.index.tz_localize(None)
+        prices.index = idx.tz_localize(None)
 
     adjusted_prices = prices.copy()
     rows_to_exclude = pd.Series(False, index=prices.index)
@@ -98,12 +99,13 @@ def apply_fx_conversion(
                 f"Failed to download FX data for {fx_ticker}: {exc}"
             ) from exc
 
-        if fx_series.index.tz is not None:
-            fx_series.index = fx_series.index.tz_localize(None)
+        fx_idx = fx_series.index
+        if isinstance(fx_idx, pd.DatetimeIndex) and fx_idx.tz is not None:
+            fx_series.index = fx_idx.tz_localize(None)
 
         # Ensure prices index is also naive if it has timezones
         prices_index = prices.index
-        if hasattr(prices_index, "tz") and prices_index.tz is not None:
+        if isinstance(prices_index, pd.DatetimeIndex) and prices_index.tz is not None:
             prices_index = prices_index.tz_localize(None)
 
         aligned_fx = fx_series.reindex(prices_index).ffill()
@@ -274,11 +276,12 @@ class DuckDBCachedPriceFetcher(PriceFetcher):
 
                 if not df.empty:
                     df.set_index("Date", inplace=True)
-                    # DuckDB returns pandas Timestamps, but timezone might need explicit conversion or be UTC standard
-                    if df.index.tz is None:
-                        df.index = df.index.tz_localize("UTC")
-                    else:
-                        df.index = df.index.tz_convert("UTC")
+                    idx = df.index
+                    if isinstance(idx, pd.DatetimeIndex):
+                        if idx.tz is None:
+                            df.index = idx.tz_localize("UTC")
+                        else:
+                            df.index = idx.tz_convert("UTC")
                     return df
 
             logger.info("Cache miss or expired for %s", ticker)

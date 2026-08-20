@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from scipy.stats import norm
@@ -47,6 +48,7 @@ def compute_dsr(
     skew: float,
     excess_kurtosis: float,
     sr_std: float = 1.0,
+    theta: float = 1.0,
 ) -> float:
     """Compute the Deflated Sharpe Ratio (DSR).
 
@@ -56,6 +58,18 @@ def compute_dsr(
     A DSR close to 1.0 indicates the strategy's performance is unlikely
     to be the result of data‑mining bias; a DSR close to 0.0 suggests
     the observed Sharpe could easily arise from noise.
+
+    **Non-IID correction** — When returns are serially correlated the
+    IID-assumed annualisation √T overstates the true Sharpe ratio.  Per
+    Lo (2002), the observed Sharpe is first deflated by √θ, where θ is the
+    Newey–West variance-inflation factor
+
+    .. math::
+
+        \\theta = 1 + 2 \\sum_{k=1}^{q} \\rho_k \\left(1 - \\frac{k}{q+1}\\right)
+
+    and ρ_k is the k-th order return autocorrelation.  Pass
+    ``theta=1.0`` (the default) to recover the IID formulation exactly.
 
     Parameters
     ----------
@@ -75,6 +89,11 @@ def compute_dsr(
         Standard deviation of the *annualised* Sharpe ratios across the
         N trials under the null hypothesis.  Defaults to 1.0 per Bailey
         & López de Prado (2014).
+    theta
+        Lo (2002) variance-inflation factor for return autocorrelation,
+        θ ≥ 1.0.  The observed Sharpe is deflated by √θ before computing
+        the DSR.  Compute from the return series with
+        ``_compute_lo_adjustment_factor``.
 
     Returns
     -------
@@ -85,7 +104,7 @@ def compute_dsr(
     Raises
     ------
     ValueError
-        If *n_trials* < 1, *t_obs* < 2, or *sr_std* ≤ 0.
+        If *n_trials* < 1, *t_obs* < 2, *sr_std* ≤ 0, or *theta* < 1.
 
     Notes
     -----
@@ -100,13 +119,19 @@ def compute_dsr(
     *sr_std*.  This is an extreme‑value‑theory approximation for the
     expected maximum of N independent standard normal draws.
 
+    **Lo-adjusted Sharpe** (Lo 2002):
+
+    .. math::
+
+        SR_{adj} = \\frac{SR}{\\sqrt{\\theta}}
+
     **Standard error of the Sharpe ratio** (SE(SR)):
 
     .. math::
 
-        SE(SR) = \\sqrt{
+        SE(SR_{adj}) = \\sqrt{
             \\frac{
-                1 - \\gamma_3 \\cdot SR + \\frac{\\gamma_4}{4} \\cdot SR^2
+                1 - \\gamma_3 \\cdot SR_{adj} + \\frac{\\gamma_4}{4} \\cdot SR_{adj}^2
             }{T - 1}
         }
 
@@ -116,7 +141,7 @@ def compute_dsr(
 
     .. math::
 
-        DSR = \\Phi\\!\\left(\\frac{SR - SR_0}{SE(SR)}\\right)
+        DSR = \\Phi\\!\\left(\\frac{SR_{adj} - SR_0}{SE(SR_{adj})}\\right)
 
     where Φ is the standard normal CDF.
     """
@@ -129,6 +154,14 @@ def compute_dsr(
         raise ValueError(f"t_obs must be ≥ 2, got {t_obs}")
     if sr_std <= 0.0:
         raise ValueError(f"sr_std must be positive, got {sr_std}")
+    if theta < 1.0:
+        raise ValueError(f"theta must be ≥ 1.0, got {theta}")
+
+    # ------------------------------------------------------------------
+    # Lo (2002) autocorrelation adjustment — deflate the observed Sharpe
+    # before deflation against the trial distribution.
+    # ------------------------------------------------------------------
+    sr_adj: float = observed_sr / math.sqrt(theta)
 
     # ------------------------------------------------------------------
     # Null-hypothesis expected maximum Sharpe ratio (SR₀)
@@ -149,12 +182,13 @@ def compute_dsr(
         )
 
     # ------------------------------------------------------------------
-    # Standard error of the Sharpe ratio under non‑normality
+    # Standard error of the Sharpe ratio under non‑normality, evaluated at
+    # the Lo-adjusted Sharpe ratio.
     # ------------------------------------------------------------------
-    # SE² = [1 − γ₃·SR + (γ₄/4)·SR²] / (T − 1)
-    variance: float = (
-        1.0 - skew * observed_sr + (excess_kurtosis / 4.0) * observed_sr**2
-    ) / (t_obs - 1)
+    # SE² = [1 − γ₃·SR_adj + (γ₄/4)·SR_adj²] / (T − 1)
+    variance: float = (1.0 - skew * sr_adj + (excess_kurtosis / 4.0) * sr_adj**2) / (
+        t_obs - 1
+    )
 
     if variance <= 0.0:
         # Degenerate case: if the variance is non-positive the standard
@@ -167,7 +201,7 @@ def compute_dsr(
     # ------------------------------------------------------------------
     # DSR via standard normal CDF
     # ------------------------------------------------------------------
-    z_score: float = (observed_sr - sr_null) / se_sr
+    z_score: float = (sr_adj - sr_null) / se_sr
     dsr: float = float(norm.cdf(z_score))
 
     return dsr
@@ -331,10 +365,13 @@ def _lo_adjusted_sharpe(
     # Annualised Sharpe under the IID assumption.
     import pandas as pd
 
-    sr_raw: float = sharpe_ratio(
-        pd.Series(returns, dtype=float),
-        risk_free_rate=risk_free_rate,
-        periods_per_year=periods_per_year,
+    sr_raw: float = cast(
+        float,
+        sharpe_ratio(
+            pd.Series(returns, dtype=float),
+            risk_free_rate=risk_free_rate,
+            periods_per_year=periods_per_year,
+        ),
     )
 
     theta: float = _compute_lo_adjustment_factor(returns, max_lags=max_lags)
@@ -439,10 +476,13 @@ def compute_validation_metrics(
     ret_series: pd.Series = pd.Series(returns, dtype=float)
 
     # Raw Sharpe ratio.
-    raw_sr: float = sharpe_ratio(
-        ret_series,
-        risk_free_rate=risk_free_rate,
-        periods_per_year=periods_per_year,
+    raw_sr: float = cast(
+        float,
+        sharpe_ratio(
+            ret_series,
+            risk_free_rate=risk_free_rate,
+            periods_per_year=periods_per_year,
+        ),
     )
 
     # Lo‑adjusted Sharpe.
@@ -454,12 +494,17 @@ def compute_validation_metrics(
     )
 
     # Distribution moments for DSR standard‑error calculation.
-    skew: float = float(ret_series.skew())
+    skew: float = float(ret_series.skew())  # pyright: ignore[reportArgumentType]
     # pandas .kurtosis() returns *excess* kurtosis (Fisher definition).
-    excess_kurt: float = float(ret_series.kurtosis())
+    excess_kurt: float = float(ret_series.kurtosis())  # pyright: ignore[reportArgumentType]
 
     t_obs: int = len(returns)
     n_trials_int: int = max(int(round(n_trials)), 1)
+
+    # Lo (2002) variance-inflation factor from the return autocorrelation.
+    # θ = 1.0 for IID returns; θ > 1.0 for positively serially correlated
+    # returns, which deflates the Sharpe ratio before DSR deflation.
+    theta: float = _compute_lo_adjustment_factor(returns, max_lags=max_lags)
 
     dsr: float = compute_dsr(
         observed_sr=raw_sr,
@@ -468,6 +513,7 @@ def compute_validation_metrics(
         skew=skew,
         excess_kurtosis=excess_kurt,
         sr_std=sr_std,
+        theta=theta,
     )
 
     return ValidationMetrics(

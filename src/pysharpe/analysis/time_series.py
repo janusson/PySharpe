@@ -44,7 +44,7 @@ def check_stationarity(
         "p_value": adf_result[1],
         "used_lag": adf_result[2],
         "nobs": adf_result[3],
-        "critical_values": adf_result[4],
+        "critical_values": adf_result[4],  # type: ignore[index]
         "is_stationary": bool(adf_result[1] < significance_level),
     }
 
@@ -79,7 +79,7 @@ class GARCHVolatilityForecaster:
 
         Args:
             returns (pd.Series): The return series (should be scaled, e.g., multiplied by 100).
-            **kwargs: Additional arguments passed to the fit method of arch_model.
+            **kwargs (dict): Additional arguments passed to the fit method of arch_model.
 
         Returns:
             GARCHVolatilityForecaster: The fitted instance.
@@ -90,7 +90,7 @@ class GARCHVolatilityForecaster:
         # The arch package often works better with scaled returns (percentages)
         # We assume the user has scaled them, or we let the arch optimizer handle it.
         # Warnings might appear if the scale is too small.
-        self.am_ = arch_model(returns, vol=self.vol, p=self.p, q=self.q, mean=self.mean)
+        self.am_ = arch_model(returns, vol=self.vol, p=self.p, q=self.q, mean=self.mean)  # pyright: ignore[reportArgumentType]
 
         logger.info(f"Fitting {self.vol}({self.p},{self.q}) model...")
         # Use disp='off' to keep console output clean during fitting

@@ -207,7 +207,7 @@ def optimal_block_length(
     max_lag = max(1, min(max_lag, len(clean) - 2))
 
     # De-mean
-    x = clean - np.mean(clean)
+    x = clean - np.mean(clean)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
     # Autocorrelations up to max_lag
     acf = np.zeros(max_lag + 1)
@@ -329,7 +329,7 @@ class RegimeLabeler:
         if clean.empty:
             raise ValueError("Return series contains no finite observations.")
 
-        labels = pd.Series(Regime.NORMAL, index=returns.index, dtype=object)
+        labels = pd.Series(Regime.NORMAL, index=returns.index, dtype=object)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
         # --- Step 1: High-volatility shock detection ---
         labels = self._label_vol_shocks(clean, labels)
@@ -347,7 +347,7 @@ class RegimeLabeler:
         statistics = self._compute_statistics(clean, labels)
 
         # --- Data-quality warnings ---
-        self._emit_coverage_warnings(regimes, clean.index)
+        self._emit_coverage_warnings(regimes, clean.index)  # pyright: ignore[reportArgumentType]
 
         return RegimeSegmentationResult(
             labels=labels,
@@ -649,6 +649,69 @@ class RegimeLabeler:
 # Purged K-Fold
 # ---------------------------------------------------------------------------
 
+_DEFAULT_DECAY_THRESHOLD: float = 0.05
+"""Default |autocorrelation| threshold below which serial dependence is considered decayed."""
+
+
+def autocorrelation_decay_lag(
+    returns: pd.Series | pd.DataFrame | np.ndarray,
+    *,
+    threshold: float = _DEFAULT_DECAY_THRESHOLD,
+    max_lag: int | None = None,
+) -> int:
+    """Measure the lag at which return autocorrelation decays below *threshold*.
+
+    Serial dependence in returns means observations closer than this many
+    steps apart are not independent.  The purge and embargo buffers of
+    :class:`PurgedKFold` should be at least this large to strictly prevent
+    look-ahead leakage between training and test folds.
+
+    Args:
+        returns: Return series (or multiple asset columns).  When multiple
+            assets are supplied the **maximum** decay lag across assets is
+            returned, so the gap is safe for every asset.
+        threshold: Absolute autocorrelation below which the series is
+            considered decorrelated.  Default 0.05.
+        max_lag: Upper bound on the search.  Defaults to
+            ``min(252, len(returns) // 4)``.
+
+    Returns:
+        The smallest lag k ≥ 1 with |ρ_k| < *threshold*, or *max_lag* if
+        the autocorrelation never decays below the threshold.  White-noise
+        series therefore return small lags, strongly autocorrelated series
+        return large lags.
+    """
+    values: np.ndarray
+    if isinstance(returns, pd.DataFrame):
+        values = returns.dropna().to_numpy(dtype=np.float64)
+    elif isinstance(returns, pd.Series):
+        values = returns.dropna().to_numpy(dtype=np.float64)
+    else:
+        values = np.asarray(returns, dtype=np.float64)
+
+    if values.ndim == 1:
+        values = values[:, None]
+    n = values.shape[0]
+    if n < 4:
+        return 1
+
+    if max_lag is None:
+        max_lag = min(_TRADING_DAYS_PER_YEAR, n // 4)
+    max_lag = max(1, min(max_lag, n - 2))
+
+    decay_lag = 1
+    for asset in range(values.shape[1]):
+        x = values[:, asset] - np.mean(values[:, asset])
+        asset_lag = max_lag  # sentinel: autocorrelation never decays
+        for lag in range(1, max_lag + 1):
+            denom = np.sqrt(np.sum(x[:-lag] ** 2) * np.sum(x[lag:] ** 2))
+            rho = float(np.dot(x[:-lag], x[lag:]) / denom) if denom > 1e-30 else 0.0
+            if abs(rho) < threshold:
+                asset_lag = lag
+                break
+        decay_lag = max(decay_lag, asset_lag)
+    return decay_lag
+
 
 class PurgedKFold:
     """Time-series cross-validation with purging and embargo.
@@ -659,19 +722,41 @@ class PurgedKFold:
     (purge) and enforces an additional gap (embargo) after each test set to
     prevent overlapping information.
 
+    Gap sizes can be specified either as fractions of the series length
+    (``embargo_pct`` / ``purge_pct``) or as explicit observation counts
+    (``embargo_size`` / ``purge_size``).  The observation-count form should
+    be sized from the asset's autocorrelation decay — see
+    :func:`autocorrelation_decay_lag` and :meth:`from_returns`.
+
+    Layout guarantees
+    -----------------
+    * Consecutive test folds are separated by **at least** ``embargo_size``
+      observations (strictly enforced for every fold, including the last).
+    * Training data ends at least ``purge_size`` observations before the
+      test fold it feeds (or starts ``embargo_size`` observations after it,
+      for the first fold whose training window follows the test fold).
+    * Observations that do not fit an exact fold + embargo layout at the end
+      of the series are dropped from the test folds rather than folded into
+      a truncated fold that could touch an embargo zone.
+
     Parameters
     ----------
     n_splits:
         Number of folds.
     embargo_pct:
         Fraction of the total series length used as the embargo gap between
-        the test set of fold ``i`` and the training set of fold ``i+1``.
-        A value of ``0.01`` means 1 % of the total observations are dropped
-        after each test set.
+        consecutive test folds.  Ignored when *embargo_size* is given.
     purge_pct:
         Fraction of the series length used as the purge gap between the end
         of training and the start of the test set within each fold.
-        Defaults to the same as *embargo_pct*.
+        Defaults to the same as *embargo_pct*.  Ignored when *purge_size*
+        is given.
+    purge_size:
+        Explicit purge gap in observations (takes precedence over
+        *purge_pct*).
+    embargo_size:
+        Explicit embargo gap in observations (takes precedence over
+        *embargo_pct*).
     """
 
     def __init__(
@@ -680,6 +765,8 @@ class PurgedKFold:
         *,
         embargo_pct: float = _DEFAULT_EMBARGO_PCT,
         purge_pct: float | None = None,
+        purge_size: int | None = None,
+        embargo_size: int | None = None,
     ) -> None:
         if n_splits < 2:
             raise ValueError("n_splits must be at least 2.")
@@ -687,10 +774,59 @@ class PurgedKFold:
             raise ValueError("embargo_pct must be in [0.0, 0.5).")
         if purge_pct is not None and not 0.0 <= purge_pct < 0.5:
             raise ValueError("purge_pct must be in [0.0, 0.5).")
+        if purge_size is not None and purge_size < 0:
+            raise ValueError("purge_size must be non-negative.")
+        if embargo_size is not None and embargo_size < 0:
+            raise ValueError("embargo_size must be non-negative.")
+        if purge_pct is not None and purge_size is not None:
+            raise ValueError("Provide either purge_pct or purge_size, not both.")
 
         self.n_splits = n_splits
         self.embargo_pct = embargo_pct
         self.purge_pct = purge_pct if purge_pct is not None else embargo_pct
+        self.purge_size = purge_size
+        self.embargo_size = embargo_size
+
+    @classmethod
+    def from_returns(
+        cls,
+        returns: pd.Series | pd.DataFrame,
+        n_splits: int = _DEFAULT_N_SPLITS,
+        *,
+        decay_threshold: float = _DEFAULT_DECAY_THRESHOLD,
+        min_gap: int = 1,
+    ) -> PurgedKFold:
+        """Size the purge and embargo from the asset's autocorrelation decay.
+
+        The gaps are set to the maximum lag at which |ρ_k| ≥ *decay_threshold*
+        across all assets (see :func:`autocorrelation_decay_lag`), so
+        observations within the gap are serially dependent on the test fold
+        and are excluded from training.
+
+        Args:
+            returns: Return series (or multi-asset DataFrame) used to
+                measure autocorrelation decay.
+            n_splits: Number of folds.
+            decay_threshold: |autocorrelation| threshold defining "decayed".
+            min_gap: Minimum gap in observations (default 1).
+        """
+        gap = max(
+            min_gap, autocorrelation_decay_lag(returns, threshold=decay_threshold)
+        )
+        return cls(n_splits, purge_size=gap, embargo_size=gap)
+
+    def _gap_sizes(self, n: int) -> tuple[int, int]:
+        """Resolve explicit/pct gap settings into observation counts."""
+        if self.embargo_size is not None:
+            embargo = self.embargo_size
+        else:
+            embargo = int(n * self.embargo_pct) if self.embargo_pct > 0 else 0
+
+        if self.purge_size is not None:
+            purge = self.purge_size
+        else:
+            purge = int(n * self.purge_pct) if self.purge_pct > 0 else 0
+        return purge, embargo
 
     def split(
         self,
@@ -720,15 +856,16 @@ class PurgedKFold:
                 f"{self.n_splits} splits; got {n}."
             )
 
-        embargo_size = int(n * self.embargo_pct) if self.embargo_pct > 0 else 0
-        purge_size = int(n * self.purge_pct) if self.purge_pct > 0 else 0
+        purge_size, embargo_size = self._gap_sizes(n)
 
-        # Split into roughly equal-sized folds
+        # Exact fold + embargo layout: every fold gets an identical, full-size
+        # test block separated from its neighbours by the embargo gap.  The
+        # trailing remainder is excluded (never clamped into the embargo).
         fold_size = (n - (self.n_splits - 1) * embargo_size) // self.n_splits
         if fold_size < 3:
             raise ValueError(
-                f"Fold size ({fold_size}) is too small. Reduce n_splits or "
-                f"increase the sample size."
+                f"Fold size ({fold_size}) is too small. Reduce n_splits, "
+                f"reduce the embargo, or increase the sample size."
             )
 
         timestamps = data.index
@@ -738,16 +875,17 @@ class PurgedKFold:
             test_start_idx = i * (fold_size + embargo_size)
             test_end_idx = test_start_idx + fold_size - 1
 
+            # Unreachable by construction (fold_size is exact); defensive.
             if test_end_idx >= n:
-                test_end_idx = n - 1
-                test_start_idx = max(0, test_end_idx - fold_size + 1)
+                raise ValueError(f"Fold {i}: test window exceeds the series length.")
 
-            # Training: everything before test, minus purge
+            # Training: everything before the test fold, minus the purge gap.
             train_start_idx = 0
             train_end_idx = test_start_idx - purge_size - 1
 
             if train_end_idx < 0:
-                # Not enough room for training before; use everything after
+                # First fold(s) with no room before the test fold: train on
+                # everything after the test fold, leaving the embargo gap.
                 train_start_idx = test_end_idx + embargo_size + 1
                 train_end_idx = n - 1
                 if train_start_idx >= n:
@@ -937,7 +1075,10 @@ def bootstrap_regime_paths(
 
     for i in range(n_paths):
         boot_returns = _stationary_block_bootstrap(
-            regime_arr, block_length, n_blocks_per_path, rng
+            regime_arr,  # pyright: ignore[reportArgumentType]
+            block_length,
+            n_blocks_per_path,
+            rng,
         )
 
         # Trim to exact path length

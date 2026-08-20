@@ -8,6 +8,8 @@ ity so they slot naturally into notebook or production workflows.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -27,14 +29,17 @@ def _coerce_to_dataframe(data: PandasLike) -> tuple[pd.DataFrame, bool]:
 
 
 def _prep_numeric(frame: pd.DataFrame) -> pd.DataFrame:
-    cleaned: pd.DataFrame = frame.apply(pd.to_numeric, errors="coerce")  # type: ignore[assignment]
+    cleaned = frame.apply(pd.to_numeric, errors="coerce")
+    if isinstance(cleaned, pd.Series):
+        cleaned = cleaned.to_frame()
+    cleaned = cast(pd.DataFrame, cleaned)
     cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
-    cleaned = cleaned.dropna(how="all")
+    cleaned.dropna(how="all", inplace=True)
     if cleaned.empty:
         raise ValueError(
             "Input must contain at least one finite observation per column."
         )
-    return cleaned  # type: ignore[return-value]
+    return cleaned
 
 
 def compute_returns(
@@ -74,13 +79,17 @@ def compute_returns(
 
     shifted = numeric.shift(1)
     if method == "log":
-        returns = np.log(numeric / shifted)
+        raw = np.log(numeric / shifted)
+        returns = cast(
+            pd.DataFrame,
+            pd.DataFrame(raw, index=numeric.index, columns=numeric.columns),
+        )
     else:
-        returns = numeric.pct_change()
+        returns = cast(pd.DataFrame, numeric.pct_change())
 
     returns.replace([np.inf, -np.inf], np.nan, inplace=True)
     if dropna:
-        returns = returns.dropna(how="all")
+        returns.dropna(how="all", inplace=True)
 
     if was_series:
         return returns.iloc[:, 0]
@@ -263,8 +272,8 @@ def sharpe_ratio(
     if np.isclose(annualised_volatility, 0.0):
         raise ValueError("Volatility is zero; Sharpe ratio undefined.")
 
-    excess_return = annualised_return - risk_free_rate
-    return float(excess_return / annualised_volatility)
+    excess_return = cast(float, annualised_return) - risk_free_rate
+    return float(excess_return / cast(float, annualised_volatility))
 
 
 def cagr(value_series: pd.Series) -> float:

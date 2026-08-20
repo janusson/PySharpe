@@ -14,9 +14,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysharpe.exceptions import DataValidationError
 from pysharpe.optimization.estimators import (
     compute_linear_shrinkage,
     compute_nonlinear_shrinkage,
+    ensure_strictly_psd,
+    prepare_returns,
 )
 
 # ---------------------------------------------------------------------------
@@ -210,22 +213,27 @@ class TestValidation:
             compute_nonlinear_shrinkage(np.ones((10, 3)))  # type: ignore[arg-type]
 
     def test_raises_on_empty(self):
-        with pytest.raises(ValueError, match="empty"):
+        with pytest.raises(DataValidationError, match="empty"):
             compute_nonlinear_shrinkage(pd.DataFrame())
 
     def test_raises_on_too_few_observations(self):
         df = pd.DataFrame({"A": [0.01, 0.02], "B": [-0.01, 0.01]})
-        with pytest.raises(ValueError, match="3 observations"):
+        with pytest.raises(DataValidationError, match="3 observations"):
             compute_nonlinear_shrinkage(df)
 
     def test_raises_on_single_asset(self):
         df = pd.DataFrame({"A": np.random.randn(10) * 0.01})
-        with pytest.raises(ValueError, match="2 assets"):
+        with pytest.raises(DataValidationError, match="2 assets"):
             compute_nonlinear_shrinkage(df)
 
-    def test_raises_on_nan(self):
-        df = pd.DataFrame({"A": [0.01, np.nan, 0.03], "B": [0.01, 0.02, 0.03]})
-        with pytest.raises(ValueError, match="NaN"):
+    def test_raises_on_infinite_values(self):
+        df = pd.DataFrame({"A": [0.01, np.inf, 0.03], "B": [0.01, 0.02, 0.03]})
+        with pytest.raises(DataValidationError, match="infinite"):
+            compute_nonlinear_shrinkage(df)
+
+    def test_raises_on_non_numeric_column(self):
+        df = pd.DataFrame({"A": [0.01, 0.02, 0.03], "B": ["x", "y", "z"]})
+        with pytest.raises(DataValidationError, match="numeric"):
             compute_nonlinear_shrinkage(df)
 
     def test_two_asset_minimal_case(self, rng):
@@ -251,8 +259,155 @@ class TestValidation:
         df = pd.DataFrame(np.zeros((10, 3)), columns=["A", "B", "C"])
         cov = compute_nonlinear_shrinkage(df)
         assert cov.shape == (3, 3)
-        # All-zero returns → zero sample covariance → shrunk toward zero
+        # All-zero returns → zero sample covariance → shrunk toward zero.
+        # Must remain finite and strictly positive definite.
         assert np.all(np.isfinite(cov.values))
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0)
+
+
+# ===========================================================================
+# Missing-data handling
+# ===========================================================================
+
+
+class TestMissingData:
+    """Listwise deletion of partially observed rows — never backfilled."""
+
+    def test_partial_nan_rows_are_dropped(self, rng, caplog):
+        """Rows with any NaN are dropped; result matches manually cleaned input."""
+        full = pd.DataFrame(rng.normal(0, 0.01, (40, 3)), columns=["A", "B", "C"])
+        gappy = full.copy()
+        gappy.iloc[1, 0] = np.nan
+        gappy.iloc[7, 1] = np.nan
+
+        with caplog.at_level(
+            logging.WARNING, logger="pysharpe.optimization.estimators"
+        ):
+            cov_gappy = compute_nonlinear_shrinkage(gappy)
+
+        assert any("Dropped 2 of 40" in r.message for r in caplog.records)
+        cov_clean = compute_nonlinear_shrinkage(full.drop(index=[1, 7]))
+        np.testing.assert_allclose(cov_gappy.values, cov_clean.values)
+
+    def test_linear_shrinkage_handles_missing_rows(self, rng):
+        full = pd.DataFrame(rng.normal(0, 0.01, (30, 4)), columns=list("ABCD"))
+        gappy = full.copy()
+        gappy.iloc[3, 2] = np.nan
+
+        cov = compute_linear_shrinkage(gappy)
+        assert cov.shape == (4, 4)
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0)
+
+    def test_fully_missing_asset_raises(self, rng):
+        df = pd.DataFrame(rng.normal(0, 0.01, (10, 3)), columns=["A", "B", "C"])
+        df["D"] = np.nan
+        with pytest.raises(DataValidationError, match="no observed returns"):
+            compute_nonlinear_shrinkage(df)
+
+    def test_too_few_rows_after_drop_raises(self):
+        df = pd.DataFrame({"A": [0.01, np.nan, np.nan], "B": [np.nan, 0.02, 0.03]})
+        with pytest.raises(DataValidationError, match="no observed returns"):
+            compute_nonlinear_shrinkage(df)
+
+    def test_prepare_returns_public_helper(self, rng):
+        df = pd.DataFrame(rng.normal(0, 0.01, (10, 3)), columns=["A", "B", "C"])
+        df.iloc[0, 0] = np.nan
+        cleaned = prepare_returns(df)
+        assert len(cleaned) == 9
+        assert not cleaned.isna().any().any()
+
+        with pytest.raises(DataValidationError):
+            prepare_returns(pd.DataFrame({"A": [1, 2], "B": [3, 4]}))
+
+
+# ===========================================================================
+# Strict positive-definiteness guarantees
+# ===========================================================================
+
+
+class TestStrictPSD:
+    """Every estimator output must have strictly positive eigenvalues."""
+
+    def test_nonlinear_duplicated_columns_strictly_psd(self, rng):
+        """Rank-deficient input (duplicate assets) must still be strictly PD."""
+        base = rng.normal(0, 0.01, 60)
+        returns = pd.DataFrame(
+            {
+                "A": base,
+                "B": base.copy(),  # exact duplicate → rank deficiency
+                "C": rng.normal(0, 0.01, 60),
+            }
+        )
+        cov = compute_nonlinear_shrinkage(returns)
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+
+    def test_linear_duplicated_columns_strictly_psd(self, rng):
+        base = rng.normal(0, 0.01, 60)
+        returns = pd.DataFrame({"A": base, "B": base.copy(), "C": base.copy()})
+        cov = compute_linear_shrinkage(returns)
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+
+    def test_linear_zero_variance_asset_strictly_psd(self, rng):
+        """A constant (zero-variance) column must not break the estimator."""
+        returns = pd.DataFrame(
+            {
+                "Const": np.zeros(60),
+                "A": rng.normal(0, 0.01, 60),
+                "B": rng.normal(0, 0.01, 60),
+            }
+        )
+        cov = compute_linear_shrinkage(returns)
+        assert np.all(np.isfinite(cov.values))
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+        # Constant asset has no covariance with anything.
+        assert np.allclose(cov.loc["Const", ["A", "B"]], 0.0, atol=1e-12)
+
+    def test_nonlinear_zero_variance_asset_strictly_psd(self, rng):
+        returns = pd.DataFrame(
+            {
+                "Const": np.zeros(60),
+                "A": rng.normal(0, 0.01, 60),
+            }
+        )
+        cov = compute_nonlinear_shrinkage(returns)
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+
+    def test_extreme_high_dim_strictly_psd(self, extreme_high_dim_returns):
+        cov = compute_nonlinear_shrinkage(extreme_high_dim_returns)
+        assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+        cov_lin = compute_linear_shrinkage(extreme_high_dim_returns)
+        assert np.all(np.linalg.eigvalsh(cov_lin.values) > 0.0)
+
+    def test_ensure_strictly_psd_repairs_singular_matrix(self):
+        singular = np.array([[1.0, 1.0], [1.0, 1.0]])  # eigenvalue 0
+        hardened = ensure_strictly_psd(singular)
+        assert np.all(np.linalg.eigvalsh(hardened) > 0.0)
+
+    def test_ensure_strictly_psd_repairs_indefinite_matrix(self):
+        indefinite = np.array([[2.0, 3.0], [3.0, 1.0]])  # negative eigenvalue
+        hardened = ensure_strictly_psd(indefinite)
+        assert np.all(np.linalg.eigvalsh(hardened) > 0.0)
+
+    def test_ensure_strictly_psd_preserves_well_conditioned(self, rng):
+        A = rng.normal(0, 1, (5, 5))
+        cov = A.T @ A + np.eye(5)  # strictly PD, well conditioned
+        hardened = ensure_strictly_psd(cov)
+        np.testing.assert_allclose(hardened, cov, rtol=1e-8, atol=1e-12)
+
+    def test_ensure_strictly_psd_raises_on_nan(self):
+        with pytest.raises(DataValidationError, match="finite"):
+            ensure_strictly_psd(np.array([[1.0, np.nan], [np.nan, 1.0]]))
+
+    def test_ensure_strictly_psd_raises_on_non_square(self):
+        with pytest.raises(DataValidationError, match="square"):
+            ensure_strictly_psd(np.ones((3, 2)))
+
+    def test_all_zero_returns_strictly_psd(self):
+        df = pd.DataFrame(np.zeros((20, 3)), columns=["A", "B", "C"])
+        cov_nl = compute_nonlinear_shrinkage(df)
+        cov_lw = compute_linear_shrinkage(df)
+        assert np.all(np.linalg.eigvalsh(cov_nl.values) > 0.0)
+        assert np.all(np.linalg.eigvalsh(cov_lw.values) > 0.0)
 
 
 # ===========================================================================
@@ -261,7 +416,7 @@ class TestValidation:
 
 
 class TestLinearShrinkage:
-    """scikit-learn LedoitWolf linear shrinkage wrapper."""
+    """Analytical Ledoit–Wolf (2004) constant-correlation shrinkage."""
 
     def test_basic_output(self, daily_returns_5):
         cov = compute_linear_shrinkage(daily_returns_5)
@@ -272,6 +427,19 @@ class TestLinearShrinkage:
     def test_preserves_labels(self, daily_returns_5):
         cov = compute_linear_shrinkage(daily_returns_5)
         assert list(cov.index) == [f"A{i}" for i in range(5)]
+
+    def test_diagonal_preserves_sample_variances(self, daily_returns_5):
+        """The constant-correlation target preserves variances exactly, so
+        the shrunk diagonal must equal the sample variances."""
+        cov = compute_linear_shrinkage(daily_returns_5)
+        sample_var = daily_returns_5.var(ddof=1).to_numpy(dtype=float)
+        np.testing.assert_allclose(np.diag(cov.values), sample_var, rtol=1e-10)
+
+    def test_improves_condition_under_collinearity(self, high_dim_returns):
+        """Shrinkage must not worsen conditioning vs the sample covariance."""
+        sample = high_dim_returns.cov().to_numpy(dtype=float)
+        shrunk = compute_linear_shrinkage(high_dim_returns).values
+        assert np.linalg.cond(shrunk) <= np.linalg.cond(sample) * 1.01
 
     def test_linear_vs_nonlinear_high_dim(self, high_dim_returns):
         """In high dimensions, nonlinear should produce a better-conditioned
@@ -477,3 +645,114 @@ class TestEigenvalueCleaning:
                 f"Eigenvalues not sorted at index {i}: "
                 f"{nl_eigs_desc[i]:.2e} < {nl_eigs_desc[i + 1]:.2e}"
             )
+
+
+# ===========================================================================
+# Extreme collinearity: perfectly / near-perfectly correlated synthetic assets
+# ===========================================================================
+
+
+class TestCollinearityExtremes:
+    """Both estimators must stay strictly positive definite and numerically
+    stable when assets are (nearly) perfectly correlated."""
+
+    @staticmethod
+    def _perfectly_correlated(n_assets: int, n_obs: int, seed: int) -> pd.DataFrame:
+        """All assets are exact positive multiples of one common factor."""
+        rng = np.random.default_rng(seed)
+        factor = rng.normal(0, 0.01, n_obs)
+        scales = np.linspace(0.5, 1.5, n_assets)
+        data = np.column_stack([factor * s for s in scales])
+        return pd.DataFrame(data, columns=[f"P{i}" for i in range(n_assets)])
+
+    @staticmethod
+    def _near_perfectly_correlated(
+        n_assets: int, n_obs: int, seed: int
+    ) -> pd.DataFrame:
+        """ρ ≈ 0.99999: common factor plus a whisper of idiosyncratic noise."""
+        rng = np.random.default_rng(seed)
+        factor = rng.normal(0, 0.01, n_obs)
+        data = np.column_stack(
+            [factor + rng.normal(0, 1e-7, n_obs) for _ in range(n_assets)]
+        )
+        return pd.DataFrame(data, columns=[f"N{i}" for i in range(n_assets)])
+
+    def test_perfect_correlation_nonlinear_is_strictly_psd(self):
+        returns = self._perfectly_correlated(5, 252, seed=42)
+        cov = compute_nonlinear_shrinkage(returns)
+        eigvals = np.linalg.eigvalsh(cov.values)
+        assert np.all(eigvals > 0.0)
+        # Sample covariance is rank-1; the shrunk estimate must be
+        # dramatically better conditioned.
+        sample = returns.cov().to_numpy(dtype=float)
+        assert np.linalg.cond(cov.values) < 1e12
+        assert np.linalg.cond(sample) > 1e12
+
+    def test_perfect_correlation_linear_is_strictly_psd(self):
+        returns = self._perfectly_correlated(5, 252, seed=43)
+        cov = compute_linear_shrinkage(returns)
+        eigvals = np.linalg.eigvalsh(cov.values)
+        assert np.all(eigvals > 0.0)
+        # Variances are preserved exactly on the diagonal.
+        sample_var = returns.var(ddof=1).to_numpy(dtype=float)
+        np.testing.assert_allclose(np.diag(cov.values), sample_var, rtol=1e-10)
+
+    def test_near_perfect_correlation_eigenvalue_structure(self):
+        """ρ ≈ 0.99999: the SAMPLE spectrum has one dominant eigenvalue;
+        the shrunk estimate keeps every direction strictly positive."""
+        returns = self._near_perfectly_correlated(6, 300, seed=44)
+
+        sample_eigvals = np.sort(
+            np.linalg.eigvalsh(returns.cov().to_numpy(dtype=float))
+        )[::-1]
+        # One dominant common factor in the raw sample spectrum.
+        assert sample_eigvals[0] > 10 * sample_eigvals[1]
+
+        cov = compute_nonlinear_shrinkage(returns)
+        eigvals = np.sort(np.linalg.eigvalsh(cov.values))[::-1]
+        # Shrinkage pulls the spectrum toward the bulk, but every direction
+        # must retain strictly positive variance.
+        assert np.all(eigvals > 0.0)
+        assert np.linalg.cond(cov.values) < 1e12
+
+    def test_rank_one_high_dimensional_regime(self):
+        """T < N with a single common factor (extreme c regime)."""
+        rng = np.random.default_rng(45)
+        factor = rng.normal(0, 0.01, 30)
+        data = np.column_stack([factor * s for s in np.linspace(0.5, 1.5, 40)])
+        returns = pd.DataFrame(data, columns=[f"H{i}" for i in range(40)])
+
+        for estimator in (compute_linear_shrinkage, compute_nonlinear_shrinkage):
+            cov = estimator(returns)
+            assert np.all(np.isfinite(cov.values))
+            assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+            # Eigen-clip floor caps the condition number at ~1/1e-12; allow
+            # floating-point slack around the theoretical cap.
+            assert np.linalg.cond(cov.values) < 1.1e12
+
+    def test_identical_duplicate_columns_both_estimators(self):
+        """Exact duplicates (not just perfect correlation): both estimators
+        produce symmetric strictly PD matrices with identical labels."""
+        rng = np.random.default_rng(46)
+        base = rng.normal(0, 0.01, 100)
+        returns = pd.DataFrame(
+            {
+                "A": base,
+                "B": base.copy(),
+                "C": base.copy(),
+                "D": base.copy(),
+            }
+        )
+        for estimator in (compute_linear_shrinkage, compute_nonlinear_shrinkage):
+            cov = estimator(returns)
+            assert list(cov.index) == list(returns.columns)
+            np.testing.assert_allclose(cov.values, cov.values.T, atol=1e-12)
+            assert np.all(np.linalg.eigvalsh(cov.values) > 0.0)
+
+    def test_off_diagonals_remain_positive_for_perfect_correlation(self):
+        """Perfectly correlated assets must keep positive covariance
+        estimates (shrinkage must not zero out the common factor)."""
+        returns = self._perfectly_correlated(4, 252, seed=47)
+        cov = compute_linear_shrinkage(returns)
+        off_diag = cov.values[np.triu_indices(4, k=1)]
+        assert np.all(off_diag > 0.0)

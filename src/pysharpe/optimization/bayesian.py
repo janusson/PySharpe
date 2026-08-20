@@ -8,14 +8,19 @@ like Black-Litterman.
 import logging
 import os
 import shutil
+from typing import cast
 
 import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
+from pypfopt.efficient_frontier import EfficientFrontier
 from scipy.optimize import minimize
 
+from pysharpe.exceptions import DataValidationError
+
 from .base import OptimizationResult
+from .estimators import ensure_strictly_psd
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +110,11 @@ class BayesianOptimizer:
         function in environments where a working C toolchain is unavailable
         (e.g. macOS with Python 3.13 and no command-line developer tools).
         """
-        import pytensor
+        import pytensor  # type: ignore[import-untyped]
 
-        pytensor.config.mode = "FAST_COMPILE"
+        _config = getattr(pytensor, "config", None)
+        if _config is not None:
+            _config.mode = "FAST_COMPILE"
 
     # ------------------------------------------------------------------
     # Compilation cache warm-up
@@ -134,7 +141,7 @@ class BayesianOptimizer:
             ``FAST_COMPILE`` mode.
         """
         try:
-            import pytensor
+            import pytensor  # type: ignore[import-untyped]
         except ImportError:
             logger.info(
                 "PyTensor is not installed; skipping compilation cache warm-up."
@@ -154,16 +161,17 @@ class BayesianOptimizer:
 
         # --- Functional probe: compile a minimal graph -----------------------
         try:
-            import pytensor.tensor as pt
+            import pytensor.tensor as pt  # type: ignore[import-untyped]
         except ImportError:
             logger.info("pytensor.tensor not importable; skipping probe.")
             return True
 
-        original_mode: str = pytensor.config.mode
+        _config = getattr(pytensor, "config", None)
+        original_mode: str = _config.mode if _config is not None else "FAST_COMPILE"
 
         try:
             x = pt.scalar("x")
-            f = pytensor.function([x], x + 1)
+            f = pytensor.function([x], x + 1)  # type: ignore[reportPrivateImportUsage]
             f(0)
             logger.info(
                 "PyTensor C-compiler toolchain verified successfully (mode=%s).",
@@ -240,7 +248,8 @@ class BayesianOptimizer:
 
                 # Reconstruct the covariance matrix as a Deterministic node
                 cov = pm.Deterministic(  # noqa: F841
-                    "cov", pm.math.dot(chol, chol.T)
+                    "cov",
+                    pm.math.dot(chol, chol.T),  # type: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
                 )
 
                 # Likelihood
@@ -252,15 +261,15 @@ class BayesianOptimizer:
                     draws,
                     tune,
                 )
-                self.trace_ = pm.sample(
+                self.trace_ = pm.sample(  # type: ignore[reportCallIssue]
                     draws=draws,
                     tune=tune,
                     target_accept=target_accept,
                     random_seed=self.random_seed,
                     return_inferencedata=True,
                     progressbar=False,
-                    **extra_kwargs,
-                    **kwargs,
+                    **extra_kwargs,  # type: ignore[reportArgumentType]
+                    **kwargs,  # type: ignore[reportArgumentType]
                 )
                 return model
 
@@ -279,15 +288,26 @@ class BayesianOptimizer:
                 raise
 
         logger.info("MCMC sampling completed.")
-        return self.trace_
+        return cast(az.InferenceData, self.trace_)
 
     def get_posterior_estimates(self) -> tuple[pd.Series, pd.DataFrame]:
         """Extract the posterior mean returns and covariance matrix.
 
+        The posterior covariance is the mean over MCMC draws of the
+        LKJ-prior covariance — a Bayesian-shrunk estimate, never the raw
+        sample covariance.  It is symmetrised and eigen-clipped to strict
+        positive definiteness so downstream solvers (including
+        :class:`EfficientFrontier`) cannot fail on a near-singular matrix.
+
         Returns:
             tuple[pd.Series, pd.DataFrame]: A tuple containing:
                 - Expected returns (posterior mean of 'mu').
-                - Expected covariance matrix (posterior mean of 'cov').
+                - Expected covariance matrix (posterior mean of 'cov'),
+                  strictly positive definite.
+
+        Raises:
+            RuntimeError: If the model has not been fitted.
+            DataValidationError: If the posterior estimates are non-finite.
         """
         if self.trace_ is None or self.model_ is None:
             raise RuntimeError(
@@ -303,6 +323,15 @@ class BayesianOptimizer:
         # Calculate expected covariance matrix
         # (mean of the posterior distribution for 'cov')
         expected_cov = posterior["cov"].mean(dim=["chain", "draw"]).values
+
+        if not np.all(np.isfinite(expected_returns)):
+            raise DataValidationError(
+                "Posterior mean returns contain non-finite values; the MCMC "
+                "chain did not converge to a valid posterior."
+            )
+
+        # Bayesian shrinkage + strict positive-definiteness guarantee.
+        expected_cov = ensure_strictly_psd(expected_cov)
 
         return (
             pd.Series(
@@ -323,7 +352,8 @@ class BayesianOptimizer:
             self.fit_returns_model()
 
         mu, cov = self.get_posterior_estimates()
-        n_assets = len(self.assets_)
+        assets = cast("list[str]", self.assets_)
+        n_assets = len(assets)
 
         # Standard Sharpe maximization using posterior means
         def objective(weights):
@@ -348,7 +378,7 @@ class BayesianOptimizer:
             raise RuntimeError(f"Bayesian portfolio optimisation failed: {res.message}")
         weights_array = res.x
 
-        weights_dict = dict(zip(self.assets_, weights_array))
+        weights_dict = dict(zip(assets, weights_array))
 
         # Calculate performance metrics
         p_return = np.sum(mu.values * weights_array) * 252
@@ -359,6 +389,70 @@ class BayesianOptimizer:
 
         return OptimizationResult(
             weights=weights_dict,
+            expected_return=p_return,
+            volatility=p_vol,
+            sharpe_ratio=p_sharpe,
+        )
+
+    def optimize_efficient_frontier(
+        self,
+        *,
+        risk_free_rate: float | None = None,
+        weight_bounds: tuple[float, float] = (0.0, 1.0),
+    ) -> OptimizationResult:
+        """Maximise the Sharpe ratio on a PyPortfolioOpt ``EfficientFrontier``
+        using Bayesian posterior estimates.
+
+        The frontier is built from the posterior mean returns and the
+        **Bayesian-shrunk posterior covariance** returned by
+        :meth:`get_posterior_estimates` — the raw sample covariance is never
+        used.  The posterior covariance is already eigen-clipped to strict
+        positive definiteness, so the convex solver cannot fail on a
+        near-singular matrix.
+
+        Args:
+            risk_free_rate: Annual risk-free rate.  Defaults to the instance
+                value; posterior means are assumed daily-period returns, so
+                the rate is de-annualised by 252 for the solver.
+            weight_bounds: ``(min, max)`` per-asset weight bounds.  Default
+                long-only ``(0.0, 1.0)``.
+
+        Returns:
+            OptimizationResult: The result containing weights and performance
+            metrics.
+
+        Raises:
+            RuntimeError: If the convex solver fails (failures are surfaced,
+                never silently replaced with equal weights).
+        """
+        if self.trace_ is None:
+            self.fit_returns_model()
+
+        mu, cov = self.get_posterior_estimates()
+        rf = self.risk_free_rate if risk_free_rate is None else risk_free_rate
+        assets = list(cov.columns)
+
+        try:
+            ef = EfficientFrontier(mu, cov, weight_bounds=weight_bounds)
+            ef.max_sharpe(risk_free_rate=rf / 252.0)
+            cleaned = cast(dict[str, float], ef.clean_weights())
+        except Exception as exc:
+            raise RuntimeError(
+                f"Bayesian efficient-frontier optimisation failed: {exc}"
+            ) from exc
+
+        weights = {ticker: float(cleaned.get(ticker, 0.0)) for ticker in assets}
+        w = np.array([weights[t] for t in assets], dtype=np.float64)
+
+        mu_arr = np.asarray(mu, dtype=np.float64)
+        cov_arr = np.asarray(cov, dtype=np.float64)
+
+        p_return = float(np.sum(mu_arr * w)) * 252.0
+        p_vol = float(np.sqrt(w @ (cov_arr * 252.0) @ w))
+        p_sharpe = (p_return - rf) / p_vol if p_vol > 0 else 0.0
+
+        return OptimizationResult(
+            weights=weights,
             expected_return=p_return,
             volatility=p_vol,
             sharpe_ratio=p_sharpe,

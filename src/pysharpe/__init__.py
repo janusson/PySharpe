@@ -134,6 +134,14 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.optimization.estimators",
         "compute_nonlinear_shrinkage",
     ),
+    "ensure_strictly_psd": (
+        "pysharpe.optimization.estimators",
+        "ensure_strictly_psd",
+    ),
+    "prepare_returns": (
+        "pysharpe.optimization.estimators",
+        "prepare_returns",
+    ),
     # HRP (non‑inversion fallback)
     "HierarchicalRiskParity": (
         "pysharpe.optimization.hrp",
@@ -271,6 +279,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "optimal_block_length": (
         "pysharpe.validation.resampling",
         "optimal_block_length",
+    ),
+    "autocorrelation_decay_lag": (
+        "pysharpe.validation.resampling",
+        "autocorrelation_decay_lag",
     ),
     # Validation / friction stress-testing
     "FrictionProfile": ("pysharpe.validation.friction", "FrictionProfile"),
@@ -431,6 +443,8 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.optimization.estimators import (  # noqa: F401
         compute_linear_shrinkage,
         compute_nonlinear_shrinkage,
+        ensure_strictly_psd,
+        prepare_returns,
     )
     from pysharpe.optimization.hrp import (  # noqa: F401
         HierarchicalRiskParity,
@@ -473,6 +487,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         RegimeDependencyWarning,
         RegimeLabeler,
         RegimeSegmentationResult,
+        autocorrelation_decay_lag,
         bootstrap_regime_paths,
         check_regime_dependency,
         compute_regime_survival_rates,

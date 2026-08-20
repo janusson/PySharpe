@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysharpe.exceptions import DataValidationError
 from pysharpe.optimization.hrp import HierarchicalRiskParity
 
 # ---------------------------------------------------------------------------
@@ -464,3 +465,131 @@ class TestEdgeCases:
             weights_list.append(hrp.optimize())
         for w in weights_list[1:]:
             pd.testing.assert_series_equal(weights_list[0], w)
+
+
+# ---------------------------------------------------------------------------
+# Covariance-matrix structural validation
+# ---------------------------------------------------------------------------
+
+
+class TestCovMatrixValidation:
+    """Malformed covariance inputs must fail loudly, not corrupt weights."""
+
+    def test_rejects_nan_covariance(self) -> None:
+        cov = pd.DataFrame({"A": [0.04, np.nan], "B": [np.nan, 0.01]}, index=["A", "B"])
+        with pytest.raises(DataValidationError, match="finite"):
+            HierarchicalRiskParity(cov_matrix=cov)
+
+    def test_rejects_asymmetric_covariance(self) -> None:
+        cov = pd.DataFrame({"A": [0.04, 0.02], "B": [0.01, 0.01]}, index=["A", "B"])
+        with pytest.raises(DataValidationError, match="symmetric"):
+            HierarchicalRiskParity(cov_matrix=cov)
+
+    def test_rejects_non_psd_covariance(self) -> None:
+        # Negative eigenvalue: [[2, 3], [3, 1]] has eigenvalues ≈ 4.54, −1.54
+        cov = pd.DataFrame({"A": [2.0, 3.0], "B": [3.0, 1.0]}, index=["A", "B"])
+        with pytest.raises(DataValidationError, match="positive semi-definite"):
+            HierarchicalRiskParity(cov_matrix=cov)
+
+    def test_rejects_non_numeric_covariance(self) -> None:
+        cov = pd.DataFrame({"A": [0.04, "x"], "B": ["y", 0.01]}, index=["A", "B"])
+        with pytest.raises(DataValidationError, match="numeric"):
+            HierarchicalRiskParity(cov_matrix=cov)
+
+    def test_psd_singular_covariance_accepted(self) -> None:
+        """Singular but PSD covariance (duplicate asset) is valid input."""
+        cov = pd.DataFrame(
+            {"A": [1.0, 1.0, 0.0], "B": [1.0, 1.0, 0.0], "C": [0.0, 0.0, 1.0]},
+            index=["A", "B", "C"],
+        )
+        hrp = HierarchicalRiskParity(cov_matrix=cov)
+        weights = hrp.optimize()
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Zero-variance assets in the bisection path
+# ---------------------------------------------------------------------------
+
+
+class TestZeroVarianceAssets:
+    """Zero-variance assets must never produce ZeroDivisionError or NaN weights."""
+
+    def test_exact_zero_variance_cov_input(self) -> None:
+        """A covariance with an exactly zero-variance asset completes."""
+        cov = pd.DataFrame(
+            {
+                "Const": [0.0, 0.0, 0.0],
+                "A": [0.0, 0.04, 0.005],
+                "B": [0.0, 0.005, 0.01],
+            },
+            index=["Const", "A", "B"],
+        )
+        hrp = HierarchicalRiskParity(cov_matrix=cov)
+        assert hrp.ridge_applied  # zero-variance → NaN correlation → ridge
+        weights = hrp.optimize()
+        assert np.all(np.isfinite(weights.values))
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)
+        assert (weights >= 0.0).all()
+
+    def test_all_zero_covariance(self) -> None:
+        """Fully degenerate covariance → finite, sensible weights."""
+        cov = pd.DataFrame(
+            np.zeros((3, 3)), columns=["A", "B", "C"], index=["A", "B", "C"]
+        )
+        hrp = HierarchicalRiskParity(cov_matrix=cov)
+        weights = hrp.optimize()
+        assert np.all(np.isfinite(weights.values))
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)
+        assert (weights >= 0.0).all()
+
+    def test_tiny_variance_asset(self) -> None:
+        """Near-zero (1e-30) variance must not overflow inverse-variance weights."""
+        cov = pd.DataFrame(
+            {
+                "Tiny": [1e-30, 0.0, 0.0],
+                "A": [0.0, 0.04, 0.005],
+                "B": [0.0, 0.005, 0.01],
+            },
+            index=["Tiny", "A", "B"],
+        )
+        hrp = HierarchicalRiskParity(cov_matrix=cov)
+        weights = hrp.optimize()
+        assert np.all(np.isfinite(weights.values))
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)
+
+    def test_zero_variance_in_multi_asset_returns(
+        self, rng: np.random.Generator
+    ) -> None:
+        """A constant column inside a larger returns matrix is handled."""
+        dates = pd.date_range("2023-01-01", periods=100)
+        returns = pd.DataFrame(
+            {
+                "Const": np.zeros(100),
+                "A": rng.normal(0.001, 0.02, 100),
+                "B": rng.normal(0.0005, 0.01, 100),
+                "C": rng.normal(0.002, 0.03, 100),
+            },
+            index=dates,
+        )
+        hrp = HierarchicalRiskParity(returns=returns)
+        weights = hrp.optimize()
+        assert np.all(np.isfinite(weights.values))
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)
+
+    def test_missing_rows_are_listwise_deleted(
+        self, independent_returns: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Rows with missing returns are dropped before estimation."""
+        gappy = independent_returns.copy()
+        gappy.iloc[0, 0] = np.nan
+        gappy.iloc[5, 1] = np.nan
+
+        with caplog.at_level(
+            logging.WARNING, logger="pysharpe.optimization.estimators"
+        ):
+            hrp = HierarchicalRiskParity(returns=gappy)
+            weights = hrp.optimize()
+
+        assert any("Dropped 2 of 252" in r.message for r in caplog.records)
+        assert weights.sum() == pytest.approx(1.0, abs=1e-10)

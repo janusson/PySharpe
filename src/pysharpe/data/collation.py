@@ -7,6 +7,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 from pandas.errors import EmptyDataError
@@ -54,13 +55,13 @@ def parse_records(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Unexpected columns for {ticker}: missing {sorted(missing)}")
 
-    parsed_dates: list[pd.Timestamp | pd.NaT] = []
+    parsed_dates: list[pd.Timestamp] = []
     for value in raw["Date"]:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts):
             ts = pd.to_datetime(value, errors="coerce", utc=True)
         if pd.isna(ts):
-            parsed_dates.append(pd.NaT)
+            parsed_dates.append(cast(pd.Timestamp, pd.NaT))
             continue
         if getattr(ts, "tzinfo", None) is not None:
             ts = ts.tz_convert(None)
@@ -172,10 +173,11 @@ class CollationService:
                     proxy_config = self.settings.proxy_map[ticker]
                     # We pass the full proxy config to a temporary proxy map.
                     # proxy_map setting format: {"VFV.TO": {"proxy": "VOO", "fx_adjust": true, "start_date": "2010-01-01"}}
-                    proxy_name = proxy_config.get("proxy")
-                    fx_adjust = proxy_config.get("fx_adjust", False)
-                    start_date = proxy_config.get(
-                        "start_date", "1900-01-01"
+                    proxy_name = cast("str", proxy_config.get("proxy"))
+                    fx_adjust = cast("bool", proxy_config.get("fx_adjust", False))
+                    start_date = cast(
+                        "str",
+                        proxy_config.get("start_date", "1900-01-01"),
                     )  # Fallback to very early date if missing
 
                     linker = HistoryLinker(

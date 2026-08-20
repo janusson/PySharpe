@@ -30,7 +30,7 @@ def plot_score_distribution(
         Figure size (width, height)
     """
     plt.figure(figsize=figsize)
-    sns.histplot(df[score_col], kde=True, bins=15)
+    sns.histplot(df[score_col], kde=True, bins=15)  # pyright: ignore[reportArgumentType]
     plt.title(title or f"Distribution of {score_col}")
     plt.xlabel(score_col)
     plt.ylabel("Count")

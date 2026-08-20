@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from matplotlib.ticker import FuncFormatter
+
 from . import utils as viz_utils
 
 if TYPE_CHECKING:  # pragma: no cover - type checking aide
-    import matplotlib.pyplot as plt
     import pandas as pd
+    from matplotlib.axes import Axes
 
     from pysharpe.data.fetcher import PriceFetcher
 
@@ -20,7 +22,7 @@ def plot_equity_curves(
     optimized: pd.Series,
     baseline: pd.Series,
     *,
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     show: bool = False,
     title: str | None = None,
 ):
@@ -34,7 +36,7 @@ def plot_equity_curves(
         title: Optional plot title override.
 
     Returns:
-        Matplotlib axes containing the plot.
+        axes (matplotlib.axes.Axes): Matplotlib axes containing the plot.
     """
     if ax is None:
         plt = viz_utils.require_matplotlib()
@@ -45,7 +47,7 @@ def plot_equity_curves(
     # Align indexes if possible, though matplotlib handles it gracefully usually
     ax.plot(
         optimized.index,
-        optimized.values,
+        optimized.values,  # pyright: ignore[reportArgumentType]
         label="Sharpe-Optimized Portfolio",
         linewidth=2,
         color="blue",
@@ -53,7 +55,7 @@ def plot_equity_curves(
 
     ax.plot(
         baseline.index,
-        baseline.values,
+        baseline.values,  # pyright: ignore[reportArgumentType]
         label="Buy-and-Hold Baseline",
         linewidth=2,
         linestyle="--",
@@ -68,7 +70,7 @@ def plot_equity_curves(
     ax.set_title(title, fontweight="bold")
 
     # Format y-axis as dollars
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ",")))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: format(int(x), ",")))
 
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -83,7 +85,7 @@ def plot_comparative_returns(
     tickers: list[str],
     fetcher: PriceFetcher,
     *,
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     show: bool = False,
     title: str | None = None,
 ):
@@ -105,7 +107,7 @@ def plot_comparative_returns(
         title: Optional plot title override.
 
     Returns:
-        Matplotlib axes containing the plot.
+        axes (matplotlib.axes.Axes): Matplotlib axes containing the plot.
     """
     import pandas as pd
 
@@ -128,7 +130,7 @@ def plot_comparative_returns(
             continue
         # Prefer adjusted close when available, otherwise fall back to close.
         col = "Adj Close" if "Adj Close" in df.columns else "Close"
-        price_series[ticker] = df[col].squeeze()
+        price_series[ticker] = df[col].squeeze()  # pyright: ignore[reportArgumentType]
 
     if not price_series:
         raise ValueError("No valid price data for any of the requested tickers.")
@@ -147,7 +149,7 @@ def plot_comparative_returns(
     for ticker in cumulative_returns.columns:
         ax.plot(
             cumulative_returns.index,
-            cumulative_returns[ticker].values,
+            cumulative_returns[ticker].values,  # pyright: ignore[reportArgumentType]
             label=ticker,
             linewidth=2,
         )
@@ -161,7 +163,7 @@ def plot_comparative_returns(
     ax.set_title(title, fontweight="bold")
 
     # Format y-axis as percentage and add a 0 % reference line.
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:+.0f}%"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:+.0f}%"))
     ax.axhline(y=0, color="gray", linewidth=0.5, linestyle="--")
 
     ax.legend()
@@ -177,7 +179,7 @@ def plot_holdings_history(
     collated_prices: pd.DataFrame,
     *,
     min_trading_days: int = 20,
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     show: bool = False,
     title: str | None = None,
 ):
@@ -199,7 +201,7 @@ def plot_holdings_history(
         title: Optional plot title override.
 
     Returns:
-        Matplotlib axes containing the plot.
+        axes (matplotlib.axes.Axes): Matplotlib axes containing the plot.
 
     Raises:
         PySharpeError: If the overlapping date range across all tickers is
@@ -257,7 +259,7 @@ def plot_holdings_history(
     for ticker in cumulative_returns.columns:
         ax.plot(
             cumulative_returns.index,
-            cumulative_returns[ticker].values,
+            cumulative_returns[ticker].values,  # pyright: ignore[reportArgumentType]
             label=ticker,
             linewidth=1.5,
         )
@@ -276,7 +278,7 @@ def plot_holdings_history(
     ax.set_title(title, fontweight="bold")
 
     # Format y-axis as percentage.
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:+.0f}%"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:+.0f}%"))
     ax.axhline(y=0, color="gray", linewidth=0.5, linestyle="--")
 
     ax.legend(loc="best", frameon=True, fontsize=8)

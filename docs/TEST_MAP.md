@@ -32,6 +32,26 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.bayesian`
 - `pysharpe.optimization.sharpe_optimizer`
 
+## `test_covariance_shrinkage.py`
+- `pysharpe.optimization.estimators`
+- `pysharpe.exceptions`
+
+## `test_optimization_hrp.py`
+- `pysharpe.optimization.hrp`
+- `pysharpe.optimization.estimators` (shared `prepare_returns`)
+- `pysharpe.exceptions`
+
+## `test_optimization_bayesian.py`
+- `pysharpe.optimization.bayesian`
+- `pysharpe.optimization.estimators` (posterior eigen-clipping)
+- PyPortfolioOpt `EfficientFrontier` integration (mocked trace, no MCMC)
+- PyMC sampler isolated via `pytest.MonkeyPatch` — no C compilation needed
+
+## `test_black_litterman.py`
+- `pysharpe.optimization.black_litterman`
+- `pysharpe.optimization.estimators` (strict-PSD hardening)
+- `pysharpe.exceptions`
+
 ## `test_optimization_weights.py`
 - `pysharpe.optimization.weights`
 
@@ -88,12 +108,23 @@ your change instead of the full suite every time.
 ## `test_analysis_backtest_engine.py`
 - `pysharpe.analysis.backtest_engine`
 - `pysharpe.optimization.base`
+- Missing-price (NaN) handling incl. fully-missing asset columns
+
+## `test_covariance_shrinkage.py`
+- `pysharpe.optimization.estimators` (collinearity extremes: perfect / near-perfect correlation, rank-1 high-dim)
+- `pysharpe.exceptions`
 
 ## `test_analysis_time_series.py`
 - `pysharpe.analysis.time_series`
 
 ## `test_analysis_transaction_costs.py`
-- `pysharpe.analysis.backtest_engine`
+- `pysharpe.analysis.backtest_engine` (spread/slippage/commission model, walk-forward costs, no-lookahead)
+
+## `test_resampling.py`
+- `pysharpe.validation.resampling` (PurgedKFold leakage guarantees, autocorrelation-decay gap sizing, regime bootstrapping)
+
+## `test_validation_metrics.py`
+- `pysharpe.validation.metrics` (DSR incl. Lo θ adjustment, effective trials)
 
 ## `test_categorization.py`
 - `pysharpe.analysis.categorization`
@@ -159,6 +190,8 @@ your change instead of the full suite every time.
 | `__init__.py` | `pytest tests/test_package_api.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `analysis/backtest_engine.py` | `pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py` |
+| `validation/resampling.py` | `pytest tests/test_resampling.py` |
+| `validation/metrics.py` | `pytest tests/test_validation_metrics.py` |
 | `analysis/comparison.py` | `pytest tests/test_analysis_comparison.py` |
 | `metrics.py` | `pytest tests/test_metrics.py tests/test_analysis_comparison.py` |
 | `validation/ledger.py` | `pytest tests/test_ledger.py` |

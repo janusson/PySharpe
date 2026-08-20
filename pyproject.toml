@@ -4,12 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysharpe"
-version = "0.2.0"
-description = "Python tools for portfolio optimization and analysis."
+version = "1.0.0"
+description = "Evidence-based portfolio optimization and analysis for Canadian investors."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{name = "PySharpe Developers"}]
-license = {file = "LICENSE"}
+license = "MIT"
+keywords = [
+    "portfolio-optimization",
+    "quantitative-finance",
+    "asset-location",
+    "tax-efficiency",
+    "canadian-investing",
+    "backtesting",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "numpy>=2.1",
     "pandas>=2.2",
@@ -23,7 +37,6 @@ dependencies = [
     "statsmodels>=0.14",
     "arch>=6.0",
     "duckdb>=0.10",
-    "pytest>=9.0.2",
     "matplotlib>=3.9",
     "seaborn>=0.13",
     "streamlit>=1.52",
@@ -47,7 +60,11 @@ dev = [
     "pytest>=7.3",
     "pytest-cov>=4.1",
     "coverage>=7.5",
-    "black>=24.0",
+    "pandas-stubs>=2.2",
+    "pyright>=1.1.411",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
 ]
 
 [project.scripts]
@@ -65,7 +82,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -75,7 +92,17 @@ select = [
     "I",  # import sorting
     "UP", # pyupgrade
 ]
-ignore = ["E203", "E501"]
+ignore = [
+    "E203",  # conflicts with ruff-format
+    "E501",  # line length enforced by ruff-format
+    # Syntax modernization deferred to a later phase (requires touching
+    # runtime code). Re-enable once the codebase is modernized:
+    "B905",  # zip() without strict=
+    "UP007", # Optional[X] -> X | Y unions
+    "UP017", # datetime.timezone.utc -> datetime.UTC
+    "UP035", # typing.Callable -> collections.abc.Callable
+    "UP045", # Optional[X] -> X | None
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/" = ["S101"]
@@ -89,7 +116,7 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "--quiet --disable-warnings" #Formerly with "--cov=pysharpe --cov-report=term-missing --cov-fail-under=80"
+addopts = "--quiet --disable-warnings"
 norecursedirs = [".git", "examples", "docs"]
 markers = [
     "benchmark: Micro-benchmark coverage for performance-sensitive helpers.",
@@ -100,9 +127,4 @@ filterwarnings = [
     "ignore::arviz.MigrationWarning",
     # Streamlit's "No runtime found" appears during test imports outside the server.
     "ignore:No runtime found:UserWarning:streamlit",
-]
-
-[dependency-groups]
-dev = [
-    "pyright>=1.1.411",
 ]

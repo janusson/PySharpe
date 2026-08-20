@@ -22,6 +22,7 @@ from pysharpe.validation.resampling import (
     RegimeDependencyWarning,
     RegimeLabeler,
     RegimeSegmentationResult,
+    autocorrelation_decay_lag,
     bootstrap_regime_paths,
     check_regime_dependency,
     compute_regime_survival_rates,
@@ -819,3 +820,167 @@ class TestCheckRegimeDependency:
             report_strict.structural_dependency >= report_lenient.structural_dependency
             or (not report_lenient.structural_dependency)
         )
+
+
+# ======================================================================
+# Autocorrelation-decay gap sizing
+# ======================================================================
+
+
+class TestAutocorrelationDecayLag:
+    """Purge/embargo sizing from the asset's autocorrelation decay."""
+
+    def test_white_noise_decays_fast(self, white_noise_returns: pd.Series) -> None:
+        lag = autocorrelation_decay_lag(white_noise_returns)
+        assert 1 <= lag <= 5, f"White noise should decay quickly, got lag {lag}"
+
+    def test_autocorrelated_decays_slower(
+        self,
+        white_noise_returns: pd.Series,
+        auto_correlated_returns: pd.Series,
+    ) -> None:
+        lag_iid = autocorrelation_decay_lag(white_noise_returns)
+        lag_ac = autocorrelation_decay_lag(auto_correlated_returns)
+        assert lag_ac > lag_iid, (
+            f"AR(1) ρ≈0.3 must need a longer gap than white noise: "
+            f"{lag_ac} vs {lag_iid}"
+        )
+
+    def test_strong_autocorrelation_large_lag(self) -> None:
+        rng = np.random.default_rng(7)
+        n = 2000
+        shocks = rng.normal(0, 0.01, n)
+        rets = np.empty(n)
+        rets[0] = shocks[0]
+        for i in range(1, n):
+            rets[i] = 0.9 * rets[i - 1] + shocks[i]
+        series = pd.Series(rets, index=pd.bdate_range("2020-01-01", periods=n))
+        lag = autocorrelation_decay_lag(series)
+        assert lag > 20, f"ρ≈0.9 series should need a long gap, got {lag}"
+
+    def test_dataframe_takes_max_across_assets(self) -> None:
+        rng = np.random.default_rng(11)
+        n = 1000
+        white = rng.normal(0, 0.01, n)
+        shocks = rng.normal(0, 0.01, n)
+        ac = np.empty(n)
+        ac[0] = shocks[0]
+        for i in range(1, n):
+            ac[i] = 0.8 * ac[i - 1] + shocks[i]
+        df = pd.DataFrame({"white": white, "autocorr": ac})
+        lag = autocorrelation_decay_lag(df)
+        lag_white = autocorrelation_decay_lag(white)
+        lag_ac = autocorrelation_decay_lag(ac)
+        assert lag == max(lag_white, lag_ac)
+
+    def test_max_lag_clamps(self, white_noise_returns: pd.Series) -> None:
+        lag = autocorrelation_decay_lag(white_noise_returns, max_lag=1)
+        assert lag == 1
+
+
+# ======================================================================
+# Strict leakage prevention in PurgedKFold
+# ======================================================================
+
+
+class TestPurgedKFoldLeakagePrevention:
+    """The layout must guarantee purge/embargo separation for every fold."""
+
+    @staticmethod
+    def _positional_split(
+        kf: PurgedKFold, data: pd.Series
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
+        return kf.split_indices(data)
+
+    def test_embargo_gap_holds_for_every_adjacent_pair(
+        self, white_noise_returns: pd.Series
+    ) -> None:
+        """Consecutive test folds must be separated by ≥ embargo_size obs —
+        including the last fold (regression: the old implementation clamped
+        the final fold into the previous fold's embargo zone)."""
+        n = len(white_noise_returns)
+        embargo_size = 7
+        kf = PurgedKFold(n_splits=4, embargo_size=embargo_size, purge_size=2)
+        splits = kf.split_indices(white_noise_returns)
+
+        for (_, test_i), (_, test_j) in zip(splits[:-1], splits[1:]):
+            gap = int(test_j.min()) - int(test_i.max()) - 1
+            assert gap >= embargo_size, (
+                f"Embargo violated: gap {gap} < embargo {embargo_size}"
+            )
+
+        # The last fold must also end cleanly inside the series.
+        last_test = splits[-1][1]
+        assert last_test.max() <= n - 1
+
+    def test_purge_gap_holds_for_every_fold(
+        self, white_noise_returns: pd.Series
+    ) -> None:
+        """Training data must end at least purge_size observations before the
+        test fold it feeds (except first-fold fallback, where training starts
+        after the test fold + embargo)."""
+        purge_size = 5
+        kf = PurgedKFold(n_splits=4, embargo_size=3, purge_size=purge_size)
+        splits = kf.split_indices(white_noise_returns)
+
+        for train_idx, test_idx in splits:
+            if train_idx.max() < test_idx.min():
+                gap = int(test_idx.min()) - int(train_idx.max()) - 1
+                assert gap >= purge_size, (
+                    f"Purge violated: gap {gap} < purge {purge_size}"
+                )
+            else:
+                # Fallback layout: training strictly after test + embargo.
+                gap = int(train_idx.min()) - int(test_idx.max()) - 1
+                assert gap >= 3
+
+    def test_remainder_never_bleeds_into_embargo(self) -> None:
+        """A series whose length does not divide evenly into folds must not
+        produce a truncated final fold touching the previous embargo zone."""
+        n = 100
+        data = pd.Series(
+            np.arange(n, dtype=float), index=pd.bdate_range("2024-01-01", periods=n)
+        )
+        kf = PurgedKFold(n_splits=4, embargo_size=4, purge_size=1)
+        folds = kf.split(data)
+        assert len(folds) == 4
+
+        for i in range(len(folds) - 1):
+            gap_idx = (
+                data.index.get_loc(folds[i + 1].test_start)
+                - data.index.get_loc(folds[i].test_end)
+                - 1
+            )
+            assert gap_idx >= 4, f"Fold {i} embargo violated with gap {gap_idx}"
+
+    def test_from_returns_sizes_gaps_from_decay(
+        self,
+        white_noise_returns: pd.Series,
+        auto_correlated_returns: pd.Series,
+    ) -> None:
+        kf_iid = PurgedKFold.from_returns(white_noise_returns, n_splits=3)
+        kf_ac = PurgedKFold.from_returns(auto_correlated_returns, n_splits=3)
+
+        gap_iid = kf_iid._gap_sizes(len(white_noise_returns))
+        gap_ac = kf_ac._gap_sizes(len(auto_correlated_returns))
+        assert gap_ac[0] >= gap_iid[0]
+        assert gap_ac[1] >= gap_iid[1]
+        assert gap_ac[0] == gap_ac[1]  # from_returns sets purge = embargo
+
+    def test_explicit_sizes_override_percentages(
+        self, white_noise_returns: pd.Series
+    ) -> None:
+        kf = PurgedKFold(n_splits=3, embargo_pct=0.10, purge_size=2, embargo_size=2)
+        purge, embargo = kf._gap_sizes(len(white_noise_returns))
+        assert purge == 2
+        assert embargo == 2
+
+    def test_conflicting_pct_and_size_raises(self) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            PurgedKFold(n_splits=3, purge_pct=0.01, purge_size=5)
+
+    def test_negative_size_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            PurgedKFold(n_splits=3, embargo_size=-1)
+        with pytest.raises(ValueError, match="non-negative"):
+            PurgedKFold(n_splits=3, purge_size=-1)

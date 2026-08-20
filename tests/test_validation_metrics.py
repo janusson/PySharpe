@@ -597,3 +597,119 @@ class TestDSRFormulaFidelity:
         assert dsr == pytest.approx(expected_dsr, rel=1e-10), (
             f"DSR mismatch: {dsr:.12f} vs expected {expected_dsr:.12f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Lo (2002) autocorrelation adjustment inside compute_dsr
+# ---------------------------------------------------------------------------
+
+
+class TestDSRLoAdjustment:
+    """The DSR must deflate the observed Sharpe by √θ before deflation."""
+
+    def test_theta_one_matches_legacy_formula(self) -> None:
+        """θ=1 (IID) reduces to the classical B&LdP DSR exactly."""
+        dsr_default = compute_dsr(
+            observed_sr=1.5,
+            n_trials=10,
+            t_obs=300,
+            skew=-0.4,
+            excess_kurtosis=1.2,
+        )
+        dsr_explicit = compute_dsr(
+            observed_sr=1.5,
+            n_trials=10,
+            t_obs=300,
+            skew=-0.4,
+            excess_kurtosis=1.2,
+            theta=1.0,
+        )
+        assert dsr_default == pytest.approx(dsr_explicit, abs=1e-15)
+
+    def test_positive_autocorrelation_lowers_dsr(self) -> None:
+        """θ > 1 deflates the observed SR → strictly lower DSR."""
+        dsr_iid = compute_dsr(
+            observed_sr=2.0,
+            n_trials=10,
+            t_obs=300,
+            skew=0.0,
+            excess_kurtosis=0.0,
+            theta=1.0,
+        )
+        dsr_ac = compute_dsr(
+            observed_sr=2.0,
+            n_trials=10,
+            t_obs=300,
+            skew=0.0,
+            excess_kurtosis=0.0,
+            theta=2.25,  # e.g. ρ₁ ≈ 0.5 ⇒ θ ≈ 2.25 with Newey-West weights
+        )
+        assert dsr_ac < dsr_iid, f"{dsr_ac} should be < {dsr_iid}"
+
+    def test_theta_effect_matches_sqrt_deflation(self) -> None:
+        """Passing θ is equivalent to feeding observed_sr/√θ with θ=1."""
+        sr = 1.8
+        theta = 1.96
+        via_theta = compute_dsr(
+            observed_sr=sr,
+            n_trials=5,
+            t_obs=200,
+            skew=0.0,
+            excess_kurtosis=0.0,
+            theta=theta,
+        )
+        via_sr = compute_dsr(
+            observed_sr=sr / math.sqrt(theta),
+            n_trials=5,
+            t_obs=200,
+            skew=0.0,
+            excess_kurtosis=0.0,
+            theta=1.0,
+        )
+        assert via_theta == pytest.approx(via_sr, abs=1e-12)
+
+    def test_rejects_theta_below_one(self) -> None:
+        with pytest.raises(ValueError, match="theta must be"):
+            compute_dsr(
+                observed_sr=1.0,
+                n_trials=5,
+                t_obs=100,
+                skew=0.0,
+                excess_kurtosis=0.0,
+                theta=0.5,
+            )
+
+    def test_validation_metrics_uses_autocorrelation_adjusted_dsr(self) -> None:
+        """compute_validation_metrics must deflate the DSR by the return
+        series' own autocorrelation structure."""
+        rng = np.random.default_rng(42)
+        n = 500
+        shocks = rng.normal(0.0005, 0.015, n)
+        returns = np.empty(n)
+        returns[0] = shocks[0]
+        for i in range(1, n):
+            returns[i] = 0.4 * returns[i - 1] + shocks[i]
+
+        metrics = compute_validation_metrics(returns=returns, n_trials=10, pbo=0.5)
+
+        # Reproduce the DSR with the Lo adjustment disabled.
+        import pandas as pd
+
+        ret_series = pd.Series(returns, dtype=float)
+        raw_sr = float(
+            np.mean(returns)
+            * _PERIODS_PER_YEAR
+            / (np.std(returns, ddof=1) * math.sqrt(_PERIODS_PER_YEAR))
+        )
+        dsr_iid = compute_dsr(
+            observed_sr=raw_sr,
+            n_trials=10,
+            t_obs=n,
+            skew=float(ret_series.skew()),
+            excess_kurtosis=float(ret_series.kurtosis()),
+        )
+
+        # Autocorrelated returns → θ > 1 → adjusted DSR strictly lower.
+        assert metrics.dsr < dsr_iid
+        # The Lo-adjusted Sharpe must match raw/√θ.
+        assert metrics.lo_adjusted_sharpe < metrics.raw_sharpe

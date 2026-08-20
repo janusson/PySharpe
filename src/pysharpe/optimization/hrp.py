@@ -3,6 +3,12 @@
 Implements López de Prado's three‑step HRP algorithm as a non‑inversion
 fallback for ill‑conditioned covariance matrices.
 
+Zero‑variance assets are handled explicitly at every stage: near‑singular
+correlation structures (including the NaN correlations a constant asset
+produces) trigger ridge regularisation before clustering, and the recursive
+bisection step applies a relative variance floor so inverse‑variance weights
+are always finite — no ``ZeroDivisionError`` is possible.
+
 References
 ----------
 López de Prado, M. (2016). "Building Diversified Portfolios that Outperform
@@ -19,6 +25,10 @@ import pandas as pd
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import pdist
 
+from pysharpe.exceptions import DataValidationError
+
+from .estimators import prepare_returns
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -33,6 +43,12 @@ _RIDGE_EPSILON: float = 1e-8
 
 _CORRELATION_RIDGE_THRESHOLD: float = 0.999
 """Above this absolute pairwise correlation, ridge regularisation is triggered."""
+
+_VARIANCE_FLOOR_RELATIVE: float = 1e-12
+"""Cluster-variance floor relative to the largest variance in the cluster."""
+
+_VARIANCE_FLOOR_ABSOLUTE: float = 1e-15
+"""Absolute cluster-variance floor for fully degenerate clusters."""
 
 # ---------------------------------------------------------------------------
 # HierarchicalRiskParity
@@ -93,6 +109,14 @@ class HierarchicalRiskParity:
         # Estimate or accept covariance
         # ------------------------------------------------------------------
         if returns is not None:
+            if not isinstance(returns, pd.DataFrame):
+                raise TypeError(
+                    f"returns must be a DataFrame, got {type(returns).__name__}"
+                )
+            # Listwise-delete missing observations (never backfilled) and
+            # validate structure; min_assets=1 so the N≥2 check below keeps
+            # its own, more specific error.
+            returns = prepare_returns(returns, min_observations=3, min_assets=1)
             self._tickers: list[str] = list(returns.columns)
             # .cov() may return a DataFrame with read‑only underlying arrays;
             # take an explicit mutable copy.
@@ -107,6 +131,7 @@ class HierarchicalRiskParity:
                 raise ValueError("cov_matrix must be square.")
             self._tickers = list(cov.columns)
             self._cov = cov
+            self._validate_covariance()
 
         self._n_assets: int = len(self._tickers)
         if self._n_assets < 2:
@@ -122,6 +147,43 @@ class HierarchicalRiskParity:
 
         # Check for near‑perfect correlations and apply ridge if needed.
         self._ridge_applied = self._check_and_apply_ridge()
+
+    # ------------------------------------------------------------------
+    # Covariance-matrix validation
+    # ------------------------------------------------------------------
+
+    def _validate_covariance(self) -> None:
+        """Validate a user-supplied covariance matrix.
+
+        The matrix must be numeric, finite, symmetric, and positive
+        semi‑definite.  Anything else would silently corrupt the
+        correlation matrix and the recursive‑bisection weights, so it is
+        rejected up front.
+
+        Raises:
+            DataValidationError: If any of the structural requirements fails.
+        """
+        try:
+            values: np.ndarray = np.asarray(self._cov.values, dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise DataValidationError(
+                "cov_matrix must contain only numeric values."
+            ) from exc
+
+        if not np.all(np.isfinite(values)):
+            raise DataValidationError(
+                "cov_matrix must contain only finite values (NaN/inf rejected)."
+            )
+        if not np.allclose(values, values.T, rtol=1e-8, atol=0.0):
+            raise DataValidationError("cov_matrix must be symmetric.")
+
+        eigenvalues = np.linalg.eigvalsh(values)
+        tolerance = 1e-10 * max(1.0, float(np.max(np.abs(eigenvalues))))
+        if float(eigenvalues.min()) < -tolerance:
+            raise DataValidationError(
+                "cov_matrix must be positive semi-definite; smallest eigenvalue "
+                f"is {eigenvalues.min():.3e}."
+            )
 
     # ------------------------------------------------------------------
     # Ridge regularisation
@@ -185,6 +247,14 @@ class HierarchicalRiskParity:
         # Ensure diagonal is exactly zero (may drift with floating point).
         np.fill_diagonal(distance_condensed, 0.0)
 
+        if not np.all(np.isfinite(distance_condensed)):
+            # Unreachable after ridge regularisation; defensive against
+            # future changes that bypass the zero-variance handling.
+            raise DataValidationError(
+                "Correlation distance matrix contains non-finite values; "
+                "zero-variance assets must be ridge-regularised first."
+            )
+
         # Compute Euclidean distances between columns of D, then cluster.
         # pdist with 'euclidean' on the correlation‑distance matrix gives
         # the distance between asset clusters.
@@ -238,10 +308,25 @@ class HierarchicalRiskParity:
             Cluster variance.
         """
         sub_cov: np.ndarray = cov[np.ix_(cluster_indices, cluster_indices)]
-        inv_var: np.ndarray = 1.0 / np.diag(sub_cov)
+        variances: np.ndarray = np.diag(sub_cov)
+
+        # --- Explicit zero-variance handling ---------------------------------
+        # A zero (or numerically degenerate) variance would produce a
+        # ZeroDivisionError in ``1.0 / variances``.  Floor it relative to the
+        # largest variance in the cluster so the inverse-variance weights stay
+        # finite.  A riskless asset then (correctly) dominates its cluster.
+        max_var: float = float(variances.max(initial=0.0))
+        floor: float = max(max_var * _VARIANCE_FLOOR_RELATIVE, _VARIANCE_FLOOR_ABSOLUTE)
+        safe_var: np.ndarray = np.where(variances > floor, variances, floor)
+        inv_var: np.ndarray = 1.0 / safe_var
 
         # Normalise inverse‑variance weights to sum to 1.
         w: np.ndarray = inv_var / np.sum(inv_var)
+        if not np.all(np.isfinite(w)):
+            raise DataValidationError(
+                "Degenerate cluster covariance produced non-finite "
+                "inverse-variance weights."
+            )
         return float(w @ sub_cov @ w)
 
     def _recursive_bisection(
@@ -289,8 +374,8 @@ class HierarchicalRiskParity:
             v_right: float = self._get_cluster_variance(cov, right_indices)
             total_v: float = v_left + v_right
 
-            if total_v <= 0.0:
-                # Degenerate — equal split.
+            if not (np.isfinite(v_left) and np.isfinite(v_right)) or total_v <= 0.0:
+                # Degenerate (zero- or infinite-variance) cluster — equal split.
                 alpha: float = 0.5
             else:
                 # α = V_R / (V_L + V_R) → weight to left branch.

@@ -1,5 +1,165 @@
 # Gotchas
 
+### 2026 — Walk-forward NaN handling: fully-missing columns vs row gaps
+
+- Symptom: a permanently-missing ticker in the price frame wiped out the
+  whole backtest (row-wise ``dropna()`` removed every observation), while
+  occasional NaN gaps silently shifted window boundaries.
+- Fix: ``WalkForwardBacktester.run`` drops columns that are all-NaN with a
+  warning (they cannot be traded), then applies listwise row deletion.  All
+  columns missing → ``ValueError("No usable price data…")``.
+- Regression tests: ``tests/test_analysis_backtest_engine.py::TestWalkForwardMissingData``.
+
+### 2026 — pytest-cov dotted module form breaks the duckdb shim
+
+- Symptom: ``pytest --cov=pysharpe.validation.metrics`` (module-dotted form)
+  fails at collection with ``ModuleNotFoundError: No module named
+  '_duckdb._sqltypes'`` even though ``import duckdb`` works standalone.
+- Root cause: pytest-cov eagerly imports the coverage target; importing the
+  ``pysharpe.validation`` package pulls ``duckdb`` through
+  ``validation/ledger.py`` while coverage's import tracing is active, which
+  trips duckdb's shim/extension handoff.
+- Fix/workaround: always use the path form ``--cov=src/pysharpe`` (as in the
+  Makefile); do not use ``--cov=pysharpe.<module>`` dotted targets.
+
+### 2026 — PurgedKFold last fold bled into the previous fold's embargo
+
+- Symptom: when the series length did not divide evenly into folds, the
+  final test fold was clamped to the series end, overlapping or abutting
+  the embargo zone that separates it from the previous test fold — leaking
+  serially correlated information between adjacent test folds.
+- Root cause: `test_end_idx >= n` clamping recalculated the fold boundaries
+  without re-enforcing the embargo gap.
+- Fix: fold size is computed exactly as
+  `(n − (n_splits−1)·embargo) // n_splits`; trailing remainder observations
+  are excluded rather than clamped.  Every adjacent test-fold pair is now
+  separated by ≥ embargo observations by construction.
+- Regression tests: `tests/test_resampling.py::TestPurgedKFoldLeakagePrevention`
+- Grep guard: `grep -rn "test_end_idx >= n" src/pysharpe/validation/resampling.py`
+  must be empty.
+
+### 2026 — Walk-forward backtests silently ignored transaction costs
+
+- Symptom: `WalkForwardBacktester` constructed `HistoricalBacktester`
+  sub-windows with default (zero) cost parameters, so every window
+  transition traded from old weights to newly optimized weights for free.
+- Fix: `fee_per_trade`, `slippage_pct`, and `spread_pct` are now
+  constructor parameters of `WalkForwardBacktester` and are forwarded to
+  each sub-backtester.  The transition trade executes at the first close
+  of the test window — costs never use future prices.
+- Regression tests: `tests/test_analysis_transaction_costs.py::TestWalkForwardCosts`
+
+### 2026 — DSR now deflates the observed Sharpe by the Lo θ factor
+
+- Symptom: `compute_dsr` ignored return autocorrelation, so serially
+  correlated strategies (e.g. smoothed/leveraged return streams) received
+  inflated Deflated Sharpe Ratios.
+- Fix: `compute_dsr(..., theta=1.0)` deflates the observed Sharpe by √θ
+  (Lo 2002 Newey–West variance-inflation factor) before deflation;
+  `compute_validation_metrics` computes θ from the return series
+  automatically.  θ = 1 recovers the IID formula exactly.
+- Regression tests: `tests/test_validation_metrics.py::TestDSRLoAdjustment`
+
+### 2026 — Estimator validation now raises `DataValidationError`, not `ValueError`
+
+- Symptom: callers catching `ValueError` around `compute_linear_shrinkage` /
+  `compute_nonlinear_shrinkage` broke when structural validation (empty data,
+  too few observations, non-numeric/infinite values, fully-missing assets)
+  was migrated to `DataValidationError`.
+- Root cause: `DataValidationError` subclasses `PySharpeError`, not
+  `ValueError`, so legacy `except ValueError` blocks no longer intercept it.
+- Fix: catch `DataValidationError` (or `PySharpeError`) at call sites.
+  `TypeError` is still raised for non-DataFrame inputs.
+- Guardrail: `grep -rn "except ValueError" src/pysharpe | grep -i -E "shrink|cov"`
+  should be empty.
+
+### 2026 — Zero-variance assets in HRP bisection
+
+- Symptom: HRP crashed with `ZeroDivisionError` (or silently produced NaN
+  weights) when a cluster contained a zero-variance asset whose covariance
+  was exactly zero without triggering the correlation-ridge path.
+- Root cause: `1.0 / np.diag(sub_cov)` divides by an exact zero when ridge
+  regularisation did not fire (e.g. user-supplied covariance with a zero
+  diagonal entry but finite off-diagonals).
+- Fix: `_get_cluster_variance` floors each cluster variance at
+  `max(max_var · 1e-12, 1e-15)` before inversion, and `_recursive_bisection`
+  treats non-finite cluster variances as degenerate (equal split).
+  User-supplied covariance matrices are additionally validated (finite,
+  symmetric, PSD) up front via `DataValidationError`.
+- Regression tests: `tests/test_optimization_hrp.py::TestZeroVarianceAssets`,
+  `TestCovMatrixValidation`.
+
+### 2026 — PyMC posterior covariance must be eigen-clipped before solvers
+
+- Symptom: a near-singular posterior covariance (e.g. two nearly identical
+  ETFs sampled by PyMC) crashed convex solvers, or silently produced
+  nonsense when fed to `EfficientFrontier`.
+- Root cause: the posterior covariance is the mean over MCMC draws of the
+  LKJ-prior covariance — PSD in exact arithmetic, but numerically singular
+  for collinear assets.
+- Fix: `BayesianOptimizer.get_posterior_estimates()` symmetrises and
+  eigen-clips the posterior covariance via `ensure_strictly_psd` (floor
+  `max(λ_max · 1e-12, 1e-15)`).  `blend_views` applies the same hardening to
+  its input and to Σ_p.  The `EfficientFrontier` integration
+  (`BayesianOptimizer.optimize_efficient_frontier`) receives this hardened
+  posterior covariance — never the raw sample covariance — and surfaces
+  solver failures as `RuntimeError` instead of falling back to equal weights.
+- Regression tests: `tests/test_optimization_bayesian.py::TestEfficientFrontierIntegration`,
+  `tests/test_black_litterman.py::TestHardeningStrictPSD`.
+- Grep guard: `grep -rn "sample" src/pysharpe/optimization/bayesian.py` must
+  not appear in the frontier path.
+
+### 2026 — Linear Ledoit-Wolf shrinkage is analytical, not sklearn
+
+- Symptom: sklearn's `LedoitWolf` (previously wrapped by
+  `compute_linear_shrinkage`) behaves opaquely on degenerate inputs —
+  zero-variance columns and T < N regimes — and offered no strict-PSD
+  guarantee.
+- Fix: `compute_linear_shrinkage` now implements Ledoit & Wolf (2004)
+  directly (π̂ / ρ̂ / γ̂ estimators, constant-correlation target, vectorised
+  inner loop).  The diagonal exactly preserves sample variances; zero-
+  variance assets are treated with zero correlation toward the target.
+- Guardrail: `grep -rn "LedoitWolf" src/pysharpe/optimization/estimators.py`
+  must be empty; sklearn may still be used elsewhere (pypfopt's
+  `CovarianceShrinkage` in `portfolio_optimization.py`).
+
+### 2026 — ruff `target-version` must match `requires-python`
+
+- Symptom: raising ruff `target-version` from `py39` to `py312` (to match
+  `requires-python = ">=3.12"`) surfaced ~20 findings (`B905`, `UP007`,
+  `UP017`, `UP035`, `UP045`) in previously green files.
+- Root cause: pyupgrade only suggests 3.10+/3.12 syntax once the target is
+  raised; the codebase still carries pre-3.10 typing idioms.
+- Fix: keep `target-version = "py312"` (correct metadata) and ignore those
+  codes with a comment; remove the ignores when the code is modernized.
+- Guardrail: new rule families (`C4`, `SIM`, `RET`, `RUF`, `PERF`, `TCH`,
+  `PT`, `S`, `DTZ`, ...) all have dozens-to-hundreds of existing findings.
+  Do not enable them without a dedicated cleanup phase.
+
+### 2026 — `uv sync --locked` fails after any pyproject dependency edit
+
+- Symptom: `uv lock --check` reports the lockfile needs updating after any
+  `dependencies`/`optional-dependencies` change in `pyproject.toml`.
+- Fix: run `uv lock && uv sync --all-extras` locally and commit `uv.lock` in
+  the same change as the `pyproject.toml` edit.
+- Guardrail: CI installs with `--locked`; never merge a dependency change
+  without the regenerated lockfile.
+
+### 2026 — mkdocs `--strict` aborts on griffe docstring warnings
+
+- Symptom: `make build_docs` fails with "No type or annotation for returned
+  value" / "No type or annotation for parameter '**kwargs'" / "Confusing
+  indentation" warnings from griffe.
+- Root cause: griffe's Google parser only accepts
+  `name (type): description` (or a `\w+`-only type) in `Returns:` sections;
+  dotted types like `matplotlib.axes.Axes: ...` fall through to the
+  description and trigger the missing-annotation warning. `**kwargs:`
+  without a parenthesized type fails likewise.
+- Fix: write `axes (matplotlib.axes.Axes): ...` and `**kwargs (dict): ...`.
+  Avoid bulleted lists with em-dash separators in `Returns:` sections.
+- Guardrail: `mkdocs build --strict` is part of CI; any new docstring must
+  parse cleanly under griffe.
+
 Known failure patterns discovered during development. Every entry represents a
 bug that shipped and was later fixed — the goal is to prevent recurrence.
 

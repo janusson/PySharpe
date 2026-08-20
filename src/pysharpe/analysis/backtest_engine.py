@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -11,6 +12,8 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ..optimization.base import PortfolioOptimizer
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,7 @@ class HistoricalBacktester:
         vol_threshold: float | None = None,
         fee_per_trade: float = 0.0,
         slippage_pct: float = 0.0,
+        spread_pct: float = 0.0,
     ) -> None:
         """Initialize the backtester with price data and rule configurations.
 
@@ -80,17 +84,28 @@ class HistoricalBacktester:
             rolling volatility exceeds this limit, a rebalance is forced to reset
             allocations during market stress.
         fee_per_trade : float, default 0.0
-            Fixed transaction cost in dollars per asset traded during a rebalance.
+            Fixed commission in dollars per executed order (one per asset whose
+            position changes during a rebalance).
         slippage_pct : float, default 0.0
-            Variable transaction cost representing slippage or spread, as a fraction
-            of the total dollar amount traded.
+            One-way price-impact/slippage cost as a fraction of the total dollar
+            amount traded.  A trade of $X costs ``X * slippage_pct``.
+        spread_pct : float, default 0.0
+            Full bid-ask spread as a fraction of the traded notional.  Buys pay
+            the ask (mid + spread/2) and sells receive the bid (mid − spread/2),
+            so a rebalance with total turnover $X costs ``X * spread_pct / 2``.
 
         Raises
         ------
         ValueError
-            If no assets in `target_weights` match the columns in `prices`, or if
-            the target weights sum to zero.
+            If no assets in `target_weights` match the columns in `prices`, if
+            the target weights sum to zero, or if any cost parameter is negative.
         """
+        if fee_per_trade < 0.0 or slippage_pct < 0.0 or spread_pct < 0.0:
+            raise ValueError(
+                "Transaction-cost parameters (fee_per_trade, slippage_pct, "
+                "spread_pct) must be non-negative."
+            )
+
         self.prices = prices.dropna().sort_index()
         self.target_weights = target_weights
         self.initial_capital = initial_capital
@@ -100,6 +115,7 @@ class HistoricalBacktester:
         self.vol_threshold = vol_threshold
         self.fee_per_trade = fee_per_trade
         self.slippage_pct = slippage_pct
+        self.spread_pct = spread_pct
 
         # Identify valid assets
         available_assets = set(self.prices.columns)
@@ -118,6 +134,22 @@ class HistoricalBacktester:
             raise ValueError("Total target weight must be positive.")
 
         self.targets = raw_targets / total_target
+
+    def _transaction_costs(self, turnover_dollars: float, n_orders: int) -> float:
+        """Total transaction cost for a rebalancing event.
+
+        Cost = turnover × (slippage + spread/2) + n_orders × fee_per_trade.
+
+        The bid-ask spread is charged as a half-spread on each side of the
+        trade: buys execute at the ask (mid + spread/2) and sells at the bid
+        (mid − spread/2), so the total spread cost on turnover $X is
+        $X × spread_pct / 2.  Slippage is one-way price impact on the same
+        notional.  Costs are computed solely from prices and holdings known
+        at the rebalance date — never from future data.
+        """
+        variable = turnover_dollars * (self.slippage_pct + self.spread_pct / 2.0)
+        fixed = n_orders * self.fee_per_trade
+        return float(variable + fixed)
 
     def run(self) -> BacktestResult:
         """Execute the chronological backtest simulation.
@@ -165,7 +197,11 @@ class HistoricalBacktester:
                 self.rebalance_freq, self.rebalance_freq
             )
             # Group by period and mark the last day of each period
-            period_idx = dates.to_period(period_freq)
+            if isinstance(dates, pd.DatetimeIndex):
+                period_idx = dates.to_period(period_freq)  # type: ignore[union-attr]
+            else:
+                dates_dt = pd.DatetimeIndex(dates)
+                period_idx = dates_dt.to_period(period_freq)
             is_period_end = np.zeros(n_days, dtype=bool)
             if n_days > 1:
                 is_period_end[:-1] = period_idx[:-1] != period_idx[1:]
@@ -189,11 +225,20 @@ class HistoricalBacktester:
 
         # Calculate initial fees
         initial_num_trades = np.sum(initial_target_dollars > 1e-4)
-        initial_slippage = np.sum(initial_target_dollars) * self.slippage_pct
-        initial_fixed_fees = initial_num_trades * self.fee_per_trade
-        total_initial_fees = initial_slippage + initial_fixed_fees
+        total_initial_fees = self._transaction_costs(
+            float(np.sum(initial_target_dollars)), int(initial_num_trades)
+        )
 
-        actual_starting_capital = self.initial_capital - total_initial_fees
+        actual_starting_capital = max(0.0, self.initial_capital - total_initial_fees)
+        if actual_starting_capital <= 0.0:
+            # Initial costs consume the whole stake: no positions are opened
+            # and the simulation records a flat zero equity curve.
+            portfolio_values[0] = 0.0
+            return BacktestResult(
+                pd.Series(portfolio_values, index=dates, name="Portfolio Value"),
+                pd.DataFrame(daily_weights, index=dates, columns=self.assets),
+                pd.DatetimeIndex([]),
+            )
 
         current_shares = (actual_starting_capital * self.targets) / initial_prices
         portfolio_values[0] = actual_starting_capital
@@ -254,13 +299,21 @@ class HistoricalBacktester:
                 shares_traded = np.abs(ideal_target_shares - current_shares)
                 dollars_traded = shares_traded * current_prices
 
-                # Apply transaction costs
+                # Apply transaction costs (spread + slippage + commissions),
+                # computed only from today's prices and holdings.
                 num_trades = np.sum(dollars_traded > 1e-4)
-                total_slippage = np.sum(dollars_traded) * self.slippage_pct
-                total_fixed_fees = num_trades * self.fee_per_trade
-                total_fees = total_slippage + total_fixed_fees
+                total_fees = self._transaction_costs(
+                    float(np.sum(dollars_traded)), int(num_trades)
+                )
 
                 # Deduct fees
+                if total_fees >= total_value:
+                    # Costs consume the entire portfolio — record the wipe-out
+                    # and stop simulating (no negative-share artefacts).
+                    total_value = 0.0
+                    portfolio_values[t] = 0.0
+                    daily_weights[t] = current_weights
+                    break
                 total_value -= total_fees
 
                 # Recalculate shares with adjusted capital
@@ -297,6 +350,9 @@ class WalkForwardBacktester:
         train_window_days: int = 252,
         test_window_days: int = 21,
         initial_capital: float = 10000.0,
+        fee_per_trade: float = 0.0,
+        slippage_pct: float = 0.0,
+        spread_pct: float = 0.0,
     ) -> None:
         """Initialize the walk-forward backtester.
 
@@ -311,11 +367,31 @@ class WalkForwardBacktester:
             Number of days to simulate using the optimized weights before re-optimizing.
         initial_capital : float, default 10000.0
             Starting capital for the backtest.
+        fee_per_trade : float, default 0.0
+            Fixed commission in dollars per executed order.  Applied at every
+            window transition, when the portfolio trades from the previous
+            window's weights into the newly optimized weights.
+        slippage_pct : float, default 0.0
+            One-way price-impact cost as a fraction of traded notional.
+        spread_pct : float, default 0.0
+            Full bid-ask spread as a fraction of traded notional (charged as
+            a half-spread on each side).
+
+        Notes
+        -----
+        Costs are charged with prices known at the execution date only:
+        the optimizer trains on data strictly before each test window, and
+        the transition trade executes at the first close of the test window
+        using those weights.  No future price or cost information enters
+        the simulation.
         """
         self.optimizer_factory = optimizer_factory
         self.train_window_days = train_window_days
         self.test_window_days = test_window_days
         self.initial_capital = initial_capital
+        self.fee_per_trade = fee_per_trade
+        self.slippage_pct = slippage_pct
+        self.spread_pct = spread_pct
 
     def run(self, prices: pd.DataFrame) -> BacktestResult:
         """Run the walk-forward backtest.
@@ -330,9 +406,31 @@ class WalkForwardBacktester:
         BacktestResult
             The combined result of the walk-forward backtest.
         """
-        prices = prices.dropna().sort_index()
+        prices = prices.sort_index()
+
+        # Assets with no price coverage at all cannot be traded.  Drop them
+        # explicitly so a permanently-missing ticker does not wipe out every
+        # observation via row-wise dropna.  This is structural data cleaning
+        # (no lookahead): it uses only the availability pattern, not returns.
+        fully_missing = [str(c) for c in prices.columns if prices[c].isna().all()]
+        if fully_missing:
+            logger.warning(
+                "Dropping assets with no price coverage: %s",
+                ", ".join(fully_missing),
+            )
+            prices = prices.drop(columns=fully_missing)
+
+        # Rows where ANY remaining asset has a missing price are dropped
+        # (listwise) — a portfolio can only be valued when every held asset
+        # has an observable price.
+        prices = prices.dropna()
         dates = prices.index
         n_days = len(dates)
+
+        if prices.empty or prices.shape[1] == 0:
+            raise ValueError(
+                "No usable price data remains after dropping missing values."
+            )
 
         if n_days < self.train_window_days + self.test_window_days:
             raise ValueError(
@@ -368,6 +466,9 @@ class WalkForwardBacktester:
                 initial_capital=current_capital,
                 # Rebalance only at the start of the test window (implicitly by target_weights)
                 rebalance_freq=None,
+                fee_per_trade=self.fee_per_trade,
+                slippage_pct=self.slippage_pct,
+                spread_pct=self.spread_pct,
             )
             sub_result = sub_backtester.run()
 

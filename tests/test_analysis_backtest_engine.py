@@ -8,6 +8,8 @@
     data is used.  Test tickers are synthetic placeholders.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -268,3 +270,147 @@ def test_walk_forward_insufficient_data(_dummy_prices):
     )
     with pytest.raises(ValueError, match="Insufficient data"):
         backtester.run(_dummy_prices)
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward with missing price data (NaNs)
+# ---------------------------------------------------------------------------
+
+
+class TestWalkForwardMissingData:
+    """NaNs in the middle of a fold must not crash the engine or leak
+    information across the train/test boundary."""
+
+    def _prices(self, n: int, seed: int) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        dates = pd.date_range("2023-01-01", periods=n)
+        return pd.DataFrame(
+            {
+                "A": np.exp(rng.normal(0.001, 0.02, n).cumsum()),
+                "B": np.exp(rng.normal(0.002, 0.03, n).cumsum()),
+            },
+            index=dates,
+        )
+
+    def test_nan_in_middle_of_series(self):
+        """NaN prices for one asset inside the data range: rows are dropped
+        listwise and the backtest completes with finite values."""
+        prices = self._prices(120, seed=7)
+        prices.iloc[55:60, 0] = np.nan  # A missing mid-series
+
+        backtester = WalkForwardBacktester(
+            optimizer_factory=_DummyOptimizer,
+            train_window_days=30,
+            test_window_days=10,
+            initial_capital=10000.0,
+        )
+        result = backtester.run(prices)
+
+        # Walk-forward output covers only the out-of-sample portion
+        # (rows after the first training window): 120 − 5 dropped − 30 train.
+        expected_days = 120 - 5 - 30
+        assert len(result.portfolio_value) == expected_days
+        assert np.all(np.isfinite(result.portfolio_value.values))
+        assert np.all(np.isfinite(result.historical_weights.values))
+        # Dropped dates must not appear in the result index.
+        missing_dates = prices.index[55:60]
+        assert not set(missing_dates).intersection(result.portfolio_value.index)
+
+    def test_nan_inside_a_specific_fold(self):
+        """NaNs confined to one asset within what would be a single test
+        window: the engine drops them and still simulates every window."""
+        prices = self._prices(110, seed=11)
+        # Fold boundaries with train=30/test=10: test windows start at 30,
+        # 40, 50, ... Place NaNs inside the 40–50 test window.
+        prices.iloc[42:45, 1] = np.nan
+
+        backtester = WalkForwardBacktester(
+            optimizer_factory=_DummyOptimizer,
+            train_window_days=30,
+            test_window_days=10,
+            initial_capital=10000.0,
+        )
+        result = backtester.run(prices)
+
+        assert len(result.portfolio_value) == 107 - 30
+        assert np.all(np.isfinite(result.portfolio_value.values))
+        assert len(result.rebalance_events) >= 4
+
+    def test_nan_at_start_of_series(self):
+        """An asset with delayed listing (NaN at the start) is handled."""
+        prices = self._prices(100, seed=13)
+        prices.iloc[:8, 1] = np.nan
+
+        result = WalkForwardBacktester(
+            optimizer_factory=_DummyOptimizer,
+            train_window_days=30,
+            test_window_days=10,
+        ).run(prices)
+
+        assert len(result.portfolio_value) == 92 - 30
+        assert np.all(np.isfinite(result.portfolio_value.values))
+
+    def test_fully_missing_asset_is_dropped_not_fatal(self, caplog):
+        """An asset with NO prices at all is excluded with a warning instead
+        of wiping out the entire backtest."""
+        prices = self._prices(100, seed=17)
+        prices["NeverListed"] = np.nan
+
+        with caplog.at_level(
+            logging.WARNING, logger="pysharpe.analysis.backtest_engine"
+        ):
+            result = WalkForwardBacktester(
+                optimizer_factory=_DummyOptimizer,
+                train_window_days=30,
+                test_window_days=10,
+            ).run(prices)
+
+        assert any("no price coverage" in r.message for r in caplog.records)
+        assert len(result.portfolio_value) == 100 - 30
+        assert "NeverListed" not in result.historical_weights.columns
+        assert np.all(np.isfinite(result.portfolio_value.values))
+
+    def test_all_assets_missing_raises(self):
+        prices = self._prices(100, seed=19)
+        prices[:] = np.nan
+        with pytest.raises(ValueError, match="No usable price data"):
+            WalkForwardBacktester(
+                optimizer_factory=_DummyOptimizer,
+                train_window_days=30,
+                test_window_days=10,
+            ).run(prices)
+
+    def test_insufficient_rows_after_drop_raises(self):
+        prices = self._prices(60, seed=23)
+        prices.iloc[:40, 0] = np.nan  # leaves only 20 shared rows
+        with pytest.raises(ValueError, match="Insufficient data"):
+            WalkForwardBacktester(
+                optimizer_factory=_DummyOptimizer,
+                train_window_days=30,
+                test_window_days=10,
+            ).run(prices)
+
+    def test_nan_handling_is_deterministic(self):
+        prices = self._prices(100, seed=29)
+        prices.iloc[30:35, 0] = np.nan
+
+        r1 = WalkForwardBacktester(
+            optimizer_factory=_DummyOptimizer, train_window_days=30, test_window_days=10
+        ).run(prices)
+        r2 = WalkForwardBacktester(
+            optimizer_factory=_DummyOptimizer, train_window_days=30, test_window_days=10
+        ).run(prices)
+        pd.testing.assert_series_equal(r1.portfolio_value, r2.portfolio_value)
+
+    def test_historical_backtester_nan_mid_series(self):
+        """HistoricalBacktester also survives NaN gaps via listwise drops."""
+        prices = self._prices(30, seed=31)
+        prices.iloc[10:12, 0] = np.nan
+        result = HistoricalBacktester(
+            prices=prices,
+            target_weights={"A": 0.5, "B": 0.5},
+            initial_capital=10000.0,
+            abs_band=0.05,
+        ).run()
+        assert np.all(np.isfinite(result.portfolio_value.values))
+        assert len(result.portfolio_value) == 28
