@@ -79,7 +79,7 @@ and commissions using only execution-date prices.
 - **Strict typing**: Pyright `--warnings` promoted to fatal — 0 errors, 0 warnings.
 - **Ruff** sole linter + formatter; **uv** lockfile reproducibility.
 - **CI**: lint + typecheck, tests with a 75% coverage floor, strict docs build.
-- **975+ tests**, all synthetic with fixed seeds — no network calls.
+- **990+ tests**, all synthetic with fixed seeds — no network calls.
 - **DuckDB write-through cache** with mtime invalidation — stale data is impossible.
 
 ## Documentation
@@ -110,7 +110,7 @@ net of taxes, fees, and behavioral friction.
 ## Developer Workflow
 
 ```bash
-make install      # uv pip install -e ".[dev]"
+make install      # uv sync (project + dev group from uv.lock)
 make lint         # ruff check + format check
 make typecheck    # pyright with warnings-as-errors
 make test         # pytest with coverage (fails below 75%)

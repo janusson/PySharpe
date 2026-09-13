@@ -1,11 +1,12 @@
 # Changelog
 
-## v1.0.0 (2026-08-14)
+## v1.0.0 (2026-08-19)
 
 First production release.
 
 ### Developer Infrastructure
 
+- **PEP 735 dependency groups**: dev tooling moved from the legacy `dev` extra to `[dependency-groups]` — uv ≥ 0.10 no longer installs a `dev` extra during `uv run`/`uv sync`, so `make install` is now `uv sync` (project + dev group from `uv.lock`). Published extras (`cli`/`gui`/`all`) are unchanged for consumers.
 - **Makefile**: `install`, `lint` (ruff check + format), `typecheck` (pyright with warnings fatal), `test` (pytest with a 75% coverage floor), `build_docs` (MkDocs `--strict`), `clean` (artefacts, caches, and local data directories — `.gitkeep` preserved), and `check` (full pre-commit gate).
 - **CI** (`.github/workflows/ci.yml`): three parallel jobs — lint+typecheck, tests with coverage, and a strict docs build — on every push and pull request.
 - **Strict typing**: pyright configured with warnings-as-errors; the codebase holds 0 errors / 0 warnings.
@@ -25,11 +26,13 @@ First production release.
 
 ### Test Suite
 
-- 976 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
+- 995 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
 - Edge-case coverage: perfectly/near-perfectly correlated shrinkage, NaN-in-fold walk-forwards, same-day VFV↔VOO superficial-loss trades across TFSA/NON_REG, and ±30-day window boundaries.
 
 ### Presentation
 
+- **Harmonized comparison pipeline**: the dashboard's Performance Comparison now evaluates every row — 1/N equal-weight baseline, Custom Mix, PySharpe Optimized, and the six Canadian benchmarks — with a single estimator: Bayes-Stein shrunk expected returns (benchmarks shrunk *jointly with the asset universe*) reduced by MER and account-specific tax drag via `AssetLocationEngine`, with Sharpe ratios recomputed at the 2 % risk-free rate. Adds `compute_adjusted_metrics`/`evaluate_adjusted_performance` (`src/pysharpe/app/analytics.py`) and `BENCHMARK_MERS`/`build_benchmark_characteristics` (`src/pysharpe/analysis/benchmarks.py`); benchmark rows default to Non-Registered placement, stated in the UI caption. The `tax_profile=None` path of `fetch_benchmark_metrics` keeps the legacy raw-metric behavior for external callers.
+- **Streamlit dashboard rewrite**: four-tab workspace (Portfolio Metrics & Comparison, Efficient Frontier, DCA Simulation, Raw Data & Logs). Full price history is fetched first and the maximum overlapping date range across tickers becomes the UI defaults (`compute_overlapping_date_range` in `src/pysharpe/app/data.py`); every date/weight widget is keyed by the ticker-set signature so stale state cannot leak between selections; weights default to a strict 1/N allocation with a zero-sum fallback; backtesting and execution/rebalancing are preserved as collapsed expanders under the metrics tab. Fixed the missing `__main__` guard that rendered a blank page on `streamlit run app.py`.
 - README and docs overhaul with CI badges, engineering-rigor section, uv-first quickstart, and the `.agents/skills/` agentic-development framework.
 
 ## v0.3.0 (development log — superseded by v1.0.0)

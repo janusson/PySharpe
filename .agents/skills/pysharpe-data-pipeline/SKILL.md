@@ -93,7 +93,7 @@ Relevant test files:
 - `tests/test_data_fetcher_cache.py`
 - `tests/test_collation.py`
 - `tests/test_collation_proxy.py`
-- `tests/test_data_linkage.py`
-- `tests/test_data_linkage_stitched.py`
+- `tests/test_data_linkage.py` (includes `HistoryLinker` stitched proxy-history
+  coverage: handover math, FX adjustment, FX-coverage guardrails)
 
 Run: `uv run pytest tests/test_fetcher.py tests/test_fx_adjustment.py tests/test_data_fetcher_cache.py tests/test_collation.py`

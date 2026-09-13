@@ -3,9 +3,9 @@
 > **Evidence-based portfolio optimization for Canadian investors.** Construct, compare, and validate long-term investment portfolios using modern financial research — with every recommendation traceable to published literature, transparent assumptions, and reproducible quantitative analysis.
 
 <p align="center">
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg" alt="Build status"></a>
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/janusson/PySharpe/ci.yml?label=docs" alt="Docs build"></a>
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-75%25%2B-success" alt="Coverage gate"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=quality" alt="Build (lint + typecheck)"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=docs" alt="Docs (strict MkDocs)"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=test" alt="Coverage (75%+ floor)"></a>
   <a href="https://github.com/janusson/PySharpe/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12"></a>
   <a href="https://github.com/janusson/PySharpe/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
   <a href="https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json"><img src="https://img.shields.io/badge/pyright-strict%20%2B%20warnings--fatal-3178c6" alt="Pyright strict"></a>
@@ -25,52 +25,68 @@ CAD/USD conversion frictions, and CRA tax rules.
 ## Quickstart
 
 ```bash
-# 1. Clone and install with uv (Python ≥ 3.12)
+# 1. Clone and install with uv (Python ≥ 3.12; exact versions locked in uv.lock)
 git clone https://github.com/janusson/PySharpe.git
 cd PySharpe
 uv pip install -e ".[all]"
 
-# 2. Launch the Streamlit dashboard
+# 2. Launch the Streamlit dashboard — a 4-tab quantitative workspace
 uv run streamlit run app.py
 
-# 3. Or drive it from the CLI
+# 3. Or drive everything from the CLI
 uv run pysharpe --help
 ```
 
-A complete walkthrough — portfolio definition → optimization → buy plan — is in
-[Quick Start](#quick-start) below. Everything from data download to rebalancing
-is reproducible with a locked dependency set (`uv.lock`) and synthetic-data test
-suites.
+The dashboard opens a stepwise workflow: **portfolio metrics & comparison vs. the
+1/N equal-weight baseline**, the **efficient frontier** with the optimizer's
+optimal weights, a **fully decoupled DCA simulator**, and **raw data & logs** —
+with date boundaries derived automatically from the maximum overlapping price
+history of your tickers. A complete walkthrough — portfolio definition →
+optimization → buy plan — is in [Quick Start](#quick-start) below. Everything
+from data download to rebalancing is reproducible with a locked dependency set
+(`uv.lock`) and synthetic-data test suites.
 
 ---
 
 ## Engineering Rigor
 
-PySharpe is built as production software, not a research notebook. The same
-discipline that guards the math guards the code:
+PySharpe is built as production software, not a research notebook. Four
+non-negotiable pillars guard every commit:
+
+- **Strict typing** — [Pyright](https://microsoft.github.io/pyright/) in `standard`
+  mode with **warnings promoted to fatal**: the suite holds **0 errors, 0 warnings**.
+- **Ruff formatting** — [Ruff](https://docs.astral.sh/ruff/) is the *sole*
+  formatter and linter (88-char, double-quote, import-sorted); CI fails on any drift.
+- **uv dependency management** — [uv](https://docs.astral.sh/uv/) owns the
+  environment; `uv sync --locked` in CI makes every build bit-reproducible from `uv.lock`.
+- **DuckDB write-through caching** — every price download is cached behind
+  DuckDB and invalidated by file `mtime`; stale data is impossible and repeat
+  queries are SQL-fast.
+
+The same discipline that guards the math guards the code:
 
 | Guard | How it's enforced |
 | ----- | ----------------- |
 | **Strict typing** | [Pyright](https://microsoft.github.io/pyright/) runs on every PR in `standard` mode with **warnings promoted to fatal** (`pyright --warnings src/`) — the suite holds **0 errors, 0 warnings**. |
 | **Lint & format** | [Ruff](https://docs.astral.sh/ruff/) is the sole linter *and* formatter (88-char, double-quote, import-sorted). CI fails on any drift. |
 | **Dependency lock** | [uv](https://docs.astral.sh/uv/) manages the environment; `uv sync --locked` in CI means a build is bit-reproducible from `uv.lock`. |
-| **CI gate** | Three parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, and a **strict MkDocs build** (`--strict`: warnings are fatal). |
-| **Test suite** | **975+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
 | **DuckDB write-through cache** | Price downloads are cached behind DuckDB and invalidated by file `mtime` — stale data is impossible, and queries are SQL-fast. |
+| **CI gate** | Three parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, and a **strict MkDocs build** (`--strict`: warnings are fatal). |
+| **Test suite** | **990+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
 | **Lookahead guardrails** | FX conversion *excludes* rows without rate coverage (never `.bfill()`), covariance estimators harden to strict positive-definiteness, and purged/embargoed CV enforces fold separation from the asset's own autocorrelation decay. |
 | **Domain error contracts** | A dedicated exception hierarchy (`DataValidationError`, `DataIngestionError`, `ExecutionConfigError`) replaces raw stack traces with actionable messages. |
 | **Self-documenting** | MkDocs Material site built from docstrings (griffe-parsed, `--strict`-clean), plus `docs/TEST_MAP.md` and `docs/GOTCHAS.md` that accumulate every failure pattern. |
 
 ## Signature Features
 
-### 🇨🇦 2-D Asset Location Engine — *what* to hold *and where* to hold it
+### 🇨🇦 2-D Asset Location Engine — *what* to hold, and *where* (TFSA vs RRSP vs Non-Reg)
 
 Simultaneously solves the asset allocation **and** the account placement problem
 across TFSA, RRSP, FHSA, LIRA, RRIF, and Non-Registered accounts. Tax-adjusted
 expected returns account for US foreign withholding tax (FWT) treaty protection,
 unrecoverable fund-level FWT on CAD-wrapped US ETFs, and account-specific income
 taxation — so US equities land in the RRSP (treaty-protected) while Canadian
-dividends stay in the TFSA.
+dividends stay in the TFSA and bonds are taxed last in Non-Registered.
 
 ### ⚖️ CRA Superficial Loss Guardrail & ACB Tracking
 
@@ -83,6 +99,28 @@ A compliance interlock that understands CRA rules, not just math:
   re-routed to the next-best non-identical asset.
 - **ACB tracking** — CRA-mandated weighted-average cost method (ITA s. 47(1))
   with commission-adjusted cost bases and return-of-capital handling.
+
+### 📉 Bayes-Stein Shrinkage — the default return model
+
+Individual asset means are the noisiest inputs in portfolio theory. PySharpe's
+default estimator shrinks every expected return toward the grand mean (Jorion
+1986), directly countering recency bias — and pairs it with analytical
+Ledoit-Wolf linear (2004) and nonlinear (2017/2020) covariance shrinkage,
+eigen-clipped to strict positive-definiteness so solvers can never see a
+singular matrix. The shrinkage intensity is data-driven: noisy, similar-looking
+assets are shrunk more aggressively; genuinely different assets are shrunk
+less. The same eigen-clip hardening applies to every downstream estimator,
+including the opt-in Bayesian and Ledoit-Wolf models.
+
+### 🧪 Combinatorial Purged Cross-Validation — test every path, not one
+
+Single train/test splits cannot tell you whether a strategy's edge is real.
+PySharpe implements Combinatorial Purged Cross-Validation (López de Prado 2018):
+all valid training/test path combinations are evaluated, every fold is separated
+by an embargo sized from the asset's own autocorrelation decay (never a fixed
+guess), and results feed the Deflated Sharpe Ratio (with Lo's autocorrelation
+adjustment) and Probability of Backtest Overfitting — so a claim of alpha must
+survive the multiplicity of its own experiments.
 
 ### 🤖 `.agents/skills/` — the agentic development framework
 
@@ -100,17 +138,11 @@ rigorously as it is developed *for* investors.
 - **Value Averaging allocator** — deterministic, path-targeted contributions
   (60% path drift + 40% fundamental valuation/mean-reversion), not a black-box
   mean-variance solver.
-- **Shrinkage everywhere it matters** — Bayes-Stein expected returns (Jorion
-  1986), analytical Ledoit-Wolf linear (2004) and nonlinear (2017/2020)
-  covariance shrinkage, eigen-clipped to strict positive-definiteness.
 - **Bayesian estimation** — PyMC posteriors (LKJ priors) feed a PyPortfolioOpt
   `EfficientFrontier` through the *posterior* covariance — never the sample —
   with a FAST_COMPILE fallback that keeps CI green without a C compiler.
 - **Hierarchical Risk Parity** — inverse-variance-free diversification for
   ill-conditioned correlation structures, zero-variance-safe by construction.
-- **Backtest-overfitting defenses** — Deflated Sharpe Ratio with Lo's
-  autocorrelation adjustment, Probability of Backtest Overfitting, and
-  Combinatorial Purged Cross-Validation with autocorrelation-decay gap sizing.
 - **Cost-realistic backtests** — bid-ask spread (half-spread per side),
   slippage, and per-order commissions at every rebalance, using only
   execution-date prices.
@@ -157,7 +189,10 @@ net of taxes, fees, and behavioral friction.
 
 ### 🖥️ Interfaces
 
-- **Streamlit Dashboard** — Analytics, backtesting, DCA projections, efficient frontier visualization, and weight-tweak sliders.
+- **Streamlit Dashboard** — 4-tab quantitative workspace: portfolio metrics &
+  comparison vs. the 1/N equal-weight baseline, efficient frontier with optimal
+  weights, a decoupled DCA simulator, and raw data & logs — plus backtesting,
+  rebalancing, and weight-tweak sliders.
 - **CLI** — Scriptable `pysharpe optimise`, `rebalance`, `allocate`, `simulate-dca`, and `plot` subcommands.
 - **Library API** — Fully importable Python modules for Jupyter notebooks and automated pipelines.
 
@@ -227,15 +262,15 @@ uv pip install -e .
 # Everything: CLI + dashboard + development tooling
 uv pip install -e ".[all]"
 
-# Development (ruff, pyright, pytest, mkdocs)
-uv pip install -e ".[dev]"
+# Development (ruff, pyright, pytest, mkdocs) — from a git checkout, syncs the dev group
+uv sync
 ```
 
 `make` wraps the full developer workflow:
 
 | Target | Action |
 | ------ | ------ |
-| `make install` | `uv pip install -e ".[dev]"` |
+| `make install` | `uv sync` |
 | `make lint` | ruff check + format check |
 | `make typecheck` | pyright with warnings-as-errors |
 | `make test` | pytest with coverage (fails below 75%) |
@@ -411,13 +446,13 @@ fwt_rrsp = engine.compute_fwt_drag(voo, "RRSP")  # 0.0 (treaty-protected)
 
 ## Contributing
 
-1. Create an isolated environment: `uv pip install -e ".[dev]"`
+1. Create an isolated environment: `uv sync`
 2. Lint, format, and type-check: `make check`
 3. Write or update tests for any behavioral change (synthetic data, fixed seeds).
 4. Document public APIs in docstrings — the strict docs build parses every one.
 
 ```bash
-# Run the full suite (975+ tests, no network calls)
+# Run the full suite (990+ tests, no network calls)
 uv run pytest
 ```
 

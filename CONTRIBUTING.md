@@ -10,9 +10,9 @@ get started.
    python -m venv .venv
    source .venv/bin/activate
    ```
-2. Install PySharpe in editable mode with development extras.
+2. Install PySharpe in editable mode with the development toolchain.
    ```bash
-   pip install -e .[dev]
+   uv sync
    ```
 
 ## Running tests and lint checks

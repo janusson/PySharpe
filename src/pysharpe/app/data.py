@@ -145,6 +145,40 @@ def _resolve_field_frame(
     return extracted
 
 
+def compute_overlapping_date_range(
+    prices: pd.DataFrame,
+) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """Compute the maximum date window shared by every price column.
+
+    The start is the latest first-valid date across columns and the end is
+    the earliest last-valid date.  When every column is non-empty and the
+    start precedes the end, the pair defines the longest period for which
+    all tickers have simultaneous price history.
+
+    Args:
+        prices: Wide price frame (dates × tickers).
+
+    Returns:
+        ``(start, end)`` covering the common history, or ``None`` when no
+        overlapping window exists (empty frame, all-NaN columns, or
+        non-overlapping coverage).
+    """
+
+    if prices.empty or prices.shape[1] == 0:
+        return None
+
+    firsts = prices.apply(lambda col: col.first_valid_index())
+    lasts = prices.apply(lambda col: col.last_valid_index())
+    if firsts.isna().any() or lasts.isna().any():
+        return None
+
+    start = pd.Timestamp(max(firsts))
+    end = pd.Timestamp(min(lasts))
+    if start > end:
+        return None
+    return start, end
+
+
 def select_price_data(numeric_df: pd.DataFrame) -> pd.DataFrame:
     """Prefer close columns but gracefully fall back to other numeric data."""
 
@@ -209,11 +243,17 @@ def _load_collated_from_disk(path: str) -> pd.DataFrame | None:
 @st.cache_data(show_spinner=False)
 def load_prices(
     tickers: list[str],
-    start: str,
-    end: str,
+    start: str | None = None,
+    end: str | None = None,
     _loader: Callable[[str], pd.DataFrame | None] = _load_collated_from_disk,
 ) -> PortfolioData:
-    """Download adjusted close prices for given tickers and flatten columns safely."""
+    """Download adjusted close prices for given tickers and flatten columns safely.
+
+    When ``start`` and ``end`` are both ``None`` the full available history
+    is fetched (``period="max"``); the caller can then derive the UI date
+    boundaries from the returned frame via
+    :func:`compute_overlapping_date_range`.
+    """
 
     tickers_tuple = tuple(tickers)
     if not tickers_tuple:
@@ -468,6 +508,7 @@ def load_preview_data(tickers: list[str], end_date: dt.date) -> pd.DataFrame:
 
 __all__ = [
     "PortfolioData",
+    "compute_overlapping_date_range",
     "gather_metadata",
     "load_preview_data",
     "load_prices",

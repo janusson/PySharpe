@@ -3,8 +3,8 @@
 ## Quick-Start Commands
 
 ```bash
-# Install (recommended: uv)
-uv pip install -e .[all]
+# Install (recommended: uv — syncs project + dev group from uv.lock)
+uv sync
 
 # Run all tests
 uv run pytest
@@ -30,7 +30,7 @@ All developer workflows are available via `make` (see `make help`):
 
 | Target | Action |
 | ------ | ------ |
-| `install` | `uv pip install -e ".[dev]"` |
+| `install` | `uv sync` (project + dev group from uv.lock) |
 | `lint` | ruff check + ruff format --check |
 | `lint-fix` | ruff check --fix |
 | `format` | ruff format (in place) |
@@ -63,7 +63,7 @@ Config Layer   →  config.py (LRU-cached singleton), portfolio_config.json, pro
 Data Pipeline  →  YFinance → DuckDB cache → FX (CAD, no .bfill()) → CSV collation → DuckDB linkage
 Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, GARCH, VAR)
 Execution      →  allocator.py (60/40 VA) + rebalance.py + tax_tracker.py + cash_flow_rebalance.py
-Presentation   →  cli.py (5 subcommands) + app.py (Streamlit, 4 tabs) + visualization/
+Presentation   →  cli.py (5 subcommands) + app.py (Streamlit, 4 tabs: Metrics & Comparison, Efficient Frontier, DCA, Raw Data & Logs) + visualization/
 ```
 
 See `docs/flowchart.md` for the full mermaid diagram with data-flow connections.

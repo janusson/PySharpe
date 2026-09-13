@@ -1,234 +1,254 @@
 ---
-title: "Three ETFs, Three Accounts: How PySharpe's 2-D Asset Location Engine Beats the Taxman"
-description: >
-  A walk through PySharpe's Canadian tax-location engine: allocating VFV, QQC,
-  and VDY across TFSA, RRSP, and Non-Registered accounts for an investor in the
-  45% marginal bracket — and why foreign withholding tax behaves differently in
-  every account.
-publishDate: 2026-08-14
-updatedDate: 2026-08-14
-tags:
-  - quantitative-finance
-  - portfolio-optimization
-  - canadian-investing
-  - python
-draft: false
-# Wire this to your Astro content collection layout, e.g.:
-# layout: ../../layouts/ArticleLayout.astro
+title: "Tax-Aware Portfolio Construction: A Full PySharpe Pipeline"
+description: "How a Canadian ETF portfolio across TFSA, RRSP, and Non-Registered accounts is built, tax-optimized, and validated against overfitting — end to end."
+pubDate: 2026-08-20
+tags: ["python", "portfolio-optimization", "canadian-tax", "quantitative-finance", "validation"]
+readingTime: 12
 ---
 
-import AssetLocationMatrix from "../../components/AssetLocationMatrix.astro";
-import EfficientFrontierChart from "../../components/EfficientFrontierChart.astro";
-import DragComparisonChart from "../../components/DragComparisonChart.astro";
-import ValidationStats from "../../components/ValidationStats.astro";
+<!--
+  Astro integration notes:
+  - The interactive components below are placeholders. Register them for this
+    article by importing them in the page that renders this MDX file, e.g.:
+      import AssetLocationMatrix from "../components/AssetLocationMatrix.astro";
+      import FwtDragBars from "../components/FwtDragBars.astro";
+      import EfficientFrontierChart from "../components/EfficientFrontierChart.astro";
+      import ValidationLedgerStats from "../components/ValidationLedgerStats.astro";
+  - The `export const` data blocks below are ready-to-use props for those
+    components. All numbers are illustrative scenario values, not guarantees.
+-->
 
-export const matrixData = {
-  tickers: ["VFV", "QQC", "VDY"],
-  accounts: ["TFSA", "RRSP", "NON_REG"],
-  // Drag-minimizing placement implied by the engine's per-pair drag
-  // arithmetic, constrained by capacities (25/35/40) and max_weight (0.50).
-  // Rows sum to asset totals; columns sum to account capacities.
-  weights: [
-    [0.0, 0.1, 0.0], // VFV  → RRSP remainder (0.36%/yr cheaper than NON_REG)
-    [0.0, 0.0, 0.4], // QQC  → NON_REG (cheapest taxable placement)
-    [0.25, 0.25, 0.0], // VDY  → shelters first (highest dividend tax drag)
-  ],
-  accountCapacities: { TFSA: 0.25, RRSP: 0.35, NON_REG: 0.4 },
-  maxWeight: 0.5,
-};
-
-export const fwtDrags = [
-  { ticker: "VFV", tfsa: 0.0018, rrsp: 0.0018, nonReg: 0.0, note: "CAD-wrapped US equity — 15% FWT on 1.2% yield" },
-  { ticker: "QQC", tfsa: 0.00075, rrsp: 0.00075, nonReg: 0.0, note: "CAD-wrapped US equity — 15% FWT on 0.5% yield" },
-  { ticker: "VDY", tfsa: 0.0, rrsp: 0.0, nonReg: 0.0, note: "Canadian equity — no foreign withholding" },
+export const matrixData = [
+  { asset: "VFV.TO", yieldPct: 1.3, tfsaBps: 19.5, rrspBps: 19.5, nonRegBps: 0.0, note: "S&P 500, CAD-wrapped US equity" },
+  { asset: "QQC.TO", yieldPct: 0.7, tfsaBps: 10.5, rrspBps: 10.5, nonRegBps: 0.0, note: "NASDAQ-100, CAD-wrapped US equity" },
+  { asset: "VCN.TO", yieldPct: 2.9, tfsaBps: 0.0, rrspBps: 0.0, nonRegBps: 0.0, note: "TSX Composite, Canadian equity" },
+  { asset: "VDY.TO", yieldPct: 4.3, tfsaBps: 0.0, rrspBps: 0.0, nonRegBps: 0.0, note: "TSX high dividend, Canadian equity" },
 ];
 
-# Three ETFs, Three Accounts: PySharpe's 2-D Asset Location Engine
+export const fwtData = [
+  { account: "TFSA", asset: "VFV.TO", dragBps: 19.5 },
+  { account: "RRSP", asset: "VFV.TO", dragBps: 19.5 },
+  { account: "Non-Reg", asset: "VFV.TO", dragBps: 0.0 },
+  { account: "RRSP", asset: "VOO (US-listed)", dragBps: 0.0 },
+];
 
-*How a 45%-bracket Canadian investor should place VFV, QQC, and VDY across TFSA, RRSP, and Non-Registered accounts — and why "what to hold" is only half the optimization.*
+export const ledgerTrials = [
+  { trial: 1, config: "shrinkage, max_weight=0.25", isSharpe: 0.82, oosSharpe: 0.79, status: "SUCCESS" },
+  { trial: 2, config: "shrinkage, max_weight=0.40", isSharpe: 0.91, oosSharpe: 0.63, status: "SUCCESS" },
+  { trial: 3, config: "constant_return, max_weight=0.25", isSharpe: 0.74, oosSharpe: 0.71, status: "SUCCESS" },
+  { trial: 4, config: "negative momentum signal", isSharpe: 0.61, oosSharpe: null, status: "REJECTED" },
+];
 
----
+## The allocation is only half the strategy
 
-Most portfolio optimizers answer one question: **what to hold**. Markowitz,
-Black-Litterman, risk parity — all of them live in a single dimension of asset
-weights. But a Canadian investor with a TFSA, an RRSP, and a Non-Registered
-account is actually facing a **two-dimensional problem**: for every dollar of
-VFV, there are three different places to put it, and the after-tax return is
-different in every one of them.
+Every Canadian investor eventually discovers the same uncomfortable truth: two
+portfolios holding *identical ETFs in identical proportions* can still end up
+with meaningfully different after-tax wealth. The difference is not *what* they
+hold. It is *where* they hold it — and how much of their return leaks to
+withholding taxes, dividend taxation, and capital-gains inclusion before it
+ever reaches their account statement.
 
-PySharpe's Asset Location Engine solves both dimensions at once. This article
-walks through the engine's mathematics on a concrete scenario — the same
-scenario shipped in the repository as
-[`scripts/test_location_matrix.py`](https://github.com/janusson/PySharpe/blob/main/scripts/test_location_matrix.py):
+This article walks through a complete PySharpe pipeline: a four-ETF Canadian
+portfolio — **VFV.TO** (S&P 500), **VCN.TO** (TSX Composite), **VDY.TO** (TSX
+high dividend), and **QQC.TO** (NASDAQ-100) — allocated across a **TFSA**, an
+**RRSP**, and a **Non-Registered** account. We follow the data from raw
+yfinance downloads to a validated, tax-adjusted buy plan, and we finish with
+the part most quant projects skip: the ledger that proves the strategy is not
+overfit.
 
-> **The investor.** 45% marginal tax rate. Account capacities: TFSA 25%,
-> RRSP 35%, Non-Registered 40%. Three broad-market CAD ETFs:
->
-> - **VFV** — S&P 500, CAD-wrapped, 1.2% dividend yield, 0.09% MER
-> - **QQC** — NASDAQ-100, CAD-wrapped, 0.5% dividend yield, 0.20% MER
-> - **VDY** — Canadian high-dividend equity, 3.5% yield (80% eligible), 0.22% MER
+## The scenario
 
-## The tax drag nobody sees: foreign withholding
-
-Before optimizing, the engine prices every (asset, account) pair through three
-drag channels: **foreign withholding tax (FWT)**, **income taxation**, and
-**MER**. The FWT channel is where most Canadian investors — and most
-optimizers — go wrong.
-
-The US withholds 15% of dividends paid to foreign investors. Whether you get
-that back depends on the fund's **domicile** and the account it sits in:
-
-| Asset | TFSA | RRSP | NON_REG |
-| ----- | ---- | ---- | ------- |
-| **VFV** (CAD-wrapped US) | **−0.180%/yr** | **−0.180%/yr** | −0.000%/yr |
-| **QQC** (CAD-wrapped US) | **−0.075%/yr** | **−0.075%/yr** | −0.000%/yr |
-| **VDY** (Canadian) | −0.000%/yr | −0.000%/yr | −0.000%/yr |
-
-<DragComparisonChart data={fwtDrags} />
-
-*Annual FWT drag computed by `AssetLocationEngine.compute_fwt_drag()` at a 15%
-treaty rate — the engine's actual output for this scenario.*
-
-Two subtleties make this table worth reading carefully.
-
-**First — the wrapper trap.** VFV and QQC are *Canadian-domiciled funds that
-wrap US equities*. The fund itself pays the 15% withholding internally, and that
-cost is **unrecoverable in every account** — including the RRSP. The famous
-"US stocks belong in the RRSP" treaty protection only applies to **US-domiciled**
-securities (like VOO) held directly. If you own the CAD wrapper, the RRSP buys
-you deferral, not a withholding refund.
-
-**Second — the foreign tax credit.** In the Non-Registered account the
-withholding is recoverable through the foreign tax credit, which is why the
-FWT column shows zero there. But nothing is free: foreign dividends in a taxable
-account are then taxed as ordinary income at the full 45% marginal rate.
-
-## What the engine actually computes
-
-PySharpe's [`AssetLocationEngine`](https://github.com/janusson/PySharpe/blob/main/src/pysharpe/optimization/tax_location.py)
-turns the tax code into arithmetic. At a 45% marginal rate:
-
-```
-eligible dividends:  MTR × 1.38 − (federal DTC + provincial DTC) × 1.38
-                   = 0.45 × 1.38 − 0.250198 × 1.38
-                   = 27.57%  ← effective rate, not the headline 45%
-
-capital gains:      MTR × 50% inclusion = 22.50%
-foreign income:     full MTR            = 45.00%
+```bash
+# data/portfolio/cad_showcase.csv
+VFV.TO
+VCN.TO
+VDY.TO
+QQC.TO
 ```
 
-Now compare a dollar of dividends in each account:
+Three accounts, three different tax regimes:
 
-- **VDY in NON_REG**: its 3.5% eligible yield is taxed at 27.57% →
-  **0.96%/yr of drag**. In the TFSA or RRSP: **zero**.
-- **VFV in NON_REG**: its 1.2% foreign yield is taxed at 45% →
-  **0.54%/yr of drag** — three times its shelter drag of 0.18%/yr FWT.
-- **QQC in NON_REG**: 0.5% yield × 45% → **0.225%/yr** — the cheapest
-  taxable placement of the three.
+| Account | US FWT on dividends | Annual income taxation |
+| ------- | ------------------- | ---------------------- |
+| TFSA | Lost (no treaty protection) | None |
+| RRSP | Treaty-protected for US-domiciled holdings | Deferred until withdrawal |
+| Non-Registered | Recoverable via Foreign Tax Credit | Taxed at marginal rates |
 
-The engine encodes this as tax-adjusted expected returns per (asset, account)
-pair, then hands the whole **N × M matrix** — not just an N-vector — to the
-Sharpe optimizer, together with MER drags (as decimal fractions, e.g. `0.0009`,
-never percentage points) and hard per-account capacity constraints.
+The naive approach treats these as decoration. PySharpe treats them as a
+second optimization problem running *orthogonally* to asset allocation.
 
-## Reading the 2-D matrix
+## Stage 1 — Data with a memory: DuckDB write-through caching
 
-<AssetLocationMatrix data={matrixData} />
+Every price series starts at yfinance, but it is never used raw. The pipeline
+writes each download through a DuckDB cache keyed by ticker, period, and date
+range, with a 24-hour freshness window and file-`mtime`-based invalidation on
+collation. Repeat runs are SQL-fast instead of network-slow, and a stale price
+is structurally impossible.
 
-*The drag-minimizing placement implied by the engine's arithmetic, constrained
-by the 25/35/40 capacities and the 50% per-asset cap. Rows are assets, columns
-are accounts.*
+Then the harder part: currency. VFV.TO and QQC.TO are CAD-denominated, but
+their underlying exposure is USD. The FX layer converts using CAD/USD rates
+and applies a strict guardrail: **rows without FX rate coverage are excluded,
+never backfilled**. A `.bfill()` here would silently fabricate prices the
+investor could not actually have traded at — a classic lookahead leak that
+inflates Sharpe ratios in backtests.
 
-The matrix tells a three-sentence story:
+## Stage 2 — Estimation and the efficient frontier
 
-1. **Shelter the yield.** VDY's 3.5% eligible dividend is the most
-   tax-sensitive cash flow in the portfolio (0.96%/yr in NON_REG, nothing in a
-   shelter), so it fills the TFSA first and takes as much RRSP as the 50%
-   per-asset cap allows.
-2. **Give US-wrapped equity the remaining shelter.** A VFV dollar in NON_REG
-   costs 0.54%/yr (45% on a 1.2% foreign yield); in the RRSP it costs only the
-   unrecoverable 0.18% FWT — a 0.36%/yr saving per sheltered dollar — so VFV
-   takes the RRSP capacity VDY's cap leaves behind.
-3. **Let the lowest-yield asset pay the taxable bill.** QQC's 0.5% yield makes
-   it the cheapest resident of NON_REG (0.225%/yr, versus 0.075%/yr FWT in a
-   shelter — the smallest shelter premium of the three), so it absorbs the
-   entire 40% taxable capacity while its growth compounds at the preferential
-   22.5% effective capital-gains rate.
+With clean, collated prices in hand, PySharpe estimates the inputs to
+optimization:
 
-## The Sharpe layer, and an honest caveat
+- **Expected returns** use the default Bayes-Stein shrinkage estimator
+  (Jorion 1986), which pulls each asset's noisy sample mean toward the
+  cross-sectional grand mean. The shrinkage intensity is data-driven:
+  similar-looking assets are shrunk aggressively, genuinely different ones
+  are shrunk less.
+- **Covariance** uses analytical Ledoit-Wolf shrinkage, eigen-clipped to
+  guarantee strict positive-definiteness — solvers never see a singular
+  matrix, and a near-singular sample covariance can never silently collapse
+  the frontier into an equal-weight point.
 
-Tax placement is the *location* half of the objective. The *allocation* half is
-a max-Sharpe optimization over tax-adjusted returns, with Monte-Carlo warm
-starts, per-asset weight caps, and account capacities as hard constraints:
+The max-Sharpe optimizer then sweeps the feasible region subject to MER caps
+and geographic bounds. For this scenario the unconstrained solution tends to
+concentrate in US equities — which is exactly when the second dimension has
+to intervene.
 
 <EfficientFrontierChart />
 
-*Placeholder: render the optimizer's efficient frontier with the tax-adjusted
-returns and MER-drag-adjusted inputs.*
+## Stage 3 — The 2-D Asset Location Engine
 
-Here is the honest part of the demonstration. Taxes are deterministic, but
-expected returns are not. When the engine's synthetic two-year history makes
-equities look unattractive, the Sharpe objective can dominate the tax logic
-entirely — the reproducible script run concentrates the portfolio in VDY's
-favorable sample path. That is not a bug: it is a reminder that **any**
-optimization is only as good as the return estimates it is fed, and that
-short, noisy samples produce overconfident estimates.
+This is where PySharpe diverges from a standard Markowitz workflow. The
+`AssetLocationEngine` in `src/pysharpe/optimization/tax_location.py` solves
+asset allocation *and* account placement simultaneously, producing a
+tax-adjusted expected return for every `(asset, account)` pair:
 
-Which is exactly why PySharpe refuses to ship an allocation without its
-validation ledger.
-
-## Why this allocation is not overfit
-
-Every strategy PySharpe produces is stress-tested against the two failure modes
-that kill backtests: **serial correlation leakage** and **multiple-testing
-bias**.
-
-**Combinatorial Purged Cross-Validation (CPCV).** Returns are serially
-correlated, so standard k-fold cross-validation leaks information across
-adjacent folds and inflates apparent skill. PySharpe's `PurgedKFold` removes a
-purge buffer before every test fold, enforces an embargo between consecutive
-test folds — strictly, for every fold including the last — and sizes both gaps
-from the asset's **own autocorrelation decay**, not an arbitrary percentage.
-
-**Deflated Sharpe Ratio (DSR).** A Sharpe ratio that looks good in isolation
-may be exactly what the best of many noisy trials should produce: the expected
-maximum Sharpe of N independent trials grows like √(2·ln N) (extreme-value
-theory). The DSR deflates the observed Sharpe against that null, further
-adjusting for non-normal returns (skew and kurtosis) and — critically — for
-**autocorrelation**: Lo's variance-inflation factor θ deflates the Sharpe by
-√θ before deflation, so a smoothed, serially correlated return stream cannot
-masquerade as skill.
-
-**Probability of Backtest Overfitting (PBO).** In-sample and out-of-sample
-performance ranks are compared across the full trial ledger; a PBO near 0.5
-means the in-sample ranking carries no information about out-of-sample
-performance.
-
-<ValidationStats />
-
-*Placeholder: render the validation ledger — CPCV fold map, DSR with Lo's θ
-adjustment, and PBO — for the strategy under review.*
-
-The scenario in this article is reproducible end-to-end:
-
-```bash
-uv run python scripts/test_location_matrix.py
+```text
+R_i,A = R_i − MER_i − Drag_i,A
 ```
 
-Deterministic synthetic data, fixed seeds, no network calls — the same
-discipline that produces the validation ledger (975+ tests, strict Pyright with
-warnings-as-errors, Ruff lint/format, a locked `uv` environment, and DuckDB
-write-through caching in the data pipeline).
+The drag term combines two structurally different taxes.
 
-## The takeaway
+### Foreign withholding tax: the 15% leak
 
-Asset location is a second optimization dimension that generic tooling simply
-does not model — and in Canada, where a CAD wrapper silently costs 15 basis
-points a year of unrecoverable withholding even inside an RRSP, the dimension
-is worth real money. PySharpe prices it exactly, optimizes it jointly with
-allocation, and then subjects the result to the same overfitting defenses the
-research literature demands.
+US-source dividends are subject to a 15% US withholding tax. Whether that
+leak is recoverable depends on the account, and the engine encodes the three
+Canadian structural rules precisely:
 
-The code is on [GitHub](https://github.com/janusson/PySharpe) — and the tax
-engine, the validation ledger, and this exact scenario are all one command
-away.
+1. **RRSP / LIRA / RRIF** — the US-Canada treaty exempts *directly held*
+   US-domiciled assets (e.g., VOO). Drag: **0**.
+2. **CAD-wrapped US ETFs (VFV.TO, QQC.TO)** — the fund itself pays the 15%
+   FWT before distributing. That fund-level tax is **unrecoverable in every
+   account type**, including the RRSP. Drag: `dividend_yield × 0.15`.
+3. **TFSA / FHSA** — no treaty protection. Both direct and CAD-wrapped US
+   exposure incur `dividend_yield × 0.15`, unrecoverable.
+4. **Non-Registered** — FWT is recoverable through the Foreign Tax Credit,
+   but the dividend itself is then taxed at marginal rates.
+
+The crucial nuance: **switching VFV.TO into the RRSP does nothing**. The
+engine's distinguishing signal is that VOO in the RRSP pays zero FWT, while
+VFV.TO pays 19.5 basis points per year regardless of account (at a 1.3%
+yield). The location matrix makes this visible per asset, per account:
+
+<AssetLocationMatrix data={matrixData} />
+
+<FwtDragBars data={fwtData} />
+
+### Income tax: the Non-Registered penalty
+
+Outside registered accounts, the engine layers the investor's `TaxProfile`
+(45% marginal rate in this scenario) on top of the income mix of each asset:
+
+- Interest and foreign income → taxed at the full marginal rate.
+- Eligible Canadian dividends (VDY.TO's 4.3% yield) → taxed through the 38%
+  gross-up and dividend tax credit, for an effective rate near 27.6%.
+- Capital gains → taxed at `marginal_rate × inclusion_rate`, i.e. 22.5% at
+  the 50% inclusion rate.
+
+The result is an adjusted expected return per `(asset, account)` pair. The
+engine then scores tax efficiency in `[0, 1]` and blends it into the
+allocation opportunity scores — so the optimizer naturally routes Canadian
+dividend payers into the TFSA, leaves the RRSP for the assets that benefit
+most from deferral, and accepts the tax drag in Non-Registered only where
+the strategy requires it.
+
+## Stage 4 — From weights to a buy plan
+
+The optimized, tax-adjusted weights are not a report; they are an order list.
+The rebalancer compares current holdings against targets, scores
+opportunities with the 60/40 Value Averaging blend (60% path drift, 40%
+valuation/mean-reversion), and emits a per-account plan with whole-share
+rounding, leftover-cash accounting, and commission/slippage estimates —
+ready to execute in an iPad-sized table rather than a spreadsheet maze.
+
+## The validation ledger: proving the edge survives out-of-sample
+
+A frontier is a statement about the past. The reason to trust it is the
+validation stack that surrounds it — and PySharpe makes that stack
+*auditable*, not just present.
+
+Every optimization trial is written to a **DuckDB-backed trial ledger**
+(`src/pysharpe/validation/ledger.py`) with its full configuration stored as
+JSON, its in-sample and out-of-sample Sharpe ratios, an economic-justification
+verdict, and an execution status. Failed and rejected trials are recorded
+alongside successful ones — nothing is filtered from the record.
+
+Before a trial is even run, a **pre-flight economic check** rejects
+parameterizations that contradict their declared strategy philosophy: a
+"trend-following" configuration with a negative momentum sign is flagged
+before it can burn compute, let alone look impressive in hindsight.
+
+Out-of-sample honesty comes from a walk-forward harness with purged,
+embargoed folds. Each rolling window trains an optimizer on strictly past
+data and simulates the resulting weights on the subsequent out-of-sample
+window — never using a future price or cost observation. The purge and
+embargo gaps are not arbitrary constants; they are sized from the asset's
+own autocorrelation decay (`autocorrelation_decay_lag`, threshold |ρ| < 0.05,
+taking the maximum lag across all assets). Observations closer than the
+decay lag are serially dependent on the test fold, so they are excluded
+from training, and adjacent test folds are guaranteed to be separated by at
+least the embargo size.
+
+Two deflation layers then attack the two ways strategies fake an edge:
+
+- The **Deflated Sharpe Ratio** scales the observed Sharpe by √θ (Lo 2002),
+  penalizing autocorrelated returns that inflate apparent performance.
+- The **Probability of Backtest Overfitting** (Bailey & López de Prado 2014)
+  uses the logit transform of the Spearman rank correlation between
+  in-sample and out-of-sample Sharpe ratios: if in-sample rank predicts
+  out-of-sample rank, PBO → 0 and the strategy has genuine signal; if the
+  ranking is pure noise, PBO → 0.5 and the "best" configuration was selected
+  by chance.
+
+A final layer tests **regime dependence**: stationary bootstrap paths are
+drawn from each structural regime (high-volatility shocks, rising rates,
+prolonged sideways markets), and a survival rate reports the fraction of
+paths where the strategy stays profitable. A strategy whose edge exists only
+inside one regime is flagged rather than celebrated.
+
+<ValidationLedgerStats trials={ledgerTrials} />
+
+In the illustrative trials above, the configuration with the highest
+in-sample Sharpe (max weight 0.40) collapses out-of-sample — a textbook
+overfit that the rank-correlation machinery flags — while the 0.25 cap
+maintains its rank across paths. The strategy is only deployable when the
+ledger's out-of-sample record, not the in-sample frontier, is what survives.
+
+## What the pipeline guarantees
+
+A complete PySharpe run is a chain of explicit, auditable decisions:
+
+1. Prices cached and FX-converted without lookahead bias.
+2. Expected returns and covariances shrunk, not trusted.
+3. A frontier optimized subject to Canadian tax reality — per account.
+4. Every trial recorded, justified, and deflated against the multiplicity of
+   experiments.
+
+The portfolio that comes out the other end is not the one that looked best in
+hindsight. It is the one that kept its rank when the ledger checked every
+path it could have taken — tax drag minimized, overfitting refused.
+
+---
+
+*All numbers in this article are illustrative scenario values generated by the
+PySharpe pipeline for a 45% marginal tax rate, not investment advice or
+performance guarantees. The code is open source at
+[github.com/janusson/PySharpe](https://github.com/janusson/PySharpe).*
