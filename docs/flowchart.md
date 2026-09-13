@@ -148,7 +148,7 @@ flowchart TB
     subgraph PresentLayer["🖥️ PRESENTATION LAYER"]
         direction TB
         CLI["cli.py<br/>5 subcommands:<br/>· optimise · rebalance · allocate<br/>· simulate-dca · plot"]
-        STREAMLIT["app.py<br/>Streamlit Dashboard<br/>4 tabs:<br/>· Analytics · Backtest<br/>· Data · DCA"]
+        STREAMLIT["app.py<br/>Streamlit Dashboard<br/>4 tabs:<br/>· Metrics & Comparison<br/>· Efficient Frontier · DCA<br/>· Raw Data & Logs"]
         VIZ["visualization/<br/>frontier.py · dca.py<br/>equity_curve.py · correlation.py"]
         APP_MODULES["app/<br/>analytics.py · charts.py<br/>data.py · dca.py<br/>backtest.py · rebalance_ui.py"]
     end

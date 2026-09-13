@@ -9,7 +9,6 @@
 # ---------------------------------------------------------------------------
 /logs/
 /outputs/
-/pysharpe_cache.db
 
 # ---------------------------------------------------------------------------
 # Byte-compiled / optimized / DLL files
@@ -68,7 +67,6 @@ __pycache__/
 # macOS
 # ---------------------------------------------------------------------------
 .DS_Store
-.coverage
 
 # ---------------------------------------------------------------------------
 # Development artefacts
@@ -76,7 +74,14 @@ __pycache__/
 repomix-output.xml
 /notes/
 docs/superpowers/plans/
-/CLAUDE.md
 .aider*
 coverage.xml
+.coverage
 /start_app.bash
+
+# ---------------------------------------------------------------------------
+# DuckDB write-through cache artefacts (databases, WAL segments, temp files)
+# ---------------------------------------------------------------------------
+/pysharpe_cache.db
+*.db.wal
+*.db.tmp

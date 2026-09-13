@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysharpe.data.linkage import DataLinker
+from pysharpe.data.linkage import DataLinker, HistoryLinker
 
 
 def _make_price_frame(
@@ -284,6 +284,190 @@ class TestVolatilityRatio:
         assert last_ratio < 0.5, (
             f"Expected vol_ratio < 0.5 with calm recent period, got {last_ratio:.4f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# HistoryLinker: stitched proxy history (restored coverage + FX guardrail)
+# ---------------------------------------------------------------------------
+
+
+class _HistoryFetcher:
+    """Deterministic in-memory fetcher for :class:`HistoryLinker` tests.
+
+    Data (UTC business days):
+    - TARGET: exists from 2020-01-05 onwards (100.0 → 105.0).
+    - PROXY:  exists for all 10 days (10.0 → 19.0).
+    - USDCAD=X: flat 2.0 for all 10 days.
+    """
+
+    def fetch_history(
+        self,
+        ticker: str,
+        *,
+        period: str = "max",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+    ) -> pd.DataFrame:
+        dates = pd.date_range("2020-01-01", periods=10, freq="D", tz="UTC")
+        if ticker == "TARGET":
+            return pd.DataFrame(
+                {"Close": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]},
+                index=dates[4:],
+            )
+        if ticker == "PROXY":
+            return pd.DataFrame(
+                {
+                    "Close": [
+                        10.0,
+                        11.0,
+                        12.0,
+                        13.0,
+                        14.0,
+                        15.0,
+                        16.0,
+                        17.0,
+                        18.0,
+                        19.0,
+                    ]
+                },
+                index=dates,
+            )
+        if ticker == "USDCAD=X":
+            return pd.DataFrame({"Close": [2.0] * 10}, index=dates)
+        return pd.DataFrame()
+
+
+class TestHistoryLinkerStitched:
+    """Proxy stitching: handover math, FX adjustment, and coverage guardrails."""
+
+    @staticmethod
+    def _target_series() -> pd.Series:
+        dates = pd.date_range("2020-01-01", periods=10, freq="D", tz="UTC")
+        return pd.Series(
+            [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+            index=dates[4:],
+            name="TARGET",
+        )
+
+    def test_stitched_series_no_fx(self):
+        """Without FX adjustment the proxy is spliced at the handover date."""
+        linker = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=False,
+            fetcher=_HistoryFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        # Handover 2020-01-05: target 100.0, proxy 14.0 → scalar 100/14
+        assert len(stitched) == 10
+        assert stitched.name == "TARGET"
+        assert stitched.iloc[4] == pytest.approx(100.0)
+        assert stitched.iloc[-1] == pytest.approx(105.0)
+        assert stitched.iloc[0] == pytest.approx(10.0 * (100.0 / 14.0))
+
+    def test_stitched_series_with_fx(self):
+        """FX adjustment prices the proxy portion at 1/USDCAD."""
+        linker = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=True,
+            fetcher=_HistoryFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        # FX-adjusted proxy at T0: 14.0 * (1/2.0) = 7.0 → scalar 100/7
+        assert len(stitched) == 10
+        assert stitched.iloc[4] == pytest.approx(100.0)
+        assert stitched.iloc[-1] == pytest.approx(105.0)
+        assert stitched.iloc[0] == pytest.approx((10.0 / 2.0) * (100.0 / 7.0))
+
+    def test_stitched_series_no_proxy_defined(self):
+        """A target without a proxy mapping returns its raw series."""
+        linker = HistoryLinker(
+            proxy_map={"OTHER": "PROXY"},
+            fx_adjust=False,
+            fetcher=_HistoryFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        assert len(stitched) == 6
+        assert stitched.index.min() == pd.Timestamp("2020-01-05", tz="UTC")
+
+    def test_stitched_series_fx_gap_excludes_uncovered_rows(self):
+        """Proxy rows before the first FX rate must be excluded, never
+        backfilled with a future exchange rate (lookahead bias)."""
+
+        class _GappedFxFetcher(_HistoryFetcher):
+            def fetch_history(
+                self,
+                ticker: str,
+                *,
+                period: str = "max",
+                interval: str = "1d",
+                start: str | None = None,
+                end: str | None = None,
+            ) -> pd.DataFrame:
+                frame = super().fetch_history(
+                    ticker, period=period, interval=interval, start=start, end=end
+                )
+                if ticker == "USDCAD=X":
+                    # Rate is only known from 2020-01-05 onwards and changes
+                    # afterwards (2.0 → 3.0), so a backfill is observable.
+                    return pd.DataFrame(
+                        {"Close": [2.0, 2.0, 2.0, 3.0, 3.0, 3.0]},
+                        index=frame.index[4:],
+                    )
+                return frame
+
+        linker = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=True,
+            fetcher=_GappedFxFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        # The four proxy rows before 2020-01-05 have no rate coverage: the
+        # stitched series must start at the first FX-covered date instead of
+        # being priced with the 2020-01-05 rate retroactively.
+        assert stitched.index.min() == pd.Timestamp("2020-01-05", tz="UTC")
+        assert len(stitched) == 6
+        assert stitched.notna().all()
+
+    def test_stitched_series_fx_no_overlap_returns_target(self):
+        """Zero FX overlap degrades gracefully to the raw target series."""
+
+        class _NoFxFetcher(_HistoryFetcher):
+            def fetch_history(
+                self,
+                ticker: str,
+                *,
+                period: str = "max",
+                interval: str = "1d",
+                start: str | None = None,
+                end: str | None = None,
+            ) -> pd.DataFrame:
+                frame = super().fetch_history(
+                    ticker, period=period, interval=interval, start=start, end=end
+                )
+                if ticker == "USDCAD=X":
+                    # Rate window does not overlap the proxy window at all.
+                    return pd.DataFrame(
+                        {"Close": [2.0]},
+                        index=[pd.Timestamp("2019-12-01", tz="UTC")],
+                    )
+                return frame
+
+        linker = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=True,
+            fetcher=_NoFxFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        expected = self._target_series()
+        assert len(stitched) == 6
+        assert stitched.index.equals(expected.index)
+        assert stitched.values == pytest.approx(expected.values)
 
 
 # ---------------------------------------------------------------------------

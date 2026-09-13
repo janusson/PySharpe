@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+from streamlit.testing.v1 import AppTest
 
 import app
 from pysharpe.optimization.models import (
@@ -88,6 +89,7 @@ class SidebarAPI:
         self.text_value = "AAPL,MSFT"
         self.start_date = dt.date(2024, 1, 1)
         self.end_date = dt.date(2024, 6, 1)
+        self.date_defaults: list[tuple[str, object]] = []
         self.number_values = {
             "Initial Investment": 1000.0,
             "Monthly Contribution": 250.0,
@@ -96,6 +98,9 @@ class SidebarAPI:
             "Months": 240,
             "Annual Return Rate": 0.08,
         }
+        self.slider_calls: list[tuple[str, dict]] = []
+        self.slider_defaults: dict[str, object] = {}
+        self.keyed_values: dict[str, float] = {}
         self.checkbox_values = {}
 
     def header(self, *_args, **_kwargs) -> None:
@@ -107,18 +112,26 @@ class SidebarAPI:
     def text_input(self, *_args, **_kwargs) -> str:
         return self.text_value
 
-    def date_input(self, label: str, default: dt.date) -> dt.date:
+    def date_input(self, label: str, default: object = None, **_kwargs) -> dt.date:
+        self.date_defaults.append((label, default))
         return self.start_date if label == "Start" else self.end_date
 
     def number_input(self, label: str, **kwargs) -> float:
         return self.number_values.get(label, kwargs.get("value", 0.0))
 
     def slider(self, label: str, *args, **kwargs):
+        key = kwargs.get("key")
+        if key is not None and key in self.keyed_values:
+            self.slider_calls.append((label, kwargs))
+            self.slider_defaults[label] = self.keyed_values[key]
+            return self.keyed_values[key]
         default_val = kwargs.get("value")
         if default_val is None and len(args) >= 3:
             default_val = args[2]
         elif default_val is None:
             default_val = 0.0
+        self.slider_calls.append((label, kwargs))
+        self.slider_defaults[label] = default_val
         return self.slider_values.get(label, default_val)
 
     def checkbox(self, label: str, value: bool = False, **_kwargs) -> bool:
@@ -150,19 +163,25 @@ class StreamlitStub:
         self.altair_chart_calls: list[tuple[object, dict]] = []
         self.metric_calls: list[tuple[str, str]] = []
         self.dataframe_calls: list[object] = []
+        self.table_calls: list[object] = []
+        self.pyplot_calls: list[object] = []
         self.download_button_calls: list[tuple[str, dict]] = []
         self.subheader_calls: list[str] = []
         self.title_calls: list[str] = []
         self.write_calls: list[str] = []
         self.page_config_calls: list[tuple[tuple, dict]] = []
         self.placeholder_calls: list[Placeholder] = []
+        self.tabs_calls: list[list[str]] = []
         self.button_states: dict[str, bool] = {}
         self.sidebar = SidebarAPI(self)
-        self.session_state: dict[str, float | bool] = {
-            "dca_rate_default": 0.08,
-            "dca_rate_override": False,
-            "dca_rate_value": 0.08,
-            "dca_rate_pending_reset": False,
+        self.session_state: dict[str, object] = {}
+        self.number_values: dict[str, float] = {
+            "Initial Investment": 1000.0,
+            "Monthly Contribution": 250.0,
+        }
+        self.slider_values: dict[str, float] = {
+            "Months": 240,
+            "Annual Return Rate": 0.08,
         }
 
     def cache_data(self, **_kwargs):
@@ -220,6 +239,23 @@ class StreamlitStub:
     def dataframe(self, value: object) -> None:
         self.dataframe_calls.append(value)
 
+    def table(self, value: object) -> None:
+        self.table_calls.append(value)
+
+    def pyplot(self, fig: object, **kwargs) -> None:  # noqa: ARG002
+        self.pyplot_calls.append(fig)
+
+    def number_input(self, label: str, **kwargs) -> float:
+        return self.number_values.get(label, float(kwargs.get("value", 0.0)))
+
+    def slider(self, label: str, *args, **kwargs):
+        default_val = kwargs.get("value")
+        if default_val is None and len(args) >= 3:
+            default_val = args[2]
+        elif default_val is None:
+            default_val = 0.0
+        return self.slider_values.get(label, default_val)
+
     def download_button(self, label: str, **kwargs) -> None:
         self.download_button_calls.append((label, kwargs))
 
@@ -229,6 +265,7 @@ class StreamlitStub:
         return [ColumnContext() for _ in range(spec)]
 
     def tabs(self, labels: list[str]) -> list[ColumnContext]:
+        self.tabs_calls.append(labels)
         return [ColumnContext() for _ in labels]
 
     def empty(self) -> Placeholder:
@@ -359,7 +396,7 @@ def test_plot_weights_with_positive_allocations(
     chart, kwargs = streamlit_stub.altair_chart_calls[0]
     assert isinstance(chart, DummyChart)
     assert chart.data["Ticker"].tolist() == ["AAPL", "MSFT"]
-    assert kwargs.get("use_container_width")
+    assert kwargs.get("width") == "stretch"
 
 
 def test_plot_weights_no_positive_allocations(
@@ -435,7 +472,6 @@ def test_sidebar_controls_download_flow(
     monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub, alt_stub: DummyAlt
 ) -> None:
     streamlit_stub.sidebar.text_value = "AAPL, MSFT"
-    streamlit_stub.sidebar.slider_values["Annual Return Rate"] = 0.1
 
     price_frame = pd.DataFrame(
         {
@@ -483,10 +519,26 @@ def test_sidebar_controls_download_flow(
     assert controls["tickers"] == ("AAPL", "MSFT")
     assert list(controls["price_data"].columns) == ["AAPL", "MSFT"]
     assert controls["metadata"].index.name == "Ticker"
-    assert streamlit_stub.session_state["dca_rate_override"] is True
+
+    # Dynamic boundaries: fetched history drives the UI date defaults.
+    assert controls["overlap"] == (
+        pd.Timestamp("2024-01-01"),
+        pd.Timestamp("2024-01-02"),
+    )
+    date_defaults = dict(streamlit_stub.sidebar.date_defaults)
+    assert date_defaults["Start"] == dt.date(2024, 1, 1)
+    assert date_defaults["End"] == dt.date(2024, 1, 2)
+
+    # Strict 1/N equal-weight defaults for the two-asset selection.
+    assert controls["custom_weights"] == {"AAPL": 0.5, "MSFT": 0.5}
+    assert streamlit_stub.sidebar.slider_defaults["Weight: AAPL"] == 0.5
+    assert streamlit_stub.sidebar.slider_defaults["Weight: MSFT"] == 0.5
+
     assert controls["download_summary"]["tickers"] == ("AAPL", "MSFT")
     assert controls["download_summary"]["warnings"] == ()
     assert controls["download_summary"]["used_cache"] is False
+    assert controls["download_summary"]["overlap_start"] == "2024-01-01"
+    assert controls["download_summary"]["overlap_end"] == "2024-01-02"
     assert controls["portfolio_data"].collated_path == portfolio_data.collated_path
     assert controls["portfolio_data"].used_cache is False
     assert controls["portfolio_data"].warnings == ()
@@ -497,7 +549,6 @@ def test_sidebar_controls_upload_flow(
 ) -> None:
     csv_data = io.StringIO("Date,AAPL\n2024-01-01,100\n2024-01-02,101\n")
     streamlit_stub.sidebar.uploaded_file = csv_data
-    streamlit_stub.sidebar.slider_values["Annual Return Rate"] = 0.05
 
     monkeypatch.setattr(
         app,
@@ -526,10 +577,135 @@ def test_sidebar_controls_upload_flow(
     assert controls["source"] == "upload"
     assert controls["tickers"] == ("AAPL",)
     assert controls["metadata"].loc["AAPL", "name"] == "Provided via CSV"
-    assert streamlit_stub.session_state["dca_rate_override"] is True
     assert controls["download_summary"] is None
     assert isinstance(controls["portfolio_data"], app.PortfolioData)
     assert controls["portfolio_data"].used_cache is False
+    assert controls["overlap"] == (
+        pd.Timestamp("2024-01-01"),
+        pd.Timestamp("2024-01-02"),
+    )
+    # Single-asset selection is still a strict 1/N allocation (N=1).
+    assert controls["custom_weights"] == {"AAPL": 1.0}
+
+
+def test_sidebar_controls_weights_reset_on_ticker_change(
+    monkeypatch: pytest.MonkeyPatch,
+    streamlit_stub: StreamlitStub,
+    alt_stub: DummyAlt,
+) -> None:
+    """Adding/removing tickers resets weights to strict 1/N without stale state."""
+
+    def make_portfolio_data(tickers: list[str]) -> app.PortfolioData:
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        frame = pd.DataFrame(
+            {ticker: [100.0 + offset for offset in range(3)] for ticker in tickers},
+            index=dates,
+        )
+        return app.PortfolioData(
+            tickers=tuple(tickers),
+            prices=frame,
+            collated=frame,
+            price_history_dir=app.SETTINGS.price_history_dir,
+            collated_path=None,
+            start=dates.min(),
+            end=dates.max(),
+            warnings=(),
+            used_cache=False,
+        )
+
+    fetch_counts: dict[tuple[str, ...], int] = {}
+
+    def fake_load_prices(tickers, start, end):
+        key = tuple(tickers)
+        fetch_counts[key] = fetch_counts.get(key, 0) + 1
+        return make_portfolio_data(list(tickers))
+
+    monkeypatch.setattr(app, "load_prices", fake_load_prices)
+    monkeypatch.setattr(
+        app, "load_preview_data", lambda tickers, end_date: pd.DataFrame()
+    )
+    monkeypatch.setattr(app, "gather_metadata", lambda tickers: pd.DataFrame())
+
+    streamlit_stub.sidebar.text_value = "AAA, BBB"
+    first = app.sidebar_controls()
+    assert first["custom_weights"] == {"AAA": 0.5, "BBB": 0.5}
+
+    # Simulate the user moving the OLD slider widgets before adding a ticker.
+    streamlit_stub.sidebar.keyed_values["weight_AAA,BBB_AAA"] = 0.8
+    streamlit_stub.sidebar.keyed_values["weight_AAA,BBB_BBB"] = 0.2
+
+    # Adding a ticker: stale slider state must not leak; defaults are 1/3.
+    streamlit_stub.sidebar.text_value = "AAA, BBB, CCC"
+    second = app.sidebar_controls()
+    assert set(second["tickers"]) == {"AAA", "BBB", "CCC"}
+    assert second["custom_weights"] == pytest.approx(
+        {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+    )
+    assert streamlit_stub.sidebar.slider_defaults["Weight: AAA"] == pytest.approx(1 / 3)
+    assert streamlit_stub.sidebar.slider_defaults["Weight: BBB"] == pytest.approx(1 / 3)
+    assert streamlit_stub.sidebar.slider_defaults["Weight: CCC"] == pytest.approx(1 / 3)
+
+    # Removing a ticker: weights reset to 1/2 for the remaining pair.
+    streamlit_stub.sidebar.text_value = "AAA, CCC"
+    third = app.sidebar_controls()
+    assert set(third["tickers"]) == {"AAA", "CCC"}
+    assert third["custom_weights"] == pytest.approx({"AAA": 0.5, "CCC": 0.5})
+    assert fetch_counts[("AAA", "BBB")] == 1
+    assert fetch_counts[("AAA", "BBB", "CCC")] == 1
+    assert fetch_counts[("AAA", "CCC")] == 1
+
+
+def test_streamlit_run_renders_dashboard_not_blank() -> None:
+    """``streamlit run app.py`` must render the dashboard, not a blank page.
+
+    Regression: app.py once defined ``main()`` without invoking it via the
+    ``if __name__ == "__main__"`` guard, so running the script produced zero
+    elements.  This test executes the real script through Streamlit's
+    AppTest harness (with pre-seeded session state so no network is
+    touched) and asserts the page actually renders.
+    """
+    price_frame = pd.DataFrame(
+        {
+            "VFV.TO": [100.0, 101.0, 102.0],
+            "VCN.TO": [50.0, 51.0, 52.0],
+            "VDY.TO": [30.0, 31.0, 32.0],
+            "QQC.TO": [200.0, 201.0, 202.0],
+        },
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    # Seed the same ticker set as the sidebar default so the app skips the
+    # (network-bound) download entirely.
+    seed_state = {
+        "ticker_sig": "QQC.TO,VCN.TO,VDY.TO,VFV.TO",
+        "source": "download",
+        "tickers": ("QQC.TO", "VCN.TO", "VDY.TO", "VFV.TO"),
+        "portfolio_data": app.PortfolioData(
+            tickers=("QQC.TO", "VCN.TO", "VDY.TO", "VFV.TO"),
+            prices=price_frame,
+            collated=price_frame,
+            price_history_dir=app.SETTINGS.price_history_dir,
+            collated_path=None,
+            start=price_frame.index.min(),
+            end=price_frame.index.max(),
+            warnings=(),
+            used_cache=False,
+        ),
+        "full_prices": price_frame,
+        "overlap": (price_frame.index.min(), price_frame.index.max()),
+        "preview": price_frame,
+        "metadata": pd.DataFrame(),
+        "download_summary": None,
+    }
+
+    at = AppTest.from_file("app.py", default_timeout=60)
+    at.session_state["data_state"] = seed_state
+    at.run()
+
+    assert not at.exception
+    assert at.title[0].value == "PySharpe Interactive Dashboard"
+    assert len(at.tabs) == 4
+    assert len(at.sidebar.date_input) == 2
+    assert sorted(s.value for s in at.sidebar.slider) == [0.25, 0.25, 0.25, 0.25]
 
 
 def test_main_renders_dashboard(
@@ -581,17 +757,19 @@ def test_main_renders_dashboard(
             "metadata": metadata,
             "start": dt.date(2024, 1, 1),
             "end": dt.date(2024, 1, 3),
+            "overlap": (price_frame.index.min(), price_frame.index.max()),
             "source": "download",
-            "dca_initial": 1000.0,
-            "dca_monthly": 250.0,
-            "dca_months": 24,
-            "dca_rate": 0.08,
+            "ticker_sig": "AAPL,MSFT",
+            "custom_weights": {"AAPL": 0.5, "MSFT": 0.5},
+            "equal_weights": {"AAPL": 0.5, "MSFT": 0.5},
             "download_summary": {
                 "tickers": ("AAPL", "MSFT"),
                 "price_history_dir": str(app.SETTINGS.price_history_dir),
                 "collated_path": str(portfolio_data.collated_path),
                 "start": price_frame.index.min().isoformat(),
                 "end": price_frame.index.max().isoformat(),
+                "overlap_start": price_frame.index.min().isoformat(),
+                "overlap_end": price_frame.index.max().isoformat(),
                 "rows": price_frame.shape[0],
                 "columns": price_frame.shape[1],
                 "warnings": (),
@@ -600,6 +778,7 @@ def test_main_renders_dashboard(
         }
 
     plot_calls: dict[str, pd.DataFrame] = {}
+    pie_calls: dict[str, dict[str, float]] = {}
 
     monkeypatch.setattr(app, "sidebar_controls", fake_sidebar_controls)
     monkeypatch.setattr(app, "compute_metrics", lambda _: metric_result)
@@ -608,15 +787,30 @@ def test_main_renders_dashboard(
         "plot_cumulative_returns",
         lambda df: plot_calls.update({"returns": df.copy()}),
     )
+    monkeypatch.setattr(
+        app,
+        "plot_weight_pies",
+        lambda allocations: pie_calls.update(
+            {name: dict(weights) for name, weights in allocations.items()}
+        ),
+    )
     fake_opt_result = OptimisationResult(
-        name="",
+        name="PySharpe Optimized",
         weights=PortfolioWeights({"AAPL": 0.6, "MSFT": 0.4}),
         performance=OptimisationPerformance(0.1, 0.15, 0.8, "2024-01-01", "2024-01-03"),
+    )
+    equal_port = OptimisationResult(
+        name="Equal-Weight (1/N)",
+        weights=PortfolioWeights({"AAPL": 0.5, "MSFT": 0.5}),
+        performance=OptimisationPerformance(
+            0.09, 0.14, 0.64, "2024-01-01", "2024-01-03"
+        ),
     )
 
     def fake_run_full_analysis(*args, **kwargs):
         return {
             "opt_result": fake_opt_result,
+            "equal_port": equal_port,
             "user_port": fake_opt_result,
             "benchmarks_df": pd.DataFrame(
                 {
@@ -653,4 +847,24 @@ def test_main_renders_dashboard(
     assert streamlit_stub.title_calls[0] == "PySharpe Interactive Dashboard"
     assert any("Downloaded" in msg for msg in streamlit_stub.success_calls)
     assert "returns" in plot_calls and "weights" in plot_calls
+
+    # Four-tab stepwise layout.
+    assert len(streamlit_stub.tabs_calls) == 1
+    tab_labels = streamlit_stub.tabs_calls[0]
+    assert len(tab_labels) == 4
+    assert "Portfolio Metrics & Comparison" in tab_labels[0]
+    assert tab_labels[1] == "\U0001f4c8 Efficient Frontier"
+    assert "DCA Simulation" in tab_labels[2]
+    assert "Raw Data & Logs" in tab_labels[3]
+
+    # Pie charts reflect the normalized 1/N baseline and custom mix.
+    assert pie_calls["Equal-Weight (1/N)"] == {"AAPL": 0.5, "MSFT": 0.5}
+    assert pie_calls["Custom Mix"] == {"AAPL": 0.5, "MSFT": 0.5}
+    assert pie_calls["PySharpe Optimized"] == {"AAPL": 0.6, "MSFT": 0.4}
+
+    # Equal-weight baseline appears first in the comparison table.
+    assert streamlit_stub.table_calls
+    comparison = streamlit_stub.table_calls[0]
+    assert comparison["Portfolio"].tolist()[0] == "Equal-Weight (1/N)"
+
     assert len(streamlit_stub.download_button_calls) == 3

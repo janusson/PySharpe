@@ -1,5 +1,138 @@
 # Gotchas
 
+### 2026 — HistoryLinker FX `.bfill()`: stitched proxy history priced with future exchange rates
+
+- Symptom: `HistoryLinker.get_stitched_series`
+  (`src/pysharpe/data/linkage.py`) reindexed the USDCAD=X series to the proxy
+  dates and applied `.ffill().bfill()`, so proxy rows before the first
+  available FX rate were priced with a *future* exchange rate (lookahead
+  bias).  When the FX window did not overlap the proxy window at all, the
+  entire proxy portion silently became NaN while the handover scalar was
+  computed from NaN.
+- Root cause: the FX guardrail ("never `.bfill()` FX-aligned time series;
+  exclude rows without rate coverage instead of backfilling") was enforced in
+  `apply_fx_conversion` but not in the `HistoryLinker` stitching path — the
+  same anti-pattern existed in two places.
+- Fix: forward-fill only, then drop rows without FX rate coverage (with a
+  warning naming the excluded row count); a zero-overlap FX window now
+  returns the raw target series instead of NaN-laced output.
+- Regression tests: `tests/test_data_linkage.py::TestHistoryLinkerStitched` —
+  `test_stitched_series_fx_gap_excludes_uncovered_rows` (fails before the
+  fix: returns 10 rows starting 2020-01-01 instead of 6 starting at the
+  first FX-covered date) and `test_stitched_series_fx_no_overlap_returns_target`
+  (fails before the fix: NaN proxy portion).  The formerly deleted stitched
+  tests (`test_stitched_series_no_fx`, `test_stitched_series_with_fx`,
+  `test_stitched_series_no_proxy_defined`) were restored in the same class —
+  they were lost in commit 963360f when `test_data_linkage_stitched.py` was
+  removed without merging, which left the TEST_MAP's "stitched proxy-history
+  coverage" claim inaccurate.
+- Grep guard: `grep -rn 'bfill()' src/pysharpe/data/ --include='*.py'` must
+  be empty (the FX guardrail now holds in every data-pipeline path).
+
+### 2026 — Streamlit `use_container_width` deprecated: use `width="stretch"`
+
+- Symptom: `StreamlitDeprecationWarning: use_container_width is deprecated and
+  will be removed in a future release` from streamlit ≥ 1.49 (removal is
+  documented in the 1.57 docstrings) on every dashboard element call.
+- Root cause: streamlit deprecated `use_container_width=True` in favour of the
+  `width` parameter (`"stretch"` / `"content"` / int) across `st.button`,
+  `st.dataframe`, `st.altair_chart`, `st.plotly_chart`, `st.line_chart`, and
+  `st.download_button`.
+- Fix: replace `use_container_width=True` with `width="stretch"` in `app.py`
+  and `src/pysharpe/app/` (charts.py, backtest.py, rebalance_ui.py); update any
+  test asserting on the kwarg (e.g. `test_app_streamlit.py::test_plot_weights_with_positive_allocations`).
+- Grep guard: `grep -rn "use_container_width" app.py src/pysharpe/app/ tests/`
+  must be empty.
+
+### 2026 — `uv run pyright` fails to spawn: legacy `dev` extra no longer installed by default
+
+- Symptom: `make all` aborts at typecheck with
+  `error: Failed to spawn: `pyright` / Caused by: No such file or directory (os error 2)`.
+  `uv run ruff ...` still succeeds if ruff happens to be installed globally on
+  the shell PATH.
+- Root cause: uv >= 0.10 no longer installs the legacy `dev` extra
+  (`[project.optional-dependencies] dev`) during `uv run`/`uv sync`; the venv
+  only receives runtime packages. Dev tooling must be declared in a PEP 735
+  `[dependency-groups] dev` table, which uv syncs by default.
+- Fix: declare dev tooling in `[dependency-groups]` (keep published extras
+  like `cli`/`gui`/`all` for consumers), regenerate `uv.lock`, and install via
+  `uv sync` instead of `uv pip install -e ".[dev]"`.
+- Guardrail: never declare dev tooling as a `dev` extra. After a fresh
+  `uv sync`, verify the tool is present (`ls .venv/bin/`); a bare runtime-only
+  venv is the tell-tale sign.
+
+### 2026 — Apples-to-oranges dashboard comparison: raw benchmark/custom-mix returns
+
+- Symptom: The Performance Comparison table showed the PySharpe Optimized
+  portfolio on Bayes-Stein shrunk expected returns while the Custom Mix and
+  benchmark rows displayed raw historical means and unadjusted Sharpe
+  ratios — the same data evaluated with two different estimators, making the
+  comparison mathematically invalid.
+- Root cause: ``compute_metrics`` (``src/pysharpe/app/analytics.py``) and
+  ``fetch_benchmark_metrics`` (``src/pysharpe/analysis/benchmarks.py``) used
+  ``metrics.expected_return`` (raw arithmetic mean) and
+  ``metrics.sharpe_ratio`` (geometric, 0 % rf), while the optimizer used
+  ``shrinkage_expected_return`` plus MER/tax drags.
+- Fix: all comparison rows now share one pipeline — Bayes-Stein shrunk
+  expected returns (benchmarks shrunk *jointly with the asset universe* so
+  they are pulled toward the same cross-sectional grand mean; isolated
+  benchmarks fall back to the estimator's documented single-asset fallback),
+  reduced by MER and account-specific tax drag via
+  ``AssetLocationEngine.compute_tax_adjusted_return``, with Sharpe recomputed
+  at the 2 % risk-free rate.  Benchmark rows default to Non-Registered
+  placement; the assumption is stated in the UI caption.
+- Regression tests:
+  ``tests/test_analysis.py::test_fetch_benchmark_metrics_harmonized_joint_shrinkage_and_drag``,
+  ``tests/test_analysis.py::test_fetch_benchmark_metrics_shrinks_toward_joint_grand_mean``,
+  ``tests/test_app_helpers.py::test_compute_adjusted_metrics_applies_shrinkage_and_tax_drag``,
+  ``tests/test_app_helpers.py::test_evaluate_adjusted_performance_uses_net_of_drag_returns``
+- Grep guard: ``grep -rn 'shrinkage_expected_return' src/pysharpe/app/analytics.py src/pysharpe/analysis/benchmarks.py``
+  must match in both files (the harmonized estimator is mandatory);
+  ``fetch_benchmark_metrics`` must keep its ``tax_profile is None`` legacy gate.
+
+### 2026 — Streamlit blank page: `main()` defined but never invoked
+
+- Symptom: `uv run streamlit run app.py` opens the browser to a completely
+  blank page — no title, no sidebar, no error message.  The unit tests still
+  pass because they call `app.main()` directly.
+- Root cause: app.py defined `main()` but dropped the
+  `if __name__ == "__main__": main()` entry-point guard (lost during a
+  full-file rewrite).  Streamlit executes the script top-to-bottom with
+  `__name__ == "__main__"`; with no guard, the module-level code only
+  *defines* functions and renders nothing.
+- Fix: always terminate app.py with the `__main__` guard invoking `main()`,
+  and render `st.title` *before* the first data fetch so the header appears
+  immediately even while full price history downloads.
+- Regression test: `tests/test_app_streamlit.py::test_streamlit_run_renders_dashboard_not_blank`
+  executes the real script through `streamlit.testing.v1.AppTest` (seeded
+  session state, no network) and asserts the title, tabs, and sliders render.
+- Grep guard: `grep -n "__main__" app.py` must show the `main()` invocation.
+
+### 2026 — Streamlit stale weights and hard-coded dates across ticker edits
+
+- Symptom: adding/removing tickers kept old slider values (e.g. a two-asset
+  50/50 split) and pie charts / performance comparisons silently reflected
+  stale allocations; the date widgets were anchored to fixed defaults
+  instead of the data.
+- Root cause: weight sliders were keyed only by ticker name and
+  ``session_state`` was never invalidated when the ticker set changed;
+  date boundaries were hard-coded rather than derived from the fetched
+  history.
+- Fix: every date/weight widget is keyed by the ticker-set signature
+  (comma-joined sorted tickers) so Streamlit creates fresh widgets on any
+  ticker change.  The app fetches full history first, computes the maximum
+  overlapping date range via ``compute_overlapping_date_range``
+  (``src/pysharpe/app/data.py``), and uses those dates as the UI defaults.
+  Stored weights reset to a strict 1/N allocation
+  (``equal_weight_allocation`` in ``src/pysharpe/app/charts.py``), and
+  ``run_full_analysis`` always re-normalizes user weights over the
+  optimizer's asset list, falling back to 1/N on a zero-sum input.
+- Regression tests: ``tests/test_app_streamlit.py::test_sidebar_controls_weights_reset_on_ticker_change``
+  and ``tests/test_app_helpers.py`` (overlap + 1/N helpers).
+- Grep guard: ``grep -rn "2015" app.py src/pysharpe/app/`` must be empty;
+  weight/date widgets must carry ``key=f"..._{sig}"`` where ``sig`` is the
+  ticker-set signature.
+
 ### 2026 — Walk-forward NaN handling: fully-missing columns vs row gaps
 
 - Symptom: a permanently-missing ticker in the price frame wiped out the

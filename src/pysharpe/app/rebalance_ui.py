@@ -99,7 +99,7 @@ def _render_buy_orders_table(plan: RebalancePlan) -> None:
     )
 
     st.markdown("### 💰 Buy Orders")
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(display, width="stretch", hide_index=True)
 
     total_buy = buy["recommended_allocation"].sum()
     st.caption(f"Total deployment: **{_format_money(total_buy)}**")
@@ -141,7 +141,7 @@ def _render_account_breakdown(plan: RebalancePlan) -> None:
                     "Score": buys["opportunity_score"].apply(lambda v: f"{v:.4f}"),
                 }
             )
-            st.dataframe(display, use_container_width=True, hide_index=True)
+            st.dataframe(display, width="stretch", hide_index=True)
 
 
 def _derive_latest_prices(price_data: pd.DataFrame) -> pd.DataFrame:
@@ -365,7 +365,7 @@ def render_execution_tab(
     if st.button(
         "🚀 Run Rebalance Plan",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not can_run,
         key="exec_run_button",
     ):
@@ -499,7 +499,7 @@ def _execute_rebalance(
             data=alloc_csv,
             file_name=f"{portfolio_name}_rebalance_plan.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
     with dl_col2:
         st.download_button(
@@ -507,7 +507,7 @@ def _execute_rebalance(
             data=scored_csv,
             file_name=f"{portfolio_name}_scored_state.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
 

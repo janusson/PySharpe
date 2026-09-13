@@ -13,6 +13,10 @@ Auto-generated from module docstrings with
         - build_settings
         - get_settings
 
+## Exceptions
+
+::: pysharpe.exceptions
+
 ## Metrics
 
 ::: pysharpe.metrics
@@ -28,6 +32,8 @@ Auto-generated from module docstrings with
 ::: pysharpe.data.linkage
 
 ## Optimization
+
+::: pysharpe.optimization.base
 
 ::: pysharpe.optimization.estimators
 
@@ -73,6 +79,8 @@ Auto-generated from module docstrings with
 
 ::: pysharpe.analysis.scoring
 
+::: pysharpe.analysis.categorization
+
 ## Validation
 
 ::: pysharpe.validation.friction
@@ -82,6 +90,8 @@ Auto-generated from module docstrings with
 ::: pysharpe.validation.resampling
 
 ::: pysharpe.validation.metrics
+
+::: pysharpe.validation.sample_size
 
 ## Guardrails
 

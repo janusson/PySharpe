@@ -279,7 +279,7 @@ def _run_and_display(
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Weight drift
     if not result.historical_weights.empty:
@@ -290,7 +290,7 @@ def _run_and_display(
             labels={"value": "Weight", "index": "Date", "variable": "Ticker"},
         )
         fig2.update_layout(yaxis_tickformat=".0%")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # Download
     st.download_button(

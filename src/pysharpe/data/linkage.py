@@ -328,8 +328,27 @@ class HistoryLinker:
             )
             fx_price = fx_df["Close"].dropna()
 
-            # Reindex FX to match the proxy dates and forward/backward fill missing values
-            fx_price = fx_price.reindex(proxy_price.index).ffill().bfill()
+            # Align FX to the proxy dates with forward-fill only — never
+            # backfill, which would apply future exchange rates to historical
+            # prices (lookahead bias).  Rows before the first available FX
+            # rate are excluded, mirroring apply_fx_conversion's coverage
+            # guardrail.
+            aligned_fx = fx_price.reindex(proxy_price.index).ffill()
+            if aligned_fx.isna().any():
+                logger.warning(
+                    "Excluding %d proxy rows without FX rate coverage for %s.",
+                    int(aligned_fx.isna().sum()),
+                    target_ticker,
+                )
+            fx_price = aligned_fx.dropna()
+            if fx_price.empty:
+                logger.warning(
+                    "No FX rate coverage overlaps %s history; returning the "
+                    "original series.",
+                    target_ticker,
+                )
+                return target_price
+            proxy_price = proxy_price.reindex(fx_price.index)
 
             # Multiply proxy price by 1 / USDCAD as requested
             proxy_price = proxy_price * (1.0 / fx_price)

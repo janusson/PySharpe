@@ -25,8 +25,8 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install:  ## Install the package with development dependencies
-	uv pip install -e ".[dev]"
+install:  ## Install the package with development dependencies (uv syncs the dev group from uv.lock)
+	uv sync
 
 dev-install: install  ## Alias for `install`
 
@@ -67,6 +67,7 @@ clean:  ## Remove build artifacts, caches, coverage output, the built docs site,
 	@rm -rf dist/ build/ site/ *.egg-info/ .pytest_cache/ .mypy_cache/ .ruff_cache/ htmlcov/
 	@rm -f coverage.xml .coverage pytest_results.log
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	@find . -name .DS_Store -delete 2>/dev/null || true
 	@for dir in $(DATA_CLEAN_DIRS); do \
 		find $$dir -type f ! -name ".gitkeep" -delete 2>/dev/null || true; \
 	done

@@ -20,8 +20,8 @@ to make changes safely.
 ## Quick-Start Commands
 
 ```bash
-# Install for development (all extras + linting/testing tools)
-uv pip install -e .[dev]
+# Install for development (syncs project + dev group from uv.lock)
+uv sync
 
 # Run all tests
 uv run pytest
