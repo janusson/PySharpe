@@ -85,3 +85,18 @@ coverage.xml
 /pysharpe_cache.db
 *.db.wal
 *.db.tmp
+
+# ---------------------------------------------------------------------------
+# MCP server configs can carry live bearer tokens — never commit them.
+# Copy .mcp.json.example and supply credentials via environment variables.
+# ---------------------------------------------------------------------------
+.mcp.json
+
+# ---------------------------------------------------------------------------
+# Local agent-tool configuration. These files hold live credentials
+# (e.g. .codex/config.toml carries an AgentRQ MCP token) and must never be
+# tracked; ship a redacted *.example instead.
+# ---------------------------------------------------------------------------
+.codex/
+.claude/settings.local.json
+.claude/settings.json
