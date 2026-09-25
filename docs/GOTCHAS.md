@@ -1,5 +1,37 @@
 # Gotchas
 
+### 2026 — Optimiser tests silently distorted by environment-dependent FX lookups
+
+- Symptom: `tests/test_portfolio_optimization.py` failed with
+  `pypfopt.exceptions.OptimizationError: Solver status: infeasible` (or
+  "at least one of the assets must have an expected return exceeding the
+  risk-free rate") for `return_model="constant"`, `asset_constraints={"min_weight": 0.25}`,
+  and the TFSA tax-drag cases — but only on some machines, and never in a way
+  that pointed at the real cause.
+- Root cause: `optimise_from_prices` calls `apply_fx_conversion` on every run.
+  That helper queries `yf.Ticker(ticker).info` to discover each ticker's
+  currency; for the synthetic tickers (`"AAA"`, `"BBB"`, …) the lookup is
+  environment-dependent (network, yfinance metadata, local DuckDB cache).
+  When it resolved to USD it multiplied the prices by a fabricated USDCAD
+  series, turning a deliberately **+30 %/yr** synthetic asset into **−47 %/yr**
+  — after which the solver quite correctly reported that no asset beat the
+  risk-free rate.
+- Fix: an autouse `_neutralise_fx` fixture in the test module patches
+  `pysharpe.portfolio_optimization.apply_fx_conversion` to the identity
+  function, so the optimiser tests are offline and deterministic.  Tests that
+  exercise the FX path (e.g. the FX-empty guard) re-patch it inside the test
+  body, which wins because it is applied later.
+- Second lesson: synthetic price series must have a **de-meaned** drift term
+  (`noise -= noise.mean()`) so the realised expected return equals the intended
+  annual drift regardless of the seed.  A purely random drift leaves the sample
+  mean at the mercy of sampling error (annualised SE ≈ daily_vol · √252), which
+  for a 0.30 drift and 0.010 daily vol is ±0.16/yr — enough to flip the sign.
+- Regression tests: the module's optimiser suite in
+  `tests/test_portfolio_optimization.py` (notably the return-model variants and
+  the TFSA drag test) now run identically on every machine.
+- Grep guard: `grep -n "apply_fx_conversion" tests/test_portfolio_optimization.py`
+  must show the autouse fixture neutralising it.
+
 ### 2026 — HistoryLinker FX `.bfill()`: stitched proxy history priced with future exchange rates
 
 - Symptom: `HistoryLinker.get_stitched_series`

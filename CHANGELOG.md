@@ -26,7 +26,7 @@ First production release.
 
 ### Test Suite
 
-- 1038 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
+- 1062 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
 - Edge-case coverage: perfectly/near-perfectly correlated shrinkage, NaN-in-fold walk-forwards, same-day VFV↔VOO superficial-loss trades across TFSA/NON_REG, and ±30-day window boundaries.
 
 ### Presentation
