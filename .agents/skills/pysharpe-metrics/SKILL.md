@@ -29,20 +29,31 @@ All metric functions are in `src/pysharpe/metrics.py`.
 
 $$\text{Sharpe} = \frac{\bar{R} - R_f}{\sigma_R}$$
 
-- Input: Daily excess returns (`returns - risk_free_rate`).
-- Annualization: Multiply mean by 252, std by √252 for daily data.
-- Vectorized: `(mean * 252) / (std * sqrt(252))` on a 1-D `numpy.ndarray`.
-- `risk_free_rate` must be passed as a **daily** decimal (e.g., 0.05/252 for 5%
-  annual), never annual.
+- Signature: `sharpe_ratio(returns, *, risk_free_rate=0.0, periods_per_year=252)`
+  — everything after `returns` is keyword-only.
+- Input: periodic returns as decimal fractions (simple or log — the caller
+  decides). Pass the **raw** return series, not pre-subtracted excess returns.
+- Annualization: mean × `periods_per_year`, std × √`periods_per_year`.
+- `risk_free_rate` is an **annual** decimal (e.g. `0.02` for 2%). The function
+  annualises the return series first and subtracts the rate afterwards:
+  `(annualize_return(returns) - risk_free_rate) / annualize_volatility(returns)`.
+  **Never pass a daily rate** (`0.02 / 252`): the numerator loses its risk-free
+  deduction and the ratio is silently inflated.
+  - Pinned by `tests/test_metrics.py::test_sharpe_ratio_handles_risk_free_rate`.
 
 ### Sortino Ratio
 
-- **`sortino_ratio(returns, risk_free_rate, periods_per_year, target_return)`**
+- **`sortino_ratio(returns, *, risk_free_rate=0.0, periods_per_year=252, target_return=0.0)`**
+  — keyword-only, same risk-free convention as `sharpe_ratio`.
 
-$$\text{Sortino} = \frac{\bar{R} - R_f}{\sigma_{\text{downside}}}$$
+$$\text{Sortino} = \frac{\text{Annualised Return} - R_f^{\text{annual}}}{\sigma_{\text{downside}}^{\text{annual}}}$$
 
-- Downside deviation uses only returns below a target (default 0 or risk-free).
-- Vectorized: `sqrt(mean(min(0, r - target)^2))` with annualization.
+- `risk_free_rate` is an **annual** decimal; the function divides it by
+  `periods_per_year` internally when building the downside series.
+- `target_return` (the MAR) is a **daily** decimal, and the two combine:
+  `downside = (returns - (target_return + risk_free_rate / periods_per_year)).clip(upper=0)`.
+- Vectorized: `sqrt(mean(downside²)) * sqrt(periods_per_year)`.
+- Note the deliberate asymmetry: annual `risk_free_rate`, daily `target_return`.
 
 ### Calmar Ratio
 
@@ -72,7 +83,9 @@ $$\text{TE} = \sigma(R_{\text{a}} - R_{\text{b}})$$
 - **All operations must be vectorized.** No Python `for` loops over time steps
   in metric calculations.
 - **Annualization factor is 252** for daily data (trading days).
-- **Risk-free rate is a daily decimal**, never annualized inside the function.
+- **`risk_free_rate` is an annual decimal** (`0.02` for 2%) across this module;
+  `sortino_ratio` converts it to a daily rate internally for the downside
+  calculation. A daily rate must never be passed in.
 - **Returns are simple or log returns** — the calling code decides. All
   metrics accept the pre-computed return series.
 - **NaN handling**: Metrics should use `np.nanmean`, `np.nanstd` or explicitly

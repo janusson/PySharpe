@@ -91,8 +91,8 @@ Relevant test files:
 - `tests/test_fetcher.py`
 - `tests/test_fx_adjustment.py`
 - `tests/test_data_fetcher_cache.py`
-- `tests/test_collation.py`
-- `tests/test_collation_proxy.py`
+- `tests/test_collation.py` (includes proxy-map resolution — merged from the
+  former `test_collation_proxy.py`)
 - `tests/test_data_linkage.py` (includes `HistoryLinker` stitched proxy-history
   coverage: handover math, FX adjustment, FX-coverage guardrails)
 

@@ -280,6 +280,36 @@ def test_sortino_ratio_handles_risk_free_rate():
     )
 
 
+def test_sortino_ratio_uses_annual_risk_free_rate():
+    """RFR convention is annual: rfr/periods_per_year enters the downside series."""
+    returns = pd.Series([0.01, 0.02, -0.005, 0.015, 0.01])
+    rfr = 0.02  # 2% annual
+    periods_per_year = 252
+
+    daily_rf = rfr / periods_per_year
+    downside = (returns - daily_rf).clip(upper=0.0)
+    annualised_downside = float(
+        np.sqrt((downside**2).mean()) * np.sqrt(periods_per_year)
+    )
+    expected = (
+        annualize_return(returns, periods_per_year=periods_per_year) - rfr
+    ) / annualised_downside
+
+    observed = sortino_ratio(
+        returns, risk_free_rate=rfr, periods_per_year=periods_per_year
+    )
+    # Passing a daily rate is the documented misuse; it must not be confusable
+    # with the annual convention.
+    as_daily = sortino_ratio(
+        returns, risk_free_rate=daily_rf, periods_per_year=periods_per_year
+    )
+
+    assert observed == pytest.approx(expected, rel=1e-9)
+    assert abs(observed - as_daily) > 1e-3, (
+        "risk-free-rate convention inverted: a daily rate now matches the annual result"
+    )
+
+
 def test_sortino_ratio_raises_on_zero_downside_deviation():
     """Sortino is undefined when all returns exceed the target."""
     returns = pd.Series([0.01, 0.02, 0.03, 0.04])

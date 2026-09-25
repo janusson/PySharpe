@@ -105,16 +105,16 @@ never contain temporal state or rebalancing logic.
 ## Testing
 
 Relevant test files:
-- `tests/test_analysis_backtest_engine.py`
-- `tests/test_analysis_transaction_costs.py`
-- `tests/test_analysis_walk_forward.py`
-- `tests/test_analysis_time_series.py`
-- `tests/test_analysis_benchmarks.py`
-- `tests/test_analysis_visualization.py`
-- `tests/test_analysis.py`
+- `tests/test_analysis.py` (`analysis/backtest.py`, `benchmarks.py`, `scoring.py`,
+  `visualization.py`)
+- `tests/test_analysis_backtest_engine.py` (calendar and drift rebalancing,
+  walk-forward folds)
+- `tests/test_analysis_transaction_costs.py` (spread/slippage/commission model,
+  walk-forward costs, no-lookahead)
+- `tests/test_analysis_time_series.py` (ADF, GARCH, VAR)
 - `tests/test_categorization.py`
 - `tests/test_backtest_page.py`
 
-Run: `uv run pytest tests/test_analysis_backtest_engine.py tests/test_analysis_time_series.py tests/test_analysis_walk_forward.py`
+Run: `uv run pytest tests/test_analysis_backtest_engine.py tests/test_analysis_time_series.py tests/test_analysis_transaction_costs.py`
 
 All tests must use synthetic data with fixed seeds. No network calls.

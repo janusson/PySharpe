@@ -6,10 +6,10 @@ import pandas as pd
 
 from pysharpe import metrics
 
-try:
-    import streamlit as st  # type: ignore[import]
-except ImportError:  # pragma: no cover - only needed in Streamlit context
-    st = None  # type: ignore[assignment]
+# streamlit is a required core dependency (pyproject.toml), so a plain import is
+# correct: the former try/except set `st = None`, which typed every `st.*` call as
+# Optional and put this module outside the reach of the type gate.
+import streamlit as st
 
 try:
     import plotly.express as px  # type: ignore[import]

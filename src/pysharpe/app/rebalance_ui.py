@@ -11,10 +11,9 @@ from pathlib import Path
 
 import pandas as pd
 
-try:
-    import streamlit as st  # type: ignore[import]
-except ImportError:  # pragma: no cover
-    st = None  # type: ignore[assignment]
+# streamlit is a required core dependency (pyproject.toml); the former guarded
+# import set `st = None`, typing every `st.*` call as Optional.
+import streamlit as st
 
 import shutil
 
