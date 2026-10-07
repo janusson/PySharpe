@@ -18,7 +18,8 @@ Key Concepts
 Module Components
 -----------------
 - :class:`TransactionRecord` — Immutable record of a trade across any account.
-- :class:`ACBPosition` — State of the adjusted cost base for a single ticker.
+- :class:`ACBPosition` — State of the adjusted cost base for a single ticker
+  (shared with :mod:`pysharpe.execution.tax_tracker`).
 - :class:`ACBTracker` — ACB pool tracker with commission support.
 - :class:`SuperficialLossViolation` — Describes a detected superficial loss.
 - :class:`SuperficialLossGuardrail` — Validates trade slates and re-routes
@@ -31,6 +32,8 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+
+from pysharpe.execution.tax_tracker import ACBPosition
 
 logger = logging.getLogger(__name__)
 
@@ -154,36 +157,6 @@ class TransactionRecord:
         }
 
 
-@dataclass
-class ACBPosition:
-    """Running ACB state for a single security in a Non-Registered account.
-
-    Attributes
-    ----------
-    ticker : str
-        Security ticker symbol.
-    total_shares : float
-        Current number of shares held.
-    total_cost : float
-        Total adjusted cost base (sum of all acquisition costs including
-        commissions, net of return of capital).
-    """
-
-    ticker: str
-    total_shares: float = 0.0
-    total_cost: float = 0.0
-
-    @property
-    def acb_per_share(self) -> float:
-        """Weighted-average cost per share per CRA rules.
-
-        Returns 0.0 when no shares are held.
-        """
-        if self.total_shares <= 0:
-            return 0.0
-        return self.total_cost / self.total_shares
-
-
 @dataclass(frozen=True)
 class SuperficialLossViolation:
     """Describes a detected CRA superficial loss rule violation.
@@ -221,6 +194,15 @@ class ACBTracker:
     Implements the CRA weighted-average cost method (ITA s. 47(1)) with
     explicit commission tracking.  Commissions are added to the cost base
     on purchases and deducted from proceeds on sales.
+
+    This is deliberately **not** a duplicate of
+    :class:`pysharpe.execution.tax_tracker.ACBTracker`.  That ledger books the
+    TFSA/registered side (buy, sell, return of capital, position summary),
+    while this one is the Non-Registered *compliance* ledger: it additionally
+    tracks commissions and account wrappers and stores the realized gain/loss
+    on each :class:`TransactionRecord` for the superficial-loss interlock.  The
+    two deliberately share only the ``ACBPosition`` value type — merging them
+    would change both public APIs and the tax treatment of commissions.
 
     Parameters
     ----------

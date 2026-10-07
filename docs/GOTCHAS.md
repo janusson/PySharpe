@@ -1,5 +1,51 @@
 # Gotchas
 
+### 2026 — `ax.lines` includes the `axhline` reference line
+
+- Symptom: a test asserting "one line per series" fails with an off-by-one
+  (`assert 3 == 2`) on any chart that draws a reference line.
+- Root cause: `ax.axhline(...)` adds a `Line2D` to `Axes.lines`, so
+  `len(ax.lines)` counts the reference line alongside the plotted series.
+  `visualization.plot_comparative_returns`, `visualization.plot_holdings_history`,
+  and `workflows.plot_holdings_history` all draw a zero/one reference line.
+- Fix: filter by label before counting — e.g.
+  `[line for line in ax.lines if line.get_label() in {"AAA", "BBB"}]` — instead
+  of asserting on `len(ax.lines)`.
+- Seen in: `tests/test_visualization_charts.py`, `tests/test_workflows.py`.
+
+### 2026 — Plot titles report the first *return* date, not the first price date
+
+- Symptom: a test expecting "…from 2024-01-01" sees "…from 2024-01-02" — off
+  by exactly one day.
+- Root cause: cumulative-return plots title themselves from the *return* series,
+  which always starts one observation after the price series because
+  `pct_change()` drops the first row.  Affects
+  `visualization.plot_comparative_returns`, `visualization.plot_holdings_history`,
+  and `workflows.plot_holdings_history`.
+- Fix: assert against the first return date (or compute it as
+  `prices.index[1]`); never assume the title equals the first price date.
+
+### 2026 — The two `ACBTracker` classes are intentional; do not merge them
+
+- Trap: `pysharpe.execution.tax_tracker.ACBTracker` and
+  `pysharpe.guardrails.tax_compliance.ACBTracker` look like copy-paste
+  duplication, so a tidy-up refactor may try to collapse them into one class.
+- Why they differ: the execution ledger books the TFSA/registered side
+  (buy / sell / **return of capital** / `summary`), while the guardrails ledger
+  is the Non-Registered **compliance** ledger — it records **commissions** in
+  the cost base, stores the **account wrapper**, keeps the realized gain/loss on
+  each `TransactionRecord`, and escalates to the superficial-loss interlock.
+  Their `record_buy`/`record_sell` gain arithmetic genuinely differs (commission
+  included vs excluded), and so do `TradeRecord` vs `TransactionRecord` and
+  `get_acb` vs `get_total_acb`.
+- What *is* shared: only the `ACBPosition` value type, defined once in
+  `execution.tax_tracker` and re-exported by `guardrails.tax_compliance`
+  (guarded by `tests/test_tax_compliance.py::test_acb_position_type_is_shared_with_execution_ledger`).
+  Merging the trackers would change both public APIs and the tax treatment of
+  commissions — a behaviour change, not a refactor.
+- Grep guard: `grep -rn "class ACBPosition" src/pysharpe/` must return exactly
+  one match.
+
 ### 2026 — Optimiser tests silently distorted by environment-dependent FX lookups
 
 - Symptom: `tests/test_portfolio_optimization.py` failed with

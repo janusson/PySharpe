@@ -977,3 +977,20 @@ class TestSameDayCrossAccountSuperficialLoss:
         assert len(guardrail.detect_violations([sell, inside_minus])) == 1
         assert guardrail.detect_violations([sell, outside]) == []
         assert guardrail.detect_violations([sell, outside_minus]) == []
+
+
+def test_acb_position_type_is_shared_with_execution_ledger():
+    """The compliance layer reuses the execution ledger's ``ACBPosition`` type.
+
+    Both ACB trackers record the same ``(shares, cost)`` state, so they share a
+    single value type.  Re-introducing a second ``ACBPosition`` definition would
+    let the two layers drift apart and break ``isinstance`` checks across them.
+    (The two *trackers* remain deliberately distinct — see the ``ACBTracker``
+    docstring — because the compliance ledger also models commissions and
+    account wrappers for the superficial-loss interlock.)
+    """
+
+    from pysharpe.execution.tax_tracker import ACBPosition as ExecutionACBPosition
+    from pysharpe.guardrails.tax_compliance import ACBPosition as GuardrailACBPosition
+
+    assert GuardrailACBPosition is ExecutionACBPosition
