@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -54,6 +55,21 @@ def test_get_settings_returns_cached_instance(tmp_path, monkeypatch):
     second = config.get_settings()
     assert first is second
     assert isinstance(first.data_dir, Path)
+
+
+def test_cwd_portfolio_config_does_not_change_library_defaults(monkeypatch, tmp_path):
+    (tmp_path / "portfolio_config.json").write_text(
+        json.dumps({"account_type": "TFSA", "account_room": {"TFSA": 1000}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    assert config.load_execution_config() == config.ExecutionConfig()
+    assert config.get_settings().account_room == {}
+    path = tmp_path / "portfolio_config.json"
+    assert config.load_execution_config(path).account_type == "TFSA"
+    assert config.build_settings(portfolio_config_path=path).account_room == {
+        config.AccountType.TFSA: 1000
+    }
 
 
 def test_default_mer_by_ticker_values_are_decimal_fractions():

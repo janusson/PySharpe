@@ -1,5 +1,21 @@
 # Gotchas
 
+### 2026 — CWD portfolio config silently constrains unrelated optimisations
+
+- Symptom: `pysharpe optimise` run from the checkout failed for any portfolio
+  with tickers absent from the shipped maintainer MER/geo maps, or silently
+  applied its geographic floors and TFSA account settings. The shipped
+  `max_portfolio_mer: 1.0` was a vacuous 100% cap.
+- Root cause: the CLI and library config loaders inferred a live
+  `portfolio_config.json` from the process working directory. Merely changing
+  directories changed financial constraints.
+- Fix: ship a template with a decimal 0.005 (0.5%) cap and require an
+  explicit `--config` / library path. No portfolio config is loaded by default.
+- Regression tests: `test_optimise_ignores_cwd_config_unless_explicit` and
+  `test_cwd_portfolio_config_does_not_change_library_defaults`.
+- Grep guard: `src/pysharpe/cli.py` and `src/pysharpe/config.py` must not
+  construct `Path("portfolio_config.json")` as a default loader path.
+
 ### 2026 — Optimiser tests silently distorted by environment-dependent FX lookups
 
 - Symptom: `tests/test_portfolio_optimization.py` failed with

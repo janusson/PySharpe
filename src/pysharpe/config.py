@@ -16,7 +16,6 @@ from pysharpe.optimization.tax_location import (
 )
 
 _DEFAULT_DATA_DIR = Path("data")
-_DEFAULT_PORTFOLIO_CONFIG_PATH = Path("portfolio_config.json")
 
 logger = logging.getLogger(__name__)
 
@@ -76,23 +75,22 @@ class ExecutionConfig:
         return self.dividend_yield_estimate * self.withholding_tax_rate
 
 
-def load_execution_config(
-    config_path: Path | None = None,
-) -> ExecutionConfig:
-    """Load execution settings from a portfolio_config.json, with sensible defaults.
+def load_execution_config(config_path: Path | None = None) -> ExecutionConfig:
+    """Load execution settings from an explicit config path, or return defaults.
 
     Parameters
     ----------
     config_path : Path or None
-        Path to a ``portfolio_config.json`` file. When ``None``, the file
-        ``portfolio_config.json`` in the current working directory is used if
-        it exists; otherwise defaults are returned.
+        Path to a ``portfolio_config.json`` file. When ``None``, return defaults
+        without reading the current working directory.
 
     Returns
     -------
     ExecutionConfig
     """
-    path = Path(config_path) if config_path else _DEFAULT_PORTFOLIO_CONFIG_PATH
+    if config_path is None:
+        return ExecutionConfig()
+    path = Path(config_path)
     if not path.exists():
         return ExecutionConfig()
 
@@ -320,13 +318,17 @@ def _path_from_env(var_name: str, default: Path) -> Path:
     return Path(override).expanduser()
 
 
-def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
+def build_settings(
+    base_dir: Path | None = None, *, portfolio_config_path: Path | None = None
+) -> PySharpeSettings:
     """Construct settings, honouring environment overrides when present.
 
     Args:
         base_dir: Optional override for the root data directory. When omitted the
             function respects the ``PYSHARPE_DATA_DIR`` environment variable or
             defaults to ``./data``.
+        portfolio_config_path: Optional explicit portfolio config for account
+            room, tax profiles, and account capacities. Never inferred from CWD.
 
     Returns:
         A fully initialised :class:`PySharpeSettings` instance.
@@ -389,8 +391,7 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
         except Exception as e:
             logger.warning(f"Failed to load proxy_map.json: {e}")
 
-    # Load account_room, asset_tax_profiles, tax_profile, and account_capacities
-    # from portfolio_config.json and environment variables.
+    # Load account settings from environment, and from an explicit file if provided.
     account_room: dict[AccountType, float] = {}
     asset_tax_profiles: dict[str, AssetTaxProfile] = {}
     tax_profile_kwargs: dict[str, float] = {}
@@ -425,8 +426,7 @@ def build_settings(base_dir: Path | None = None) -> PySharpeSettings:
                 "PYSHARPE_ACCOUNT_CAPACITIES is not valid JSON: %s. Using defaults.",
                 exc,
             )
-    portfolio_config_path = Path("portfolio_config.json")
-    if portfolio_config_path.exists():
+    if portfolio_config_path is not None and portfolio_config_path.exists():
         try:
             with portfolio_config_path.open("r", encoding="utf-8") as f:
                 portfolio_data = json.load(f)

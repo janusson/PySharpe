@@ -308,8 +308,8 @@ uv run pysharpe optimise \
 
 This downloads 10 years of daily prices (cached through DuckDB), converts USD
 assets to CAD (no lookahead bias), estimates expected returns with Bayes-Stein
-shrinkage, runs efficient-frontier optimization, and enforces constraints from
-`portfolio_config.json` (MER caps, geographic bounds, TFSA account type).
+shrinkage, and runs efficient-frontier optimization. To apply custom MER caps,
+geographic bounds, or account settings, pass `--config portfolio_config.json`.
 
 ### 2. Generate a buy plan
 
@@ -376,7 +376,17 @@ The dashboard provides four tabs:
 
 ### Configuration
 
-PySharpe auto-detects `portfolio_config.json` in the working directory. Example:
+PySharpe does **not** auto-load a config from the working directory. Copy
+`portfolio_config.example.json` to your own file and pass
+`--config portfolio_config.json` to `optimise`, `rebalance`, or `allocate`.
+`optimise` reads `mer_mapping`, `geo_mapping`, and `constraints`; `optimise`
+and `rebalance` also read `account_type`, `allow_fractional`, and `fx_fee_bps`
+for execution settings. `allocate` reads `allocation_weights` and
+`fundamentals`. Library callers can use `load_execution_config(path)`
+or `build_settings(portfolio_config_path=path)` for explicit settings.
+MER values and the portfolio cap are decimal fractions (0.005 means 0.5%).
+Supply mappings for **every** ticker in the target portfolio when enabling
+MER and geographic constraints. Example:
 
 ```json
 {

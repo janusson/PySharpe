@@ -135,10 +135,6 @@ def _handle_optimise(args: argparse.Namespace) -> int:
             if not config_path.exists():
                 print(f"Configuration file not found: {config_path}")
                 return 1
-        else:
-            default_config = Path("portfolio_config.json")
-            if default_config.exists():
-                config_path = default_config
 
         if config_path:
             try:

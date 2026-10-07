@@ -34,7 +34,7 @@
     "ZMMK.TO": "CA"
   },
   "constraints": {
-    "max_portfolio_mer": 1.0,
+    "max_portfolio_mer": 0.005,
     "geo_upper_bounds": {
       "US": 1.0,
       "CA": 1.0,

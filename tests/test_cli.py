@@ -9,12 +9,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from pysharpe import cli
+from pysharpe.config import ExecutionConfig
 from pysharpe.optimization.models import (
     OptimisationPerformance,
     OptimisationResult,
@@ -111,6 +113,59 @@ def test_optimise_subcommand_invokes_workflows(monkeypatch, tmp_path, capsys):
     assert captured["optimise"]["shrinkage_floor"] == 0.3
     output = capsys.readouterr().out
     assert "Artefacts written" in output
+
+
+def test_optimise_ignores_cwd_config_unless_explicit(monkeypatch, tmp_path):
+    portfolio_dir = tmp_path / "portfolios"
+    _write_portfolio(portfolio_dir, "demo", "ZAG.TO\n")
+    (tmp_path / "portfolio_config.json").write_text(
+        json.dumps(
+            {
+                "mer_mapping": {"VFV.TO": 0.0009},
+                "geo_mapping": {"VFV.TO": "US"},
+                "constraints": {"max_portfolio_mer": 1.0},
+                "account_type": "TFSA",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.BayesianOptimizer, "warm_compilation_cache", lambda: None)
+    captured: list[dict[str, Any]] = []
+
+    def fake_optimise(**kwargs):
+        captured.append(kwargs)
+        return {
+            "demo": OptimisationResult(
+                name="demo",
+                weights=PortfolioWeights({"ZAG.TO": 1.0}),
+                performance=OptimisationPerformance(
+                    0.1, 0.2, 1.2, "2020-01-01", "2021-01-01"
+                ),
+            )
+        }
+
+    monkeypatch.setattr(cli.workflows, "optimise_portfolios", fake_optimise)
+    args = [
+        "optimise",
+        "--skip-download",
+        "--portfolio-dir",
+        str(portfolio_dir),
+        "--price-dir",
+        str(tmp_path / "prices"),
+        "--export-dir",
+        str(tmp_path / "exports"),
+    ]
+    assert cli.main(args) == 0
+    assert captured[-1]["mer_mapping"] is None
+    assert captured[-1]["geo_mapping"] is None
+    assert captured[-1]["max_portfolio_mer"] is None
+    assert captured[-1]["execution_config"] == ExecutionConfig()
+
+    assert cli.main([*args, "--config", "portfolio_config.json"]) == 0
+    assert captured[-1]["mer_mapping"] == {"VFV.TO": 0.0009}
+    assert captured[-1]["max_portfolio_mer"] == 1.0
+    assert captured[-1]["execution_config"].account_type == "TFSA"
 
 
 def _settings_stub(base_dir: Path):

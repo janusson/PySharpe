@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Replace the shipped `portfolio_config.json` with an opt-in example; the
+  sample portfolio MER cap is 0.5% rather than the ineffective 100%.
+  CLI optimisation and library settings no longer silently read a config from
+  the working directory. Pass `--config PATH` (or an explicit library path)
+  to apply account and portfolio constraints.
+
 ## v1.0.0 (2026-08-19)
 
 First production release.
