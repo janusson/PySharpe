@@ -40,7 +40,7 @@ $$\text{Sharpe} = \frac{\bar{R} - R_f}{\sigma_R}$$
 
 $$\text{Sortino} = \frac{\bar{R} - R_f}{\sigma_{\text{downside}}}$$
 
-- Downside deviation uses only returns below a target (default 0 or risk-free).
+- Downside deviation is computed against `target_return + risk_free_rate / periods_per_year`.
 - Vectorized: `sqrt(mean(min(0, r - target)^2))` with annualization.
 
 ### Calmar Ratio
@@ -71,7 +71,7 @@ $$\text{TE} = \sigma(R_{\text{a}} - R_{\text{b}})$$
 - **All operations must be vectorized.** No Python `for` loops over time steps
   in metric calculations.
 - **Annualization factor is 252** for daily data (trading days).
-- **Risk-free rate is an annual decimal**; the implementation handles the annual-to-period conversion where needed.
+- **Risk-free rate is an annual decimal**; `sharpe_ratio` subtracts it from annualized return, while `sortino_ratio` converts it to a per-period rate for downside deviation.
 - **Returns are simple or log returns** — the calling code decides. All
   metrics accept the pre-computed return series.
 - **NaN handling**: Metrics should use `np.nanmean`, `np.nanstd` or explicitly
