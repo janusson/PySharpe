@@ -53,10 +53,8 @@ uv run pysharpe --help
   `tests/conftest.py`. The `data/` directory under `tests/` holds fixture CSVs.
 - `get_settings()` is LRU-cached; call `get_settings.cache_clear()` in tests
   that need to vary env vars.
-- `portfolio_config.json` in the working directory is auto-loaded by the CLI
-  for MER/geo constraints. Pass `--config` to override.
-- `proxy_map.json` maps tickers to proxy tickers with optional FX and weight
-  adjustments. Loaded by `build_settings()`.
+- `portfolio_config.json` is an explicit optimisation/execution configuration file; CLI optimisation accepts it via `--config`.
+- `proxy_map.json` maps tickers to historical proxies using `proxy`, `fx_adjust`, `start_date`, `is_us_domiciled`, and `is_cad_denominated`; it is loaded by `build_settings()`.
 
 ## Public API Registration
 
