@@ -83,10 +83,8 @@ Frozen dataclasses in `optimization/models.py`:
 Relevant test files:
 - `tests/test_optimization_base.py`
 - `tests/test_optimization_weights.py`
-- `tests/test_optimization_models.py`
 - `tests/test_portfolio_optimization.py`
 - `tests/test_2d_allocation.py`
 - `tests/test_tax_location.py`
-- `tests/test_constraints_verification.py`
 
 Run: `uv run pytest tests/test_optimization_base.py tests/test_portfolio_optimization.py tests/test_tax_location.py`

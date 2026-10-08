@@ -37,7 +37,7 @@ The backtest engine simulates portfolio evolution over historical data:
 - Fixed-interval rebalancing (e.g., monthly, quarterly).
 - On each rebalance date: compute target weights (via optimizer or VA
   allocator), execute trades, apply transaction costs, update portfolio state.
-- Tracks: portfolio value over time, turnover, drawdowns, and rebalance events. Cash-flow rebalancing is a separate execution subsystem.
+- Tracks: portfolio value over time, historical weights, and rebalance events. Cash-flow rebalancing is a separate execution subsystem.
 
 ### Drift-Based Rebalancing
 - Rebalance triggers when portfolio weights drift beyond tolerance bands

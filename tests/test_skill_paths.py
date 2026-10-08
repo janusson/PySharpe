@@ -24,4 +24,6 @@ def test_skill_referenced_test_paths_exist() -> None:
             if not (REPO_ROOT / path).is_file():
                 missing.append(f"{skill.relative_to(REPO_ROOT)} -> {path}")
 
-    assert not missing, "Skill documentation references missing test files:\n" + "\n".join(missing)
+    assert not missing, (
+        "Skill documentation references missing test files:\n" + "\n".join(missing)
+    )

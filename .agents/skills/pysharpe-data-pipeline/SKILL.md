@@ -36,8 +36,9 @@ PriceFetcher (ABC)
 
 - `YFinancePriceFetcher.fetch_history(ticker, period, interval, start, end)` returns a
   `pandas.DataFrame` indexed by timestamp with yfinance pricing columns such as `Close`.
-- If `base_currency` differs from the native currency, FX conversion is applied
-  during fetch.
+- FX conversion is **not** applied by `fetch_history` — call
+  `apply_fx_conversion()` (`pysharpe.data.fetcher`) on the returned frame. The
+  collation, workflow, optimisation and benchmark paths do this for you.
 - **DuckDB wrapping is conditional**: only `YFinancePriceFetcher` instances get
   wrapped. Custom fetchers and test stubs pass through unwrapped.
 
@@ -94,7 +95,6 @@ Relevant test files:
 - `tests/test_fx_adjustment.py`
 - `tests/test_data_fetcher_cache.py`
 - `tests/test_collation.py`
-- `tests/test_collation_proxy.py`
 - `tests/test_data_linkage.py` (includes `HistoryLinker` stitched proxy-history
   coverage: handover math, FX adjustment, FX-coverage guardrails)
 
