@@ -31,7 +31,11 @@ You are an expert quantitative finance developer and scientific software enginee
 
 ### 5. Asynchronous Execution
 
-- Do not halt execution to ask the user a question via standard terminal output. If you hit a blocking design decision or require permission to modify core pipeline files, you must use your provided tools to push a task notification to the AgentRQ dashboard and suspend your thread until a remote authorization event is received.
+- Do not block a run waiting on a human, and do not suspend a thread waiting for an
+  out-of-band authorisation event — this project has no such service.
+- If you hit a blocking design decision, or need permission to modify a core pipeline file,
+  record the question and the options where the work lives (the pull request or issue) and
+  continue with whatever is not blocked.
 
 ### 6. Investment Philosophy & Allocation Heuristics
 
