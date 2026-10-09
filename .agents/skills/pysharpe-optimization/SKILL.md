@@ -35,13 +35,13 @@ extensions:
 ### MER Drag
 
 - MER values are **decimal fractions** (e.g., `0.0017` for 0.17%).
-- Applied as an annualized drag on expected returns: `mu_adjusted = mu - mer/252`.
+- Applied directly as an annualized drag on expected returns: `mu_adjusted = mu - mer`.
 - **Never divide by 100** — the values are already decimals.
 
 ### Geographic Constraints
 
-- Loaded from `portfolio_config.json` under `geo_constraints`.
-- Each region has a `lower_bound` (0.0–1.0).
+- Supplied as `geo_lower_bounds` / `geo_upper_bounds` mappings (the CLI reads them from the `constraints` object in `portfolio_config.json`).
+- Each configured region has a lower or upper bound (0.0–1.0).
 - **Critical**: Drop lower-bound constraints for regions that contain no mapped
   assets. Blindly applying them causes an infeasible-solver crash.
 
@@ -83,10 +83,8 @@ Frozen dataclasses in `optimization/models.py`:
 Relevant test files:
 - `tests/test_optimization_base.py`
 - `tests/test_optimization_weights.py`
-- `tests/test_optimization_models.py`
 - `tests/test_portfolio_optimization.py`
 - `tests/test_2d_allocation.py`
 - `tests/test_tax_location.py`
-- `tests/test_constraints_verification.py`
 
-Run: `uv run pytest tests/test_optimization_base.py tests/test_portfolio_optimization.py tests/test_optimization_models.py`
+Run: `uv run pytest tests/test_optimization_base.py tests/test_portfolio_optimization.py tests/test_tax_location.py`

@@ -95,7 +95,7 @@ coverage.xml
 
 # ---------------------------------------------------------------------------
 # Local agent-tool configuration. These files hold live credentials
-# (e.g. .codex/config.toml carries an AgentRQ MCP token) and must never be
+# (e.g. .codex/config.toml carries a service token) and must never be
 # tracked; ship a redacted *.example instead.
 # ---------------------------------------------------------------------------
 .codex/

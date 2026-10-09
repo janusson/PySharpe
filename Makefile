@@ -44,7 +44,7 @@ format-check:  ## Check formatting without modifying files
 	uv run ruff format --check .
 
 typecheck:  ## Run pyright; errors AND warnings are fatal
-	uv run pyright --warnings src/
+	uv run pyright --warnings
 
 test:  ## Run pytest with coverage (fails below $(COVERAGE_FLOOR)%)
 	uv run pytest $(PYTEST_COV)

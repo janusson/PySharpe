@@ -6,10 +6,9 @@
 > transparent assumptions, and reproducible quantitative analysis.
 
 [![Build status](https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg)](https://github.com/janusson/PySharpe/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/github/actions/workflow/status/janusson/PySharpe/ci.yml?label=docs)](https://github.com/janusson/PySharpe/actions/workflows/ci.yml)
 [![Coverage gate](https://img.shields.io/badge/coverage-75%25%2B-success)](https://github.com/janusson/PySharpe/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://github.com/janusson/PySharpe/blob/main/pyproject.toml)
-[![Pyright strict](https://img.shields.io/badge/pyright-strict%20%2B%20warnings--fatal-3178c6)](https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json)
+[![Pyright standard + warnings-fatal](https://img.shields.io/badge/pyright-standard%20%2B%20warnings--fatal-3178c6)](https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json)
 [![Ruff](https://img.shields.io/badge/ruff-lint%20%2B%20format-d7ff64)](https://docs.astral.sh/ruff/)
 [![uv](https://img.shields.io/badge/uv-locked%20dependencies-261230)](https://docs.astral.sh/uv/)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/janusson/PySharpe/blob/main/LICENSE)

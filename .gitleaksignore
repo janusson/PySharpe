@@ -1,0 +1,13 @@
+# Accepted findings — fingerprints that must not fail the secret scan.
+#
+# A fingerprint is `<commit>:<file>:<rule>:<line>`, so an entry here suppresses
+# exactly one finding in one commit. A credential committed anywhere else, or
+# the same file in a different commit, still fails the job.
+
+# AgentRQ MCP bearer token, committed in .mcp.json and removed from the tree in
+# 29fc078. AgentRQ is no longer used: the token is revoked, the endpoint is
+# decommissioned, and the route is locked down (decision 2026-10-09). It is
+# therefore not a live credential, and the git-history rewrite that would clear
+# it is not being pursued — see .gitleaks.toml for the tracked template that
+# replaced it. Only this commit's finding is accepted.
+86665147d9864667991762b7b85136fb7ef51d50:.mcp.json:jwt:5

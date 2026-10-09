@@ -107,7 +107,7 @@ The allocation engine targets **broad-market, CAD-denominated index ETFs**
 
 Relevant test files:
 - `tests/test_2d_allocation.py`
-- `tests/test_rebalance.py`
+- `tests/test_brokerage.py`
 - `tests/test_tax_tracker.py`
 
-Run: `uv run pytest tests/test_2d_allocation.py tests/test_rebalance.py`
+Run: `uv run pytest tests/test_2d_allocation.py tests/test_tax_location.py tests/test_tax_tracker.py`
