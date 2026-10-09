@@ -3,12 +3,10 @@
 > **Evidence-based portfolio optimization for Canadian investors.** Construct, compare, and validate long-term investment portfolios using modern financial research — with every recommendation traceable to published literature, transparent assumptions, and reproducible quantitative analysis.
 
 <p align="center">
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=quality" alt="Build (lint + typecheck)"></a>
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=docs" alt="Docs (strict MkDocs)"></a>
-  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg?job=test" alt="Coverage (75%+ floor)"></a>
+  <a href="https://github.com/janusson/PySharpe/actions/workflows/ci.yml"><img src="https://github.com/janusson/PySharpe/actions/workflows/ci.yml/badge.svg" alt="CI (lint, typecheck, tests, docs)"></a>
   <a href="https://github.com/janusson/PySharpe/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12"></a>
   <a href="https://github.com/janusson/PySharpe/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
-  <a href="https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json"><img src="https://img.shields.io/badge/pyright-strict%20%2B%20warnings--fatal-3178c6" alt="Pyright strict"></a>
+  <a href="https://github.com/janusson/PySharpe/blob/main/pyrightconfig.json"><img src="https://img.shields.io/badge/pyright-standard%20%2B%20warnings--fatal-3178c6" alt="Pyright standard + warnings-fatal"></a>
   <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/ruff-lint%20%2B%20format-d7ff64" alt="Ruff"></a>
   <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/uv-locked%20dependencies-261230" alt="uv"></a>
 </p>
@@ -53,8 +51,10 @@ from data download to rebalancing is reproducible with a locked dependency set
 PySharpe is built as production software, not a research notebook. Four
 non-negotiable pillars guard every commit:
 
-- **Strict typing** — [Pyright](https://microsoft.github.io/pyright/) in `standard`
-  mode with **warnings promoted to fatal**: the suite holds **0 errors, 0 warnings**.
+- **Typed end to end** — [Pyright](https://microsoft.github.io/pyright/) in
+  `standard` mode with **warnings promoted to fatal**, covering the library and
+  the Streamlit surface (`app.py` and `src/pysharpe/app/**`, previously
+  excluded): **0 errors, 0 warnings**.
 - **Ruff formatting** — [Ruff](https://docs.astral.sh/ruff/) is the *sole*
   formatter and linter (88-char, double-quote, import-sorted); CI fails on any drift.
 - **uv dependency management** — [uv](https://docs.astral.sh/uv/) owns the

@@ -1,5 +1,5 @@
 {
-  "include": ["src"],
+  "include": ["src", "app.py"],
   "exclude": ["**/__pycache__", ".venv", "tests"],
   "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,
@@ -10,10 +10,10 @@
   "executionEnvironments": [
     {
       "root": "src"
+    },
+    {
+      "root": "."
     }
-  ],
-  "ignore": [
-    "src/pysharpe/app/**"
   ],
   "reportArgumentType": "warning",
   "reportOptionalMemberAccess": "warning",

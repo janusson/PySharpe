@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import streamlit as st
@@ -167,13 +168,13 @@ def compute_overlapping_date_range(
     if prices.empty or prices.shape[1] == 0:
         return None
 
-    firsts = prices.apply(lambda col: col.first_valid_index())
-    lasts = prices.apply(lambda col: col.last_valid_index())
+    firsts = cast("pd.Series", prices.apply(lambda col: col.first_valid_index()))
+    lasts = cast("pd.Series", prices.apply(lambda col: col.last_valid_index()))
     if firsts.isna().any() or lasts.isna().any():
         return None
 
-    start = pd.Timestamp(max(firsts))
-    end = pd.Timestamp(min(lasts))
+    start = pd.Timestamp(max(firsts.to_list()))
+    end = pd.Timestamp(min(lasts.to_list()))
     if start > end:
         return None
     return start, end
@@ -202,10 +203,13 @@ def _normalize_datetime_index(obj: pd.DataFrame | pd.Series) -> None:
 
     index = obj.index
     if not isinstance(index, pd.DatetimeIndex):
-        converted = pd.to_datetime(index, errors="coerce")
-        if converted.isna().all():
+        converted: pd.DatetimeIndex = pd.DatetimeIndex(
+            pd.to_datetime(index, errors="coerce")
+        )
+        missing = pd.isna(converted)
+        if missing.all():
             return
-        mask = ~converted.isna()
+        mask = ~missing
         if not mask.all():
             obj.drop(index[~mask], inplace=True)
             converted = converted[mask]
@@ -485,7 +489,7 @@ def load_preview_data(tickers: list[str], end_date: dt.date) -> pd.DataFrame:
         auto_adjust=True,
     )
 
-    if raw_download.empty:
+    if raw_download is None or raw_download.empty:
         return pd.DataFrame()
 
     # With auto_adjust=True, yfinance returns adjusted data in the "Close"

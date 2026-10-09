@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import pandas as pd
+import streamlit as st
 
 from pysharpe import metrics
-
-try:
-    import streamlit as st  # type: ignore[import]
-except ImportError:  # pragma: no cover - only needed in Streamlit context
-    st = None  # type: ignore[assignment]
 
 try:
     import plotly.express as px  # type: ignore[import]
@@ -210,16 +206,23 @@ def _run_and_display(
     m3.metric("Sharpe Ratio", f"{sharpe_val:.2f}")
     m4.metric("Rebalances", str(n_rebalances))
 
+    # Plotly lives in the optional `gui` extra; report an actionable error
+    # instead of an AttributeError when it is not installed.
+    go_module, px_module = go, px
+    if go_module is None or px_module is None:  # pragma: no cover - optional dep
+        st.error("Plotly is required for the backtest tab. Install `pysharpe[gui]`.")
+        return
+
     # Normalise portfolio index to tz-naive so Plotly can mix it with the
     # benchmark trace (also tz-naive) and vline timestamps without errors.
     port_index = result.portfolio_value.index
-    if hasattr(port_index, "tz") and port_index.tz is not None:
+    if isinstance(port_index, pd.DatetimeIndex) and port_index.tz is not None:
         port_index = port_index.tz_localize(None)
 
     # Equity curve
-    fig = go.Figure()
+    fig = go_module.Figure()
     fig.add_trace(
-        go.Scatter(
+        go_module.Scatter(
             x=port_index,
             y=result.portfolio_value.values,
             name="Portfolio",
@@ -242,16 +245,14 @@ def _run_and_display(
             )
             if not bm_data.empty:
                 bm_close = bm_data["Close"].dropna()
-                bm_close.index = (
-                    bm_close.index.tz_localize(None)
-                    if bm_close.index.tz
-                    else bm_close.index
-                )
+                bm_index = bm_close.index
+                if isinstance(bm_index, pd.DatetimeIndex) and bm_index.tz is not None:
+                    bm_close.index = bm_index.tz_localize(None)
                 if bm_close.empty or bm_close.iloc[0] == 0:
                     raise ValueError("Benchmark first price is zero or missing.")
                 bm_norm = initial_capital * (bm_close / bm_close.iloc[0])
                 fig.add_trace(
-                    go.Scatter(
+                    go_module.Scatter(
                         x=bm_norm.index,
                         y=bm_norm.values,
                         name=f"Benchmark ({benchmark_ticker})",
@@ -284,7 +285,7 @@ def _run_and_display(
     # Weight drift
     if not result.historical_weights.empty:
         st.subheader("Weight Drift Over Time")
-        fig2 = px.area(
+        fig2 = px_module.area(
             result.historical_weights,
             title="Asset Weight Allocation Over Time",
             labels={"value": "Weight", "index": "Date", "variable": "Ticker"},

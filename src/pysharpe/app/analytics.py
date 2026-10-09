@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -54,9 +55,11 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
         raise ValueError("Insufficient price history to compute portfolio metrics.")
 
     column_index = returns.columns
-    expected = metrics.expected_return(returns)
-    volatility = metrics.annualize_volatility(returns)
-    sharpe = metrics.sharpe_ratio(returns)
+    # `returns` is a DataFrame, and these helpers return a scalar only for
+    # Series input, so each result is a per-column Series here.
+    expected = cast("pd.Series", metrics.expected_return(returns))
+    volatility = cast("pd.Series", metrics.annualize_volatility(returns))
+    sharpe = cast("pd.Series", metrics.sharpe_ratio(returns))
 
     expected = expected.reindex(column_index)
     volatility = volatility.reindex(column_index)
@@ -115,9 +118,10 @@ def _apply_account_drag(
     chars = asset_characteristics or {}
     adjusted = mu.copy()
     for ticker, ret in adjusted.items():
-        char = chars.get(ticker)
+        key = str(ticker)
+        char = chars.get(key)
         if char is not None:
-            adjusted[ticker] = engine.compute_tax_adjusted_return(
+            adjusted[key] = engine.compute_tax_adjusted_return(
                 float(ret), char, account
             )
     return adjusted
@@ -182,12 +186,13 @@ def compute_adjusted_metrics(
     # Append reference columns (e.g. benchmarks) not already held by the
     # portfolio so shrinkage operates on the joint cross-section.
     extra_cols: list[str] = []
-    if reference_prices is not None and not reference_prices.empty:
+    reference_frame = reference_prices
+    if reference_frame is not None and not reference_frame.empty:
         extra_cols = [
-            col for col in reference_prices.columns if col not in frame.columns
+            col for col in reference_frame.columns if col not in frame.columns
         ]
-    if extra_cols:
-        joint = pd.concat([frame, reference_prices[extra_cols]], axis=1)
+    if extra_cols and reference_frame is not None:
+        joint = pd.concat([frame, reference_frame[extra_cols]], axis=1)
     else:
         joint = frame
     joint = joint.dropna()
@@ -222,7 +227,9 @@ def compute_adjusted_metrics(
         asset_characteristics=asset_characteristics,
         account=account,
     )
-    volatility = metrics.annualize_volatility(returns).reindex(column_index)
+    volatility = cast("pd.Series", metrics.annualize_volatility(returns)).reindex(
+        column_index
+    )
 
     sharpe = pd.Series(0.0, index=column_index, dtype=float)
     nonzero = volatility > 0
