@@ -1,8 +1,11 @@
 # Changelog
 
-## v1.0.0 (2026-08-19)
+## Unreleased
 
-First production release.
+The build metadata retains `1.0.0` as an internal candidate label rather than
+renumbering to `0.9.0`. This is not a tagged or published 1.0.0 release; date
+the heading when that release is actually cut. The installed package reports
+the build metadata version through `pysharpe.__version__`.
 
 ### Developer Infrastructure
 
@@ -35,7 +38,7 @@ First production release.
 - **Streamlit dashboard rewrite**: four-tab workspace (Portfolio Metrics & Comparison, Efficient Frontier, DCA Simulation, Raw Data & Logs). Full price history is fetched first and the maximum overlapping date range across tickers becomes the UI defaults (`compute_overlapping_date_range` in `src/pysharpe/app/data.py`); every date/weight widget is keyed by the ticker-set signature so stale state cannot leak between selections; weights default to a strict 1/N allocation with a zero-sum fallback; backtesting and execution/rebalancing are preserved as collapsed expanders under the metrics tab. Fixed the missing `__main__` guard that rendered a blank page on `streamlit run app.py`.
 - README and docs overhaul with CI badges, engineering-rigor section, uv-first quickstart, and the `.agents/skills/` agentic-development framework.
 
-## v0.3.0 (development log — superseded by v1.0.0)
+## v0.3.0 (earlier development log)
 
 ### Features
 

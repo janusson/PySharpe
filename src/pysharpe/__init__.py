@@ -9,6 +9,7 @@ imports between top-level modules.
 from __future__ import annotations
 
 from importlib import import_module
+from importlib.metadata import version as _distribution_version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -325,7 +326,15 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
 
 _EXPORT_MAP.update(_METRIC_EXPORTS)
 
-__all__: tuple[str, ...] = (*_CONFIG_EXPORTS, *_DIRECTORY_EXPORTS, *_EXPORT_MAP)  # type: ignore[reportUnknownVariableType]
+# The installed distribution metadata is the only version declaration.
+__version__: str = _distribution_version("pysharpe")
+
+__all__: tuple[str, ...] = (
+    "__version__",
+    *_CONFIG_EXPORTS,
+    *_DIRECTORY_EXPORTS,
+    *_EXPORT_MAP,
+)  # type: ignore[reportUnknownVariableType]
 
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - thin dynamic dispatch
