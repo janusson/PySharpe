@@ -125,6 +125,9 @@ jobs:
       # commits in this push or pull request. The scan deliberately covers the
       # event's commit range, not the full history — the historical AgentRQ
       # token predates this gate and is tracked separately (roadmap P0.1).
+      # `workflow_dispatch` carries no commit range, so a manual run scans full
+      # history and reports that pre-existing token until P0.1 lands; scope the
+      # job by event if that is not wanted.
       # GITLEAKS_ENABLE_COMMENTS is off so the job needs no write scope and the
       # workflow stays read-only; findings still fail the job (and are written
       # to the job summary) and .gitleaks.toml carries this repo's allowlist.
