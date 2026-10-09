@@ -233,8 +233,10 @@ class StreamlitStub:
     def altair_chart(self, chart: object, **kwargs) -> None:
         self.altair_chart_calls.append((chart, kwargs))
 
-    def metric(self, label: str, value: str) -> None:
-        self.metric_calls.append((label, value))
+    def metric(
+        self, label: str, value: str, delta: str | None = None, help: str | None = None
+    ) -> None:
+        self.metric_calls.append((label, value, delta, help))
 
     def dataframe(self, value: object) -> None:
         self.dataframe_calls.append(value)
@@ -447,16 +449,16 @@ def test_render_dca_projection_emits_metrics(
 ) -> None:
     class FakeProjection:
         months = [0, 1, 2]
-        balances = [1000.0, 1100.0, 1200.0]
-        contributions = [1000.0, 1200.0, 1400.0]
+        balances = [1000.0, 1200.0, 1500.0]
+        contributions = [1000.0, 1100.0, 1200.0]
 
         @staticmethod
         def final_balance() -> float:
-            return 1200.0
+            return 1500.0
 
         @staticmethod
         def final_contribution() -> float:
-            return 1400.0
+            return 1200.0
 
     monkeypatch.setattr(app, "simulate_dca", lambda **kwargs: FakeProjection())
 
@@ -464,8 +466,13 @@ def test_render_dca_projection_emits_metrics(
 
     assert list(projection_df.columns) == ["Months", "Balance", "Contributions"]
     assert len(streamlit_stub.line_chart_calls) == 1
-    assert streamlit_stub.metric_calls[0] == ("Final Balance", "$1,200.00")
-    assert streamlit_stub.metric_calls[1] == ("Total Contributions", "$1,400.00")
+    assert streamlit_stub.metric_calls[0][0:2] == ("Final Balance", "$1,500.00")
+    assert streamlit_stub.metric_calls[1][0:2] == ("Total Contributions", "$1,200.00")
+    assert streamlit_stub.metric_calls[2][0:3] == (
+        "Net Investment Gain",
+        "$300.00",
+        "+25.00%",
+    )
 
 
 def test_sidebar_controls_download_flow(
