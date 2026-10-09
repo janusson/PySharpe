@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -99,7 +100,8 @@ def _normalize_user_weights(
     never feeds a degenerate all-zero portfolio to the performance solver.
     """
 
-    raw = {str(asset): float(custom_weights.get(asset, 0.0)) for asset in assets}
+    supplied = custom_weights or {}
+    raw = {str(asset): float(supplied.get(asset, 0.0)) for asset in assets}
     total = sum(raw.values())
     if total > 0:
         return {ticker: value / total for ticker, value in raw.items()}
@@ -429,8 +431,11 @@ def _compute_frontier_data(
     # re-evaluate its performance with the net-of-drag pipeline.
     if opt_result is None:
         opt_result = optimise_from_prices(price_data, base_currency="CAD")
-    opt_result = _adjust_opt_result(
-        opt_result, price_data, expected_returns=mu, ctx=ctx
+    # `_adjust_opt_result` returns None only when given None, and the value
+    # above cannot be None, so the cast records what is already true.
+    opt_result = cast(
+        "OptimisationResult",
+        _adjust_opt_result(opt_result, price_data, expected_returns=mu, ctx=ctx),
     )
 
     # Fetch Benchmarks (evaluated jointly with the asset universe)
@@ -558,21 +563,27 @@ def render_frontier_plot(
         return
 
     try:
+        plot_opt_result: OptimisationResult
         if cached is not None:
             user_port = cached["user_port"]
-            opt_result = cached["opt_result"]
+            plot_opt_result = cast("OptimisationResult", cached["opt_result"])
             benchmarks_df = cached["benchmarks_df"]
             frontier_rets = cached["frontier_rets"]
             frontier_vols = cached["frontier_vols"]
         else:
-            _, user_port, opt_result, benchmarks_df, frontier_rets, frontier_vols = (
-                _compute_frontier_data(price_data, custom_weights, opt_result)
-            )
+            (
+                _,
+                user_port,
+                plot_opt_result,
+                benchmarks_df,
+                frontier_rets,
+                frontier_vols,
+            ) = _compute_frontier_data(price_data, custom_weights, opt_result)
         fig = plot_portfolio_comparison(
             frontier_returns=frontier_rets,
             frontier_vols=frontier_vols,
             user_portfolio=user_port,
-            optimized_portfolio=opt_result,
+            optimized_portfolio=plot_opt_result,
             benchmarks_df=benchmarks_df,
             prices=price_data,
         )

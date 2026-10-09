@@ -6,17 +6,12 @@ CSVs, configuring execution parameters, and generating a RebalancePlan.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from pathlib import Path
 
 import pandas as pd
-
-try:
-    import streamlit as st  # type: ignore[import]
-except ImportError:  # pragma: no cover
-    st = None  # type: ignore[assignment]
-
-import shutil
+import streamlit as st
 
 from pysharpe.config import ExecutionConfig
 from pysharpe.execution.rebalance import RebalancePlan, build_rebalance_plan
