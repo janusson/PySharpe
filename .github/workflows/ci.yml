@@ -138,3 +138,32 @@ jobs:
 
       - name: Build documentation (strict mode)
         run: make build_docs
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The scan range is expressed as a commit range, so the commits in it
+          # must be present locally; the default shallow clone is not enough.
+          fetch-depth: 0
+
+      # Standing tripwire: fails the job if a credential is introduced by the
+      # commits in this push or pull request. The scan deliberately covers the
+      # event's commit range, not the full history — the historical AgentRQ
+      # token predates this gate and is tracked separately (roadmap P0.1).
+      # `workflow_dispatch` carries no commit range, so a manual run scans full
+      # history and reports that pre-existing token until P0.1 lands; scope the
+      # job by event if that is not wanted.
+      # GITLEAKS_ENABLE_COMMENTS is off so the job needs no write scope and the
+      # workflow stays read-only; findings still fail the job (and are written
+      # to the job summary) and .gitleaks.toml carries this repo's allowlist.
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"

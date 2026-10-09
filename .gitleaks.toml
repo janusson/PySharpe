@@ -1,0 +1,26 @@
+# Gitleaks configuration for PySharpe.
+#
+# The `secrets` job in .github/workflows/ci.yml runs gitleaks over the commits
+# introduced by each push / pull request and fails the job on any finding. This
+# file adds the allowlist entries this repository genuinely needs; the full
+# upstream rule set stays in force (see `extend.useDefault` below), so an
+# unlisted credential pattern still fails the scan.
+#
+# The top-level `[allowlist]` table is the form the pinned scanner version
+# resolves (gitleaks 8.24.3, installed by gitleaks-action v3.0.0); the newer
+# `[[allowlists]]` array form is silently ignored by that version.
+
+[extend]
+# Merge the upstream rule set and its global allowlist into this config; without
+# `useDefault`, only rules declared in this file would run.
+useDefault = true
+
+[allowlist]
+description = "Repository-specific non-secrets"
+# `.mcp.json.example` is a redacted template: it contains `${AGENTRQ_MCP_TOKEN}`
+# placeholders, never a value. It is deliberately tracked (see the `.mcp.json`
+# entry in .gitignore) so contributors know which environment variables to set,
+# so it is allowlisted by path instead of being excluded from the repository.
+paths = [
+  '''\.mcp\.json\.example$''',
+]
