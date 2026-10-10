@@ -106,7 +106,7 @@ def apply_category_mapping(
     frame = prices.copy()
     frame = frame.sort_index()
     frame = frame.apply(pd.to_numeric, errors="coerce")
-    frame = frame.ffill().bfill()
+    frame = frame.ffill()
 
     column_order: list[str] = []
     category_labels: list[str] = []
@@ -134,10 +134,15 @@ def apply_category_mapping(
 
     frame = frame.loc[:, column_order]
 
-    baseline = frame.iloc[0].replace(0, pd.NA)
+    # Use bfill to find the first valid observation for each asset to use as baseline
+    baseline = frame.bfill().iloc[0].replace(0, pd.NA)
     normalised = frame.divide(baseline)
-    normalised = normalised.ffill().bfill()
-    normalised.iloc[0] = 1.0
+    normalised = normalised.ffill()
+    # Replace the initial valid observation with 1.0 (to match the behavior when there were no NaNs)
+    for col in normalised.columns:
+        first_valid = normalised[col].first_valid_index()
+        if first_valid is not None:
+            normalised.loc[first_valid, col] = 1.0
 
     ordered_categories = list(dict.fromkeys(category_labels))
     category_index = pd.Index(category_labels, name="Category")
