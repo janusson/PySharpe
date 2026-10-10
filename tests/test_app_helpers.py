@@ -98,8 +98,8 @@ def test_resolve_field_frame_returns_numeric_when_no_match():
 def test_clean_numeric_frame_deduplicates_and_fills():
     frame = pd.DataFrame(
         data=[
-            [100.0, None],
-            [None, 102.0],
+            [100.0, 101.0],
+            [None, None],
         ],
         index=pd.date_range("2023-01-01", periods=2, freq="D"),
         columns=["AAPL", "AAPL"],
@@ -109,6 +109,24 @@ def test_clean_numeric_frame_deduplicates_and_fills():
 
     assert list(cleaned.columns) == ["AAPL", "AAPL.1"]
     assert cleaned.isna().sum().sum() == 0
+
+
+def test_clean_numeric_frame_preserves_leading_nan():
+    frame = pd.DataFrame(
+        data=[
+            [None, 101.0],
+            [100.0, None],
+        ],
+        index=pd.date_range("2023-01-01", periods=2, freq="D"),
+        columns=["AAPL", "MSFT"],
+    )
+
+    cleaned = _clean_numeric_frame(frame)
+
+    assert pd.isna(cleaned.iloc[0, 0])
+    assert cleaned.iloc[1, 0] == 100.0
+    assert cleaned.iloc[0, 1] == 101.0
+    assert cleaned.iloc[1, 1] == 101.0
 
 
 def test_clean_numeric_frame_returns_empty_input():

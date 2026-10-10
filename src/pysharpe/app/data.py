@@ -77,7 +77,7 @@ def _clean_numeric_frame(frame: pd.DataFrame) -> pd.DataFrame:
     cleaned = frame.dropna(how="all", axis=1)
     if cleaned.empty:
         return cleaned
-    cleaned = cleaned.ffill().bfill()
+    cleaned = cleaned.ffill()
     cleaned.columns = _deduplicate_columns(cleaned.columns)
     return cleaned
 
@@ -290,7 +290,7 @@ def load_prices(
                 combined = combined.loc[start_ts:]
             if end_ts is not None:
                 combined = combined.loc[:end_ts]
-            combined = combined.ffill().bfill()
+            combined = combined.ffill()
             if combined.empty:
                 raise RuntimeError(
                     "Cached price data does not cover the selected date range. "
@@ -375,7 +375,7 @@ def load_prices(
     if end_ts is not None:
         combined = combined.loc[:end_ts]
 
-    combined = combined.ffill().bfill()
+    combined = combined.ffill()
     if combined.empty:
         LOGGER.error(
             "Filtered price frame is empty after applying date range for tickers: %s",
