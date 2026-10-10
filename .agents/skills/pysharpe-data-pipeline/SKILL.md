@@ -34,10 +34,11 @@ PriceFetcher (ABC)
 └── DuckDBCachedPriceFetcher  — Write-through cache wrapping YFinancePriceFetcher.
 ```
 
-- `YFinancePriceFetcher.fetch(ticker, start, end, base_currency)` returns a
-  `pandas.DataFrame` with columns: `Date`, `Close`, `Currency`.
-- If `base_currency` differs from the native currency, FX conversion is applied
-  during fetch.
+- `YFinancePriceFetcher.fetch_history(ticker, period, interval, start, end)` returns a
+  `pandas.DataFrame` indexed by timestamp with yfinance pricing columns such as `Close`.
+- FX conversion is **not** applied by `fetch_history` — call
+  `apply_fx_conversion()` (`pysharpe.data.fetcher`) on the returned frame. The
+  collation, workflow, optimisation and benchmark paths do this for you.
 - **DuckDB wrapping is conditional**: only `YFinancePriceFetcher` instances get
   wrapped. Custom fetchers and test stubs pass through unwrapped.
 
@@ -63,9 +64,11 @@ PriceFetcher (ABC)
 
 `proxy_map.json` in the working directory maps ticker → proxy ticker with
 optional adjustments:
-- `ticker` — The proxy ticker symbol.
-- `fx` — FX rate override (float).
-- `weight` — Position weight adjustment.
+- `proxy` — The historical proxy ticker symbol.
+- `fx_adjust` — Whether historical proxy prices receive FX adjustment.
+- `start_date` — Earliest date for the proxy history.
+- `is_us_domiciled` — Whether the target asset is US-domiciled.
+- `is_cad_denominated` — Whether the target asset is CAD-denominated.
 
 Loaded automatically by `build_settings()` at startup.
 
@@ -92,8 +95,7 @@ Relevant test files:
 - `tests/test_fx_adjustment.py`
 - `tests/test_data_fetcher_cache.py`
 - `tests/test_collation.py`
-- `tests/test_collation_proxy.py`
 - `tests/test_data_linkage.py` (includes `HistoryLinker` stitched proxy-history
   coverage: handover math, FX adjustment, FX-coverage guardrails)
 
-Run: `uv run pytest tests/test_fetcher.py tests/test_fx_adjustment.py tests/test_data_fetcher_cache.py tests/test_collation.py`
+Run: `uv run pytest tests/test_fetcher.py tests/test_fx_adjustment.py tests/test_data_fetcher_cache.py tests/test_collation.py tests/test_data_linkage.py`

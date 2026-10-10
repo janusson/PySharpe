@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "agentrq": {
+    "example-server": {
       "type": "http",
-      "url": "https://<your-endpoint>.mcp.agentrq.com?token=${AGENTRQ_MCP_TOKEN}"
+      "url": "https://<your-endpoint>/mcp?token=${MCP_TOKEN}"
     }
   }
 }

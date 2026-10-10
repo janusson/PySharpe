@@ -11,10 +11,17 @@
 from __future__ import annotations
 
 import importlib
+from importlib.metadata import version
 
 import pytest
 
 import pysharpe
+
+
+def test_package_version_matches_installed_metadata():
+    assert pysharpe.__version__ == version("pysharpe")
+    assert "__version__" in pysharpe.__all__
+    assert "__version__" in dir(pysharpe)
 
 
 def test_lazy_import_exposes_metrics():

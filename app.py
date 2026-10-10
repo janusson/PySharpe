@@ -11,6 +11,7 @@ Layout follows a quantitative workflow:
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import cast
 
 import pandas as pd
@@ -149,8 +150,16 @@ def _slice_prices(full: pd.DataFrame, start: object, end: object) -> pd.DataFram
 
     if full.empty:
         return full
-    start_ts = pd.Timestamp(start) if start is not None else None
-    end_ts = pd.Timestamp(end) if end is not None else None
+    start_ts = (
+        pd.Timestamp(cast("dt.date | dt.datetime | str", start))
+        if start is not None
+        else None
+    )
+    end_ts = (
+        pd.Timestamp(cast("dt.date | dt.datetime | str", end))
+        if end is not None
+        else None
+    )
     out = full
     if start_ts is not None:
         out = out.loc[out.index >= start_ts]

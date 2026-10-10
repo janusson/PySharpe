@@ -34,7 +34,7 @@ CANADIAN_BENCHMARKS = {
 }
 
 #: Annual MERs as decimal fractions (never percentage points).  VEQT.TO uses
-#: the project's canonical 0.0017 (see ``portfolio_config.json`` defaults).
+#: the project's canonical 0.0017 (independent of any user config file).
 BENCHMARK_MERS: dict[str, float] = {
     "VEQT.TO": 0.0017,
     "XEQT.TO": 0.0020,

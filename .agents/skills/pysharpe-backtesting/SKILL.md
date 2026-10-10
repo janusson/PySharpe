@@ -37,7 +37,7 @@ The backtest engine simulates portfolio evolution over historical data:
 - Fixed-interval rebalancing (e.g., monthly, quarterly).
 - On each rebalance date: compute target weights (via optimizer or VA
   allocator), execute trades, apply transaction costs, update portfolio state.
-- Tracks: portfolio value over time, cash flows, turnover, drawdowns.
+- Tracks: portfolio value over time, historical weights, and rebalance events. Cash-flow rebalancing is a separate execution subsystem.
 
 ### Drift-Based Rebalancing
 - Rebalance triggers when portfolio weights drift beyond tolerance bands
@@ -75,9 +75,7 @@ The backtest engine simulates portfolio evolution over historical data:
 ## Benchmarks
 
 `analysis/benchmarks.py` provides benchmark portfolio construction:
-- Equal-weight portfolio.
-- Market-cap-weight proxy.
-- 60/40 stock/bond benchmark.
+- Canadian ETF baseline comparison via `CANADIAN_BENCHMARKS` in `analysis/benchmarks.py` (VEQT, XEQT, VGRO, XGRO, VBAL, XBAL).
 
 ## Scoring
 
@@ -107,14 +105,13 @@ never contain temporal state or rebalancing logic.
 Relevant test files:
 - `tests/test_analysis_backtest_engine.py`
 - `tests/test_analysis_transaction_costs.py`
-- `tests/test_analysis_walk_forward.py`
 - `tests/test_analysis_time_series.py`
-- `tests/test_analysis_benchmarks.py`
-- `tests/test_analysis_visualization.py`
 - `tests/test_analysis.py`
+- `tests/test_visualization_charts.py`
+- `tests/test_visualization_frontier.py`
 - `tests/test_categorization.py`
 - `tests/test_backtest_page.py`
 
-Run: `uv run pytest tests/test_analysis_backtest_engine.py tests/test_analysis_time_series.py tests/test_analysis_walk_forward.py`
+Run: `uv run pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py tests/test_analysis_time_series.py tests/test_analysis.py tests/test_visualization_charts.py tests/test_visualization_frontier.py`
 
 All tests must use synthetic data with fixed seeds. No network calls.

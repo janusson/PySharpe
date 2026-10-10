@@ -159,6 +159,13 @@ your change instead of the full suite every time.
 ## `test_sample_size.py`
 - `pysharpe.validation.sample_size`
 
+## Installed-wheel smoke check
+- `scripts/smoke_wheel.py` runs in CI from outside the checkout using a fresh
+  wheel-only virtual environment. It imports all public package modules, resolves
+  `_EXPORT_MAP`, exercises `pysharpe --help`, and allocates a synthetic portfolio
+  offline. It is not a substitute for `tests/test_package_api.py` or
+  `tests/test_cli.py`, which run against the checkout.
+
 ---
 
 ## Quick Reference — Run These For Your Change
