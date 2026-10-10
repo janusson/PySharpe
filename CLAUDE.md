@@ -59,7 +59,7 @@ PySharpe follows a layered pipeline from data ingestion through computation to
 execution and presentation.
 
 ```
-Config Layer   →  config.py (LRU-cached singleton), portfolio_config.json, proxy_map.json
+Config Layer   →  config.py (LRU-cached singleton), portfolio_config.example.json (opt-in, never auto-loaded), proxy_map.json
 Data Pipeline  →  YFinance → DuckDB cache → FX (CAD, no .bfill()) → CSV collation → DuckDB linkage
 Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, GARCH, VAR)
 Execution      →  allocator.py (60/40 VA) + rebalance.py + tax_tracker.py + cash_flow_rebalance.py
@@ -164,8 +164,11 @@ src/pysharpe/
   MCMC run — so CI passes even when FAST_COMPILE is broken.
 - **`get_settings()`** is LRU-cached; call `get_settings.cache_clear()` in tests
   that vary env vars.
-- **`portfolio_config.json`** in the working directory is auto-loaded for MER/
-  geo constraints. Pass `--config` to override.
+- **`portfolio_config.json` is never auto-loaded.** Pass `--config PATH` to
+  `optimise`, `rebalance`, or `allocate`, or use `load_execution_config(path)` /
+  `build_settings(portfolio_config_path=path)` in library code. Start from
+  `portfolio_config.example.json`; when constraints are enabled, supply MER/geo
+  mappings for every ticker in the target portfolio.
 - **`proxy_map.json`** maps tickers to proxy tickers with optional FX and weight
   adjustments.
 

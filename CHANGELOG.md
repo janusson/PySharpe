@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Replace the shipped `portfolio_config.json` with an opt-in example; the
+  sample portfolio MER cap is 0.5% rather than the ineffective 100%.
+  CLI optimisation and library settings no longer silently read a config from
+  the working directory. Pass `--config PATH` (or an explicit library path)
+  to apply account and portfolio constraints.
+
 The build metadata retains `1.0.0` as an internal candidate label rather than
 renumbering to `0.9.0`. This is not a tagged or published 1.0.0 release; date
 the heading when that release is actually cut. The installed package reports
