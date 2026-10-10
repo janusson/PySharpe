@@ -1,0 +1,32 @@
+# Dependabot version updates.
+#
+# Once this file is on the default branch, Dependabot opens scheduled PRs for:
+#   1. GitHub Actions — it bumps the SHA pins in .github/workflows/ AND keeps
+#      the trailing `# vX.Y.Z` comment in sync, which is exactly how the
+#      supply-chain pins stay both immutable and current.
+#   2. Python dependencies — resolved against uv.lock (uv manages this repo).
+#
+# Dependabot *security* alerts/updates are separate and are switched on under
+# Settings → Code security (see docs/GOTCHAS.md for the reasoning).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
