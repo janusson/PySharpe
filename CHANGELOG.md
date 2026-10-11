@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-10
 
 - Replace the shipped `portfolio_config.json` with an opt-in example; the
   sample portfolio MER cap is 0.5% rather than the ineffective 100%.
@@ -8,10 +8,16 @@
   the working directory. Pass `--config PATH` (or an explicit library path)
   to apply account and portfolio constraints.
 
-The build metadata retains `1.0.0` as an internal candidate label rather than
-renumbering to `0.9.0`. This is not a tagged or published 1.0.0 release; date
-the heading when that release is actually cut. The installed package reports
-the build metadata version through `pysharpe.__version__`.
+Cut as tag `0.4.0` on 2026-10-10. The version is declared once, in `pyproject.toml`,
+and reported by `pysharpe.__version__` from the installed distribution metadata.
+This is a pre-1.0 tag: the CLI, the library surface, and the configuration schema may
+change between minor releases.
+
+- **Look-ahead bias removed from price normalisation:** `apply_category_mapping`
+  and the app's price loader no longer `bfill()` time series, which had pulled
+  future prices backwards into earlier rows and contaminated category
+  normalisation and every downstream backtest. Missing leading observations are
+  now left as `NaN` rather than filled from the future.
 
 ### Developer Infrastructure
 
