@@ -31,4 +31,4 @@ decisions before implementation work begins.
 
 ## Status
 
-The development tree includes the CLI (`optimise`, `allocate`, `rebalance`, `simulate-dca`, `plot`), the Streamlit dashboard, and the test suite; no v1.0.0 release has been tagged or published. This page is a high-level orientation; `CLAUDE.md` is the authoritative, always-current architecture reference, and `docs/flowchart.md` diagrams the full data flow end to end.
+The development tree includes the CLI (`optimise`, `allocate`, `rebalance`, `simulate-dca`, `plot`), the Streamlit dashboard, and the test suite. The most recent release is `0.4.0`; no `1.0` release has been tagged or published. This page is a high-level orientation; `CLAUDE.md` is the authoritative, always-current architecture reference, and `docs/flowchart.md` diagrams the full data flow end to end.
