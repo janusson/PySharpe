@@ -49,6 +49,7 @@ from pysharpe.optimization.sharpe_optimizer import (
 from pysharpe.optimization.tax_location import (
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -170,7 +171,11 @@ class Test2DOptimizerWeights:
         optimizer_config: SharpeOptimizerConfig,
     ) -> None:
         """Grand total of all (ticker × account) weights must equal 1.0."""
-        opt = SharpeOptimizer(prices_2d, optimizer_config)
+        opt = SharpeOptimizer(
+            prices_2d,
+            optimizer_config,
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         result = opt.optimize()
 
         total = sum(result.weights.values())
@@ -182,7 +187,11 @@ class Test2DOptimizerWeights:
         optimizer_config: SharpeOptimizerConfig,
     ) -> None:
         """Every individual weight must be ≥ 0."""
-        opt = SharpeOptimizer(prices_2d, optimizer_config)
+        opt = SharpeOptimizer(
+            prices_2d,
+            optimizer_config,
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         result = opt.optimize()
 
         for key, w in result.weights.items():
@@ -195,7 +204,11 @@ class Test2DOptimizerWeights:
         account_capacities: dict[AccountType, float],
     ) -> None:
         """Sum of weights assigned to each account must not exceed its cap."""
-        opt = SharpeOptimizer(prices_2d, optimizer_config)
+        opt = SharpeOptimizer(
+            prices_2d,
+            optimizer_config,
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         result = opt.optimize()
 
         per_account: dict[str, float] = {}
@@ -214,7 +227,11 @@ class Test2DOptimizerWeights:
         optimizer_config: SharpeOptimizerConfig,
     ) -> None:
         """In 2-D mode every weight key must be a (ticker, account) tuple."""
-        opt = SharpeOptimizer(prices_2d, optimizer_config)
+        opt = SharpeOptimizer(
+            prices_2d,
+            optimizer_config,
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         result = opt.optimize()
 
         for key in result.weights:
@@ -237,7 +254,11 @@ class Test2DOptimizerWeights:
             max_weight=0.50,
             # No account_capacities → 1-D backward-compat
         )
-        opt = SharpeOptimizer(prices_2d, config)
+        opt = SharpeOptimizer(
+            prices_2d,
+            config,
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         result = opt.optimize()
 
         total = sum(result.weights.values())
@@ -267,7 +288,11 @@ class Test2DOptimizerWeights:
             account_capacities=bad_caps,
         )
         with pytest.raises(ValueError, match="sum to"):
-            SharpeOptimizer(prices_2d, config)
+            SharpeOptimizer(
+                prices_2d,
+                config,
+                return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+            )
 
 
 # ---------------------------------------------------------------------------

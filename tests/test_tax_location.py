@@ -24,10 +24,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from pysharpe.exceptions import DataValidationError
 from pysharpe.optimization.tax_location import (
     AccountType,
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
     _normalize_account,
     build_asset_characteristics,
@@ -427,7 +429,12 @@ class TestTaxAdjustedReturn:
     def test_mer_deducted(self, engine):
         """MER should be deducted alongside drag."""
         asset = AssetTaxCharacteristics("XEQT.TO", dividend_yield=0.02, mer=0.0020)
-        result = engine.compute_tax_adjusted_return(0.07, asset, "TFSA")
+        result = engine.compute_tax_adjusted_return(
+            0.07,
+            asset,
+            "TFSA",
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         assert result == pytest.approx(0.07 - 0.0020)  # no FWT, MER only
 
     def test_mer_and_drag_both_deducted(self, engine):
@@ -438,9 +445,29 @@ class TestTaxAdjustedReturn:
             is_cad_wrapped_us_equity=True,
             mer=0.0009,
         )
-        result = engine.compute_tax_adjusted_return(0.09, vfv, "TFSA")
+        result = engine.compute_tax_adjusted_return(
+            0.09,
+            vfv,
+            "TFSA",
+            return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+        )
         fwt_drag = 0.012 * 0.15
         assert result == pytest.approx(0.09 - 0.0009 - fwt_drag)
+
+    def test_net_return_basis_does_not_deduct_mer(self, engine):
+        asset = AssetTaxCharacteristics("VFV.TO", dividend_yield=0.0, mer=0.0017)
+        result = engine.compute_tax_adjusted_return(
+            0.08,
+            asset,
+            "TFSA",
+            return_basis=ReturnBasis.NET_OF_EXPENSES,
+        )
+        assert result == pytest.approx(0.08)
+
+    def test_unknown_basis_with_nonzero_mer_raises(self, engine):
+        asset = AssetTaxCharacteristics("VFV.TO", dividend_yield=0.0, mer=0.0017)
+        with pytest.raises(DataValidationError, match="Return basis is required"):
+            engine.compute_tax_adjusted_return(0.08, asset, "TFSA")
 
     def test_non_reg_income_tax_reduces_return(self, engine):
         """Income tax drag in Non-Reg should reduce expected return."""

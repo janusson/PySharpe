@@ -27,6 +27,7 @@ from pysharpe.optimization.models import (
 from pysharpe.optimization.tax_location import (
     AccountType,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
     build_asset_characteristics_batch,
 )
@@ -60,9 +61,9 @@ class _TaxContext:
 def _tax_context(price_data: pd.DataFrame) -> _TaxContext:
     """Build the tax/MER evaluation context from the app settings.
 
-    Uses the user's active ``TaxProfile`` and per-ticker MER/proxy metadata
-    so the Custom Mix and benchmarks are penalized exactly like the optimizer
-    pipeline (MER deduction + account-specific tax drag).
+    Uses the user's active ``TaxProfile`` and per-ticker MER/proxy metadata.
+    MER remains informational until the caller supplies an explicit return
+    basis; account-specific tax drag is modeled separately.
     """
 
     characteristics = build_asset_characteristics_batch(
@@ -309,6 +310,7 @@ def _build_portfolio_result(
     *,
     expected_returns: pd.Series,
     ctx: _TaxContext,
+    return_basis: ReturnBasis | str | None,
 ) -> OptimisationResult:
     """Evaluate a ticker→weight mapping with shrunk, tax-adjusted returns.
 
@@ -324,6 +326,7 @@ def _build_portfolio_result(
         tax_profile=ctx.tax_profile,
         asset_characteristics=ctx.asset_characteristics,
         account=ctx.account,
+        return_basis=return_basis,
     )
     performance = OptimisationPerformance(
         expected_return=expected_return,
@@ -345,12 +348,13 @@ def _adjust_opt_result(
     *,
     expected_returns: pd.Series,
     ctx: _TaxContext,
+    return_basis: ReturnBasis | str | None,
 ) -> OptimisationResult | None:
     """Re-evaluate an optimizer result with net-of-drag expected returns.
 
     The optimizer's weights are kept; only the reported performance is
-    recomputed so the PySharpe Optimized row reflects the same MER and
-    account-specific tax drag as the Custom Mix and benchmark rows.
+    recomputed so the PySharpe Optimized row uses the same explicit MER basis
+    and account-specific tax drag as the Custom Mix.
     """
 
     if opt_result is None:
@@ -362,6 +366,7 @@ def _adjust_opt_result(
         tax_profile=ctx.tax_profile,
         asset_characteristics=ctx.asset_characteristics,
         account=ctx.account,
+        return_basis=return_basis,
     )
     return replace(
         opt_result,
@@ -396,6 +401,8 @@ def _compute_frontier_data(
     price_data: pd.DataFrame,
     custom_weights: dict[str, float],
     opt_result: OptimisationResult | None = None,
+    *,
+    return_basis: ReturnBasis | str | None = None,
 ) -> tuple[
     OptimisationResult,  # equal_port
     OptimisationResult,  # user_port
@@ -421,10 +428,20 @@ def _compute_frontier_data(
     equal_weights = equal_weight_allocation(assets)
     user_weights = _normalize_user_weights(assets, custom_weights)
     equal_port = _build_portfolio_result(
-        equal_weights, EQUAL_WEIGHT_NAME, price_data, expected_returns=mu, ctx=ctx
+        equal_weights,
+        EQUAL_WEIGHT_NAME,
+        price_data,
+        expected_returns=mu,
+        ctx=ctx,
+        return_basis=return_basis,
     )
     user_port = _build_portfolio_result(
-        user_weights, "Custom Mix", price_data, expected_returns=mu, ctx=ctx
+        user_weights,
+        "Custom Mix",
+        price_data,
+        expected_returns=mu,
+        ctx=ctx,
+        return_basis=return_basis,
     )
 
     # Use caller-provided optimisation result or compute fresh, then
@@ -435,7 +452,13 @@ def _compute_frontier_data(
     # above cannot be None, so the cast records what is already true.
     opt_result = cast(
         "OptimisationResult",
-        _adjust_opt_result(opt_result, price_data, expected_returns=mu, ctx=ctx),
+        _adjust_opt_result(
+            opt_result,
+            price_data,
+            expected_returns=mu,
+            ctx=ctx,
+            return_basis=return_basis,
+        ),
     )
 
     # Fetch Benchmarks (evaluated jointly with the asset universe)
@@ -462,6 +485,8 @@ def _compute_frontier_data(
 def run_full_analysis(
     price_data: pd.DataFrame,
     custom_weights: dict[str, float],
+    *,
+    return_basis: ReturnBasis | str | None = None,
 ) -> dict:
     """Execute the full analytics pipeline and return cached results.
 
@@ -471,11 +496,16 @@ def run_full_analysis(
     results can be stored in ``st.session_state`` and reused across tabs
     without re-executing heavy solvers.
 
-    All portfolio rows and the benchmarks are evaluated with the same
-    harmonized pipeline: Bayes-Stein shrunk expected returns (benchmarks
-    shrunk jointly with the asset universe) reduced by MER and
-    account-specific tax drag via the :class:`AssetLocationEngine`, with
-    Sharpe ratios recomputed from the adjusted returns.
+    All portfolio rows use the selected return basis. MER is deducted only
+    for inputs explicitly identified as gross of expenses; observed ETF
+    prices are net of embedded fund expenses. Account-specific tax drag is
+    applied separately via the :class:`AssetLocationEngine`.
+
+    Args:
+        price_data: Historical price observations for the assets.
+        custom_weights: User weights for the observed assets.
+        return_basis: Basis of those price-derived returns; ``None`` is unknown
+            and cannot authorize a nonzero MER deduction.
 
     Returns a dict suitable for assignment to ``st.session_state``::
 
@@ -501,16 +531,30 @@ def run_full_analysis(
     equal_weights = equal_weight_allocation(assets)
     user_weights = _normalize_user_weights(assets, custom_weights)
     equal_port = _build_portfolio_result(
-        equal_weights, EQUAL_WEIGHT_NAME, price_data, expected_returns=mu, ctx=ctx
+        equal_weights,
+        EQUAL_WEIGHT_NAME,
+        price_data,
+        expected_returns=mu,
+        ctx=ctx,
+        return_basis=return_basis,
     )
     user_port = _build_portfolio_result(
-        user_weights, "Custom Mix", price_data, expected_returns=mu, ctx=ctx
+        user_weights,
+        "Custom Mix",
+        price_data,
+        expected_returns=mu,
+        ctx=ctx,
+        return_basis=return_basis,
     )
 
     # Run the portfolio optimisation
     opt_result = optimise_from_prices(price_data, base_currency="CAD")
     opt_result = _adjust_opt_result(
-        opt_result, price_data, expected_returns=mu, ctx=ctx
+        opt_result,
+        price_data,
+        expected_returns=mu,
+        ctx=ctx,
+        return_basis=return_basis,
     )
 
     # Fetch Benchmarks (evaluated jointly with the asset universe)
@@ -530,7 +574,10 @@ def run_full_analysis(
 
 
 def render_frontier_comparison(
-    price_data: pd.DataFrame, custom_weights: dict[str, float]
+    price_data: pd.DataFrame,
+    custom_weights: dict[str, float],
+    *,
+    return_basis: ReturnBasis | str | None = None,
 ) -> None:
     """Render the Efficient Frontier overlay plot and comparison table.
 
@@ -539,9 +586,9 @@ def render_frontier_comparison(
     tab layout, use the individual functions directly.
     """
 
-    render_frontier_plot(price_data, custom_weights)
+    render_frontier_plot(price_data, custom_weights, return_basis=return_basis)
     st.markdown("### Performance Comparison")
-    render_performance_comparison(price_data, custom_weights)
+    render_performance_comparison(price_data, custom_weights, return_basis=return_basis)
 
 
 def render_frontier_plot(
@@ -549,6 +596,8 @@ def render_frontier_plot(
     custom_weights: dict[str, float],
     opt_result: OptimisationResult | None = None,
     cached: dict | None = None,
+    *,
+    return_basis: ReturnBasis | str | None = None,
 ) -> None:
     """Render only the Efficient Frontier matplotlib plot (no table).
 
@@ -578,7 +627,12 @@ def render_frontier_plot(
                 benchmarks_df,
                 frontier_rets,
                 frontier_vols,
-            ) = _compute_frontier_data(price_data, custom_weights, opt_result)
+            ) = _compute_frontier_data(
+                price_data,
+                custom_weights,
+                opt_result,
+                return_basis=return_basis,
+            )
         fig = plot_portfolio_comparison(
             frontier_returns=frontier_rets,
             frontier_vols=frontier_vols,
@@ -597,6 +651,8 @@ def render_performance_comparison(
     custom_weights: dict[str, float],
     opt_result: OptimisationResult | None = None,
     cached: dict | None = None,
+    *,
+    return_basis: ReturnBasis | str | None = None,
 ) -> None:
     """Render only the Performance Comparison markdown table.
 
@@ -617,7 +673,12 @@ def render_performance_comparison(
             benchmarks_df = cached["benchmarks_df"]
         else:
             equal_port, user_port, opt_result, benchmarks_df, _, _ = (
-                _compute_frontier_data(price_data, custom_weights, opt_result)
+                _compute_frontier_data(
+                    price_data,
+                    custom_weights,
+                    opt_result,
+                    return_basis=return_basis,
+                )
             )
 
         comp_data: list[dict[str, str]] = []
@@ -651,8 +712,10 @@ def render_performance_comparison(
 
         st.caption(
             "All rows use Bayes-Stein shrunk expected returns (benchmarks are "
-            "shrunk jointly with the asset universe) reduced by MER and "
-            "account-specific tax drag via the AssetLocationEngine.  Benchmarks "
+            "shrunk jointly with the asset universe). MER is deducted only for "
+            "inputs explicitly identified as gross of expenses; observed ETF "
+            "prices are net and receive no second MER deduction. Account-specific "
+            "tax drag is applied via the AssetLocationEngine. Benchmarks "
             "and the Custom Mix assume **Non-Registered** account placement with "
             "the configured TaxProfile unless an explicit asset-location split "
             f"is provided.  Sharpe ratios use the {DEFAULT_RISK_FREE_RATE:.0%} "

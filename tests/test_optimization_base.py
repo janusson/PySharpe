@@ -3,13 +3,14 @@ import pandas as pd
 import pytest
 from conftest import _SAMPLING_SKIP_REASON, pymc_sampling_works
 
-from pysharpe.exceptions import ExecutionConfigError
+from pysharpe.exceptions import DataValidationError, ExecutionConfigError
 from pysharpe.optimization.base import OptimizationResult, PortfolioOptimizer
 from pysharpe.optimization.bayesian import BayesianOptimizer
 from pysharpe.optimization.sharpe_optimizer import (
     SharpeOptimizer,
     SharpeOptimizerConfig,
 )
+from pysharpe.optimization.tax_location import ReturnBasis
 
 
 @pytest.fixture
@@ -69,6 +70,7 @@ def test_sharpe_optimizer_mer_deduction_is_decimal_not_percentage(steady_prices)
             max_weight=1.0,
             mer_by_ticker={"A": 0.01, "B": 0.01},
         ),
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
     )
     ret_with_mer, _, _ = opt_with_mer.calculate_portfolio_performance(equal_weights)
 
@@ -79,12 +81,30 @@ def test_sharpe_optimizer_mer_deduction_is_decimal_not_percentage(steady_prices)
         "mer_by_ticker should use decimal fractions, not percentage points."
     )
 
+    opt_net = SharpeOptimizer(
+        prices=steady_prices.copy(),
+        config=SharpeOptimizerConfig(
+            max_weight=1.0, mer_by_ticker={"A": 0.01, "B": 0.01}
+        ),
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
+    )
+    ret_net, _, _ = opt_net.calculate_portfolio_performance(equal_weights)
+    assert ret_net == pytest.approx(ret_no_mer)
+
+    with pytest.raises(DataValidationError, match="return_basis is required"):
+        SharpeOptimizer(
+            prices=steady_prices.copy(),
+            config=SharpeOptimizerConfig(
+                max_weight=1.0, mer_by_ticker={"A": 0.01, "B": 0.01}
+            ),
+        )
+
 
 def test_sharpe_optimizer_implements_protocol(sample_data):
     from pysharpe.optimization.sharpe_optimizer import SharpeOptimizerConfig
 
     config = SharpeOptimizerConfig(max_weight=1.0)
-    optimizer = SharpeOptimizer(prices=sample_data, config=config)
+    optimizer = SharpeOptimizer(sample_data, config)
     assert isinstance(optimizer, PortfolioOptimizer)
 
     result = optimizer.optimize()
@@ -111,7 +131,11 @@ def test_mer_constraint_respected(three_asset_prices):
         mer_by_ticker=mer_mapping,
         max_portfolio_mer=max_mer,
     )
-    optimizer = SharpeOptimizer(prices=three_asset_prices, config=config)
+    optimizer = SharpeOptimizer(
+        prices=three_asset_prices,
+        config=config,
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+    )
     result = optimizer.optimize()
 
     port_mer = sum(result.weights.get(t, 0.0) * mer_mapping[t] for t in result.weights)
@@ -130,7 +154,11 @@ def test_mer_constraint_with_max_weight(three_asset_prices):
         mer_by_ticker=mer_mapping,
         max_portfolio_mer=max_mer,
     )
-    optimizer = SharpeOptimizer(prices=three_asset_prices, config=config)
+    optimizer = SharpeOptimizer(
+        prices=three_asset_prices,
+        config=config,
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+    )
     result = optimizer.optimize()
 
     port_mer = sum(result.weights.get(t, 0.0) * mer_mapping[t] for t in result.weights)
@@ -150,7 +178,11 @@ def test_infeasible_mer_constraint_raises(three_asset_prices):
         mer_by_ticker=mer_mapping,
         max_portfolio_mer=max_mer,
     )
-    optimizer = SharpeOptimizer(prices=three_asset_prices, config=config)
+    optimizer = SharpeOptimizer(
+        prices=three_asset_prices,
+        config=config,
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+    )
 
     with pytest.raises(ExecutionConfigError, match="infeasible"):
         optimizer.optimize()
@@ -165,7 +197,11 @@ def test_mer_constraint_not_enforced_when_not_set(three_asset_prices):
         mer_by_ticker=mer_mapping,
         max_portfolio_mer=None,
     )
-    optimizer = SharpeOptimizer(prices=three_asset_prices, config=config)
+    optimizer = SharpeOptimizer(
+        prices=three_asset_prices,
+        config=config,
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+    )
     result = optimizer.optimize()
 
     # Should complete successfully even though A (0.05) is high
@@ -179,7 +215,11 @@ def test_mer_constraint_no_mer_mapping_no_error(three_asset_prices):
         mer_by_ticker={},
         max_portfolio_mer=0.01,
     )
-    optimizer = SharpeOptimizer(prices=three_asset_prices, config=config)
+    optimizer = SharpeOptimizer(
+        prices=three_asset_prices,
+        config=config,
+        return_basis=ReturnBasis.GROSS_OF_EXPENSES,
+    )
     result = optimizer.optimize()
 
     # Should complete normally

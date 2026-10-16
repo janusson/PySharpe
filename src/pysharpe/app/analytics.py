@@ -15,6 +15,7 @@ from pysharpe.optimization.tax_location import (
     AccountType,
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -75,14 +76,14 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
 
 @dataclass
 class AdjustedMetricResults:
-    """Tax- and MER-adjusted metrics computed from Bayes-Stein shrunk returns.
+    """Basis-aware metrics computed from Bayes-Stein shrunk returns.
 
     Attributes:
         returns: Period returns of the aligned evaluation frame.
-        expected: Annualized expected returns after shrinkage, MER, and
-            account-specific tax drag (foreign withholding tax + income tax).
-        expected_pre_drag: Annualized shrunk expected returns before any
-            MER/tax drag is deducted (transparency aid).
+        expected: Annualized expected returns after incremental MER (only
+            for gross inputs) and account-specific tax drag.
+        expected_pre_drag: Annualized shrunk returns before incremental
+            MER or account tax drag; embedded expenses remain in net inputs.
         volatility: Annualized volatility of the aligned evaluation frame.
         sharpe: ``(expected - risk_free_rate) / volatility``.
     """
@@ -100,15 +101,17 @@ def _apply_account_drag(
     tax_profile: TaxProfile | None,
     asset_characteristics: dict[str, AssetTaxCharacteristics] | None,
     account: str,
+    return_basis: ReturnBasis | str | None,
 ) -> pd.Series:
-    """Subtract MER and account-specific tax drag from shrunk expected returns.
+    """Apply permitted MER and account tax drag to expected returns.
 
-    Mirrors the optimizer's net-return path: each asset's pre-drag return is
-    routed through
+    MER is deducted only for explicitly gross-of-expense inputs.
+    Each asset's pre-drag return is routed through
     :meth:`AssetLocationEngine.compute_tax_adjusted_return
     <pysharpe.optimization.tax_location.AssetLocationEngine.compute_tax_adjusted_return>`
-    which deducts MER, foreign withholding tax, and income tax drag for the
-    target account.  Assets without characteristics pass through unadjusted
+    which deducts MER only for explicitly gross-of-expense inputs and applies
+    foreign withholding and income-tax drag for the target account. Assets
+    without characteristics pass through unadjusted
     (no MER/tax information available), consistent with the optimizer's 1-D
     fallback.
     """
@@ -122,7 +125,7 @@ def _apply_account_drag(
         char = chars.get(key)
         if char is not None:
             adjusted[key] = engine.compute_tax_adjusted_return(
-                float(ret), char, account
+                float(ret), char, account, return_basis=return_basis
             )
     return adjusted
 
@@ -133,11 +136,12 @@ def compute_adjusted_metrics(
     reference_prices: pd.DataFrame | None = None,
     tax_profile: TaxProfile | None = None,
     asset_characteristics: dict[str, AssetTaxCharacteristics] | None = None,
+    return_basis: ReturnBasis | str | None = None,
     account: str = AccountType.NON_REG.value,
     shrinkage_floor: float = DEFAULT_SHRINKAGE_FLOOR,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
 ) -> AdjustedMetricResults:
-    """Compute harmonized metrics using shrunk, tax- and MER-adjusted returns.
+    """Compute harmonized metrics with explicit MER return-basis handling.
 
     The raw historical means used by :func:`compute_metrics` are replaced by
     Bayes-Stein shrunk expected returns (:func:`shrinkage_expected_return`)
@@ -152,10 +156,10 @@ def compute_adjusted_metrics(
     mean for single assets (its documented fallback) — there is no
     cross-section to shrink toward.
 
-    When *tax_profile* is provided, each shrunk return is reduced by MER and
-    account-specific tax drag via the :class:`AssetLocationEngine`.  The
-    default account is Non-Registered; callers with an explicit asset-location
-    split can pass a different *account*.
+    When *tax_profile* is provided, account tax drag is applied. MER is
+    deducted only when *return_basis* explicitly identifies gross inputs.
+    The default account is Non-Registered; callers with an explicit
+    asset-location split can pass a different *account*.
 
     Args:
         price_frame: Historical prices (rows = dates, columns = tickers).
@@ -164,7 +168,9 @@ def compute_adjusted_metrics(
         tax_profile: Investor's marginal tax profile.  When ``None`` no
             MER/tax drag is applied (raw shrunk metrics).
         asset_characteristics: Ticker → tax characteristics used by the
-            engine.  Assets missing from the mapping are left unadjusted.
+            engine. Assets missing from the mapping are left unadjusted.
+        return_basis: Expense basis of the price-derived expected returns.
+            ``None`` is unknown and cannot authorize a MER deduction.
         account: Account label for the drag calculation (default NON_REG).
         shrinkage_floor: Minimum Bayes-Stein shrinkage intensity.
         risk_free_rate: Annual risk-free rate used for Sharpe ratios.
@@ -226,6 +232,7 @@ def compute_adjusted_metrics(
         tax_profile=tax_profile,
         asset_characteristics=asset_characteristics,
         account=account,
+        return_basis=return_basis,
     )
     volatility = cast("pd.Series", metrics.annualize_volatility(returns)).reindex(
         column_index
@@ -251,10 +258,11 @@ def evaluate_adjusted_performance(
     expected_returns: pd.Series,
     tax_profile: TaxProfile | None = None,
     asset_characteristics: dict[str, AssetTaxCharacteristics] | None = None,
+    return_basis: ReturnBasis | str | None = None,
     account: str = AccountType.NON_REG.value,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
 ) -> tuple[float, float, float]:
-    """Evaluate a weight vector with shrunk, tax- and MER-adjusted returns.
+    """Evaluate weights with basis-aware MER and account-tax adjustments.
 
     Replaces the raw-mean evaluation previously used for the equal-weight and
     custom-mix rows so every row of the dashboard comparison table shares the
@@ -269,6 +277,8 @@ def evaluate_adjusted_performance(
         tax_profile: Investor's marginal tax profile.  When ``None`` only the
             shrinkage change applies (no MER/tax drag).
         asset_characteristics: Ticker → tax characteristics for the engine.
+        return_basis: Expense basis of the supplied expected returns. Unknown
+            basis cannot authorize a MER deduction.
         account: Account label for the drag calculation (default NON_REG).
         risk_free_rate: Annual risk-free rate used for the Sharpe ratio.
 
@@ -295,6 +305,7 @@ def evaluate_adjusted_performance(
         tax_profile=tax_profile,
         asset_characteristics=asset_characteristics,
         account=account,
+        return_basis=return_basis,
     )
 
     try:

@@ -12,6 +12,7 @@ Layout follows a quantitative workflow:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from typing import cast
 
 import pandas as pd
@@ -54,6 +55,8 @@ from pysharpe.app.data import (
 )
 from pysharpe.app.dca import render_dca_projection as _render_dca_projection
 from pysharpe.app.rebalance_ui import render_execution_tab
+from pysharpe.exceptions import DataValidationError
+from pysharpe.optimization.tax_location import ReturnBasis
 from pysharpe.visualization import simulate_dca  # noqa: F401 - re-exported for tests
 
 #: Default sidebar tickers — broad-market, CAD-denominated index ETFs.
@@ -177,6 +180,7 @@ def _analysis_signature(controls: dict[str, object]) -> tuple[object, ...]:
         str(controls.get("start", "")),
         str(controls.get("end", "")),
         tuple(sorted(weights.items())),
+        controls.get("return_basis"),
     )
 
 
@@ -212,7 +216,16 @@ def _ensure_analysis(controls: dict[str, object]) -> dict | None:
         "Computing metrics, running optimisation, and generating frontier..."
     ):
         try:
-            cached = run_full_analysis(price_data, custom_weights)
+            cached = run_full_analysis(
+                price_data,
+                custom_weights,
+                return_basis=cast(
+                    ReturnBasis | str | None, controls.get("return_basis")
+                ),
+            )
+        except DataValidationError as exc:
+            st.error(f"Cannot apply MER to these returns: {exc}")
+            return None
         except RuntimeError as exc:
             st.error(f"Optimization Failed: {exc}")
             st.stop()
@@ -376,6 +389,29 @@ def sidebar_controls() -> dict[str, object]:
             sig, state = _build_download_state(tickers)
             st.session_state[_SS_DATA] = state
 
+    if state["source"] == "download":
+        return_basis: ReturnBasis | None = ReturnBasis.NET_OF_EXPENSES
+    else:
+        basis_labels = {
+            "Unknown — require a basis before MER-aware analysis": None,
+            "Net of embedded fund expenses": ReturnBasis.NET_OF_EXPENSES,
+            "Gross of fund expenses": ReturnBasis.GROSS_OF_EXPENSES,
+        }
+        uploaded_content = uploaded_file.getvalue()
+        if isinstance(uploaded_content, str):
+            uploaded_content = uploaded_content.encode("utf-8")
+        basis_key = hashlib.sha256(uploaded_content).hexdigest()[:16]
+        selected_basis = st.sidebar.selectbox(
+            "Uploaded price return basis",
+            list(basis_labels),
+            index=0,
+            key=f"ps_return_basis_{basis_key}",
+        )
+        return_basis = basis_labels[selected_basis]
+        st.sidebar.caption(
+            "MER is deducted only for an explicitly gross-of-expense input."
+        )
+
     full_prices = cast(pd.DataFrame, state["full_prices"])
     tickers = cast("tuple[str, ...]", state["tickers"])
     overlap = cast("tuple[pd.Timestamp, pd.Timestamp] | None", state.get("overlap"))
@@ -449,6 +485,7 @@ def sidebar_controls() -> dict[str, object]:
         "end": end_date,
         "overlap": overlap,
         "source": state["source"],
+        "return_basis": return_basis,
         "download_summary": state.get("download_summary"),
         "ticker_sig": sig,
     }

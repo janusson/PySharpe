@@ -168,14 +168,13 @@
   ``metrics.expected_return`` (raw arithmetic mean) and
   ``metrics.sharpe_ratio`` (geometric, 0 % rf), while the optimizer used
   ``shrinkage_expected_return`` plus MER/tax drags.
-- Fix: all comparison rows now share one pipeline — Bayes-Stein shrunk
-  expected returns (benchmarks shrunk *jointly with the asset universe* so
-  they are pulled toward the same cross-sectional grand mean; isolated
-  benchmarks fall back to the estimator's documented single-asset fallback),
-  reduced by MER and account-specific tax drag via
-  ``AssetLocationEngine.compute_tax_adjusted_return``, with Sharpe recomputed
-  at the 2 % risk-free rate.  Benchmark rows default to Non-Registered
-  placement; the assumption is stated in the UI caption.
+- **Fix**: all comparison rows share Bayes-Stein shrunk expected returns
+  (benchmarks shrink jointly with the asset universe) and use an explicit
+  expense basis. Observed ETF market prices are net of embedded MER, so only
+  account-specific tax drag is applied; a separate MER deduction is allowed
+  only for explicitly gross inputs. Sharpe is recomputed at the 2 % risk-free
+  rate. Benchmark rows default to Non-Registered placement; the assumption is
+  stated in the UI caption.
 - Regression tests:
   ``tests/test_analysis.py::test_fetch_benchmark_metrics_harmonized_joint_shrinkage_and_drag``,
   ``tests/test_analysis.py::test_fetch_benchmark_metrics_shrinks_toward_joint_grand_mean``,
@@ -453,6 +452,25 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
   4. ``_fallback_result()`` was removed entirely.
 - **Regression test**: ``test_sharpe_optimizer_optimize_raises_on_failure``
 - **Grep guard**: ``grep -rn '_fallback_result\|if not result.success' src/pysharpe/ --include='*.py'``
+
+### 2026 — MER deduction requires an explicit return basis
+
+- Observed ETF market/NAV histories are net of expenses embedded in the fund.
+  `auto_adjust=True` adjusts distributions and splits; it does not remove MER.
+- `ReturnBasis.NET_OF_EXPENSES` never deducts MER again. A MER deduction is
+  permitted only with `ReturnBasis.GROSS_OF_EXPENSES`. `None` means unknown;
+  nonzero MER metadata with unknown basis raises `DataValidationError` rather
+  than inferring a basis or silently applying a fee.
+- MER remains independent metadata: it can still be reported or used in a
+  portfolio-MER constraint without changing expected returns. The yfinance app
+  path is explicitly net; uploaded price CSVs require an explicit basis before
+  MER-bearing tax adjustments can run.
+- `SharpeOptimizer` keeps its existing positional constructor arguments and
+  adds a keyword-only `return_basis`. Existing no-MER calls remain compatible;
+  callers supplying nonzero MER must now identify the input basis. Regression
+  coverage: `tests/test_optimization_base.py`,
+  `tests/test_portfolio_optimization.py`, `tests/test_tax_location.py`, and
+  `tests/test_app_streamlit.py`.
 
 ### 2024 — MER double-division
 - **Symptom**: Reported portfolio MER was 100× smaller than intended. An ETF

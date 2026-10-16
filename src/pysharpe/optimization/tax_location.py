@@ -24,9 +24,11 @@ The engine models three distinct structural Canadian tax rules:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 
 import numpy as np
+
+from pysharpe.exceptions import DataValidationError
 
 # ---------------------------------------------------------------------------
 # Enums and constants
@@ -44,6 +46,17 @@ class AccountType(Enum):
     NON_REG = "NON_REG"
 
 
+class ReturnBasis(StrEnum):
+    """Expense basis of the return input used for MER treatment.
+
+    ``None`` is deliberately not an enum member: it means the input basis is
+    unknown and cannot authorize a MER deduction.
+    """
+
+    NET_OF_EXPENSES = "net_of_expenses"
+    GROSS_OF_EXPENSES = "gross_of_expenses"
+
+
 # Accounts with US-Canada treaty protection against FWT
 _TREATY_PROTECTED: frozenset[AccountType] = frozenset(
     {AccountType.RRSP, AccountType.LIRA, AccountType.RRIF}
@@ -59,6 +72,21 @@ _US_FWT_RATE: float = 0.15
 
 # Default high-end drag for normalization
 _DEFAULT_MAX_DRAG: float = 0.15
+
+
+def _normalize_return_basis(
+    return_basis: ReturnBasis | str | None,
+) -> ReturnBasis | None:
+    if return_basis is None:
+        return None
+    try:
+        return ReturnBasis(return_basis)
+    except (TypeError, ValueError) as exc:
+        choices = ", ".join(basis.value for basis in ReturnBasis)
+        raise DataValidationError(
+            f"return_basis must be one of {choices}, or None when unknown; "
+            f"got {return_basis!r}"
+        ) from exc
 
 
 def _normalize_account(account: str) -> AccountType:
@@ -329,13 +357,10 @@ class AssetLocationEngine:
         return drag
 
     def compute_total_drag(self, asset: AssetTaxCharacteristics, account: str) -> float:
-        """Sum of FWT and income-tax drags for *asset* in *account*.
+        """Sum foreign-withholding and income-tax drags; exclude MER.
 
-        This is :math:`\\text{Drag}_{i,A}` in the tax-adjustment formula:
-
-        .. math::
-
-            R_{i,A} = R_i - \\text{MER}_i - \\text{Drag}_{i,A}
+        MER is handled separately because its deduction depends on the explicit
+        return basis passed to :meth:`compute_tax_adjusted_return`.
         """
         return self.compute_fwt_drag(asset, account) + self.compute_income_tax_drag(
             asset, account
@@ -346,27 +371,41 @@ class AssetLocationEngine:
         expected_return: float,
         asset: AssetTaxCharacteristics,
         account: str,
+        *,
+        return_basis: ReturnBasis | str | None = None,
     ) -> float:
-        """Tax-adjusted annualized expected return.
+        """Apply account tax drag and, only for gross inputs, the asset MER.
 
-        .. math::
+        ``return_basis=None`` is accepted when the asset MER is zero. A
+        non-zero MER with unknown basis raises instead of assuming the input is
+        gross or silently skipping a potentially required deduction.
 
-            R_{i,A} = R_i - \\text{MER}_i - \\text{Drag}_{i,A}
+        Args:
+            expected_return: Annualized expected return as a decimal.
+            asset: Tax and expense metadata; MER is not itself an instruction
+                to deduct.
+            account: Account receiving the asset.
+            return_basis: ``gross_of_expenses`` deducts the MER exactly once;
+                ``net_of_expenses`` does not. Omit only when the basis is
+                unknown and MER is zero.
 
-        Parameters
-        ----------
-        expected_return : float
-            Pre-tax annualized expected return as a decimal.
-        asset : AssetTaxCharacteristics
-        account : str
+        Returns:
+            The expected return after the permitted MER treatment and account
+            tax drag.
 
-        Returns
-        -------
-        float
-            Tax- and MER-adjusted annualized expected return.
+        Raises:
+            DataValidationError: When the basis is invalid or unknown while a
+                non-zero MER is present.
         """
+        basis = _normalize_return_basis(return_basis)
+        if asset.mer > 0.0 and basis is None:
+            raise DataValidationError(
+                f"Return basis is required to apply MER for {asset.ticker!r}; "
+                "pass 'net_of_expenses' or 'gross_of_expenses'."
+            )
+        mer_drag = asset.mer if basis is ReturnBasis.GROSS_OF_EXPENSES else 0.0
         drag = self.compute_total_drag(asset, account)
-        return expected_return - asset.mer - drag
+        return expected_return - mer_drag - drag
 
     def compute_tax_efficiency_score(
         self,
@@ -450,6 +489,8 @@ class AssetLocationEngine:
         expected_returns: dict[str, float],
         assets: dict[str, AssetTaxCharacteristics],
         account: str,
+        *,
+        return_basis: ReturnBasis | str | None = None,
     ) -> dict[str, float]:
         """Compute tax-adjusted expected returns for all assets in an account.
 
@@ -459,6 +500,8 @@ class AssetLocationEngine:
             Ticker → annualized expected return.
         assets : dict[str, AssetTaxCharacteristics]
         account : str
+        return_basis : ReturnBasis or None
+            Basis required to deduct nonzero MER.
 
         Returns
         -------
@@ -466,7 +509,9 @@ class AssetLocationEngine:
             Ticker → tax-adjusted expected return.
         """
         return {
-            ticker: self.compute_tax_adjusted_return(r, assets[ticker], account)
+            ticker: self.compute_tax_adjusted_return(
+                r, assets[ticker], account, return_basis=return_basis
+            )
             if ticker in assets
             else r
             for ticker, r in expected_returns.items()
@@ -477,6 +522,8 @@ class AssetLocationEngine:
         expected_returns: dict[str, float],
         assets: dict[str, AssetTaxCharacteristics],
         accounts: list[str],
+        *,
+        return_basis: ReturnBasis | str | None = None,
     ) -> dict[tuple[str, str], float]:
         """Compute tax-adjusted returns for all (ticker, account) pairs.
 
@@ -486,6 +533,8 @@ class AssetLocationEngine:
         assets : dict[str, AssetTaxCharacteristics]
         accounts : list[str]
             Account labels to evaluate.
+        return_basis : ReturnBasis or None
+            Basis required to deduct nonzero MER.
 
         Returns
         -------
@@ -501,7 +550,7 @@ class AssetLocationEngine:
                 continue
             for acct in accounts:
                 result[(ticker, acct)] = self.compute_tax_adjusted_return(
-                    r, asset, acct
+                    r, asset, acct, return_basis=return_basis
                 )
         return result
 

@@ -18,6 +18,7 @@ from pysharpe.optimization.tax_location import (
     AccountType,
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -130,11 +131,10 @@ def fetch_benchmark_metrics(
 ) -> pd.DataFrame:
     """Fetch benchmark data and compute performance metrics.
 
-    When *tax_profile* is provided the benchmarks are evaluated with the same
-    estimator and drag model as the optimized portfolio: expected returns use
-    Bayes-Stein shrinkage (:func:`shrinkage_expected_return`) and are then
-    reduced by MER and account-specific tax drag through the
-    :class:`AssetLocationEngine` (foreign withholding tax + income tax).
+    When *tax_profile* is provided the benchmarks use Bayes-Stein shrinkage
+    and account-specific tax drag. The default fetched ETF prices are observed
+    market histories and are net of embedded fund expenses, so benchmark MER
+    metadata is not deducted a second time.
     Sharpe ratios are recomputed from these adjusted returns using
     *risk_free_rate*.
 
@@ -287,7 +287,7 @@ def _harmonized_benchmark_metrics(
     shrinkage_floor: float,
     risk_free_rate: float,
 ) -> pd.DataFrame:
-    """Compute Bayes-Stein shrunk, tax- and MER-adjusted benchmark metrics.
+    """Compute tax-adjusted metrics from net-of-expense benchmark prices.
 
     Benchmarks are appended to the portfolio universe before shrinkage so
     they are pulled toward the same cross-sectional grand mean; when no
@@ -336,7 +336,12 @@ def _harmonized_benchmark_metrics(
             )
             continue
         pre_tax = float(mu[ticker])
-        adjusted = engine.compute_tax_adjusted_return(pre_tax, chars[ticker], account)
+        adjusted = engine.compute_tax_adjusted_return(
+            pre_tax,
+            chars[ticker],
+            account,
+            return_basis=ReturnBasis.NET_OF_EXPENSES,
+        )
         vol = float(volatility_s[ticker])
         sharpe = (adjusted - risk_free_rate) / vol if vol > 0 else 0.0
         results.append(

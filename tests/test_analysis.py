@@ -43,6 +43,7 @@ from pysharpe.analysis.visualization import (
 from pysharpe.optimization.expected_returns import shrinkage_expected_return
 from pysharpe.optimization.tax_location import (
     AssetLocationEngine,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -263,12 +264,10 @@ def _mock_benchmark_fetcher(monkeypatch, prices):
 
 
 def test_fetch_benchmark_metrics_harmonized_joint_shrinkage_and_drag(monkeypatch):
-    """Benchmarks are shrunk jointly with the universe and hit with MER+tax drag.
+    """Jointly shrink observed benchmark returns and avoid a second MER.
 
-    The harmonized path must (1) evaluate the benchmark alongside the asset
-    universe so Bayes-Stein shrinkage targets the same grand mean, and
-    (2) route the shrunk return through the AssetLocationEngine so MER and
-    income-tax drag are deducted before the Sharpe ratio is recomputed.
+    Account tax drag remains separate from fund expenses embedded in the
+    observed price history.
     """
     n = 40
     idx = pd.date_range("2023-01-01", periods=n, freq="B")
@@ -303,14 +302,17 @@ def test_fetch_benchmark_metrics_harmonized_joint_shrinkage_and_drag(monkeypatch
     mu = shrinkage_expected_return(combined, shrinkage_floor=0.3)["VEQT.TO"]
     char = build_benchmark_characteristics("VEQT.TO")
     adjusted = AssetLocationEngine(profile).compute_tax_adjusted_return(
-        float(mu), char, "NON_REG"
+        float(mu),
+        char,
+        "NON_REG",
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
     vol = combined.pct_change().dropna()["VEQT.TO"].std() * np.sqrt(252)
 
     assert row["Annualized Return"] == pytest.approx(adjusted)
     assert row["Annualized Volatility"] == pytest.approx(vol)
     assert row["Sharpe Ratio"] == pytest.approx((adjusted - 0.02) / vol)
-    # The drag model must penalize: MER (decimal) + income-tax drag.
+    # Observed price returns already reflect MER; account tax drag remains.
     assert row["Annualized Return"] < float(mu)
 
 
@@ -359,8 +361,10 @@ def test_fetch_benchmark_metrics_shrinks_toward_joint_grand_mean(monkeypatch):
 
 
 def test_fetch_benchmark_metrics_isolated_falls_back_to_raw_mean_with_drag(monkeypatch):
-    """Isolated benchmark: shrinkage degenerates to the raw mean (no cross-
-    section), but MER + income-tax drag still applies."""
+    """Isolated observed benchmark: shrinkage falls back to its raw mean.
+
+    Account tax drag applies, but embedded MER is not deducted again.
+    """
     n = 30
     idx = pd.date_range("2023-01-01", periods=n, freq="B")
     rng = np.random.default_rng(11)
@@ -384,11 +388,13 @@ def test_fetch_benchmark_metrics_isolated_falls_back_to_raw_mean_with_drag(monke
     )
     char = build_benchmark_characteristics("VEQT.TO")
     adjusted = AssetLocationEngine(profile).compute_tax_adjusted_return(
-        float(mu["VEQT.TO"]), char, "NON_REG"
+        float(mu["VEQT.TO"]),
+        char,
+        "NON_REG",
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
     assert row["Annualized Return"] == pytest.approx(adjusted)
-    # MER is a decimal fraction (0.0017), never divided by 100.
-    assert row["Annualized Return"] < float(mu["VEQT.TO"]) - char.mer
+    assert row["Annualized Return"] < float(mu["VEQT.TO"])
 
 
 def test_benchmark_characteristics_defaults_are_decimal_and_sum_to_one():

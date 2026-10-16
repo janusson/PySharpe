@@ -153,6 +153,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.optimization.tax_location",
         "AssetLocationEngine",
     ),
+    "ReturnBasis": (
+        "pysharpe.optimization.tax_location",
+        "ReturnBasis",
+    ),
     "AssetTaxCharacteristics": (
         "pysharpe.optimization.tax_location",
         "AssetTaxCharacteristics",
@@ -461,6 +465,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.optimization.tax_location import (  # noqa: F401
         AssetLocationEngine,
         AssetTaxCharacteristics,
+        ReturnBasis,
         build_asset_characteristics,
         build_asset_characteristics_batch,
     )
