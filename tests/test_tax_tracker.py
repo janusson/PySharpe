@@ -218,6 +218,31 @@ class TestACBTrackerSells:
 
 
 class TestACBTrackerROC:
+    def test_cra_return_of_capital_example(self):
+        """Reproduce CRA's $1,000 ACB, five $200 ROC, then $100 ROC example.
+
+        CRA states that the first $1,000 of returns of capital reduce ACB to
+        zero, and a subsequent $100 return is a capital gain. Source:
+        https://www.canada.ca/en/revenue-agency/services/tax/individuals/
+        topics/about-your-tax-return/tax-return/completing-a-tax-return/
+        personal-income/line-12700-capital-gains/completing-schedule-3/
+        tax-treatment-mutual-funds.html#toc3
+        """
+        tracker = ACBTracker(initial_positions={"RST": (100.0, 1_000.0)})
+
+        for year in range(2016, 2021):
+            pos, gain = tracker.record_roc("RST", 200.0, date(year, 12, 31))
+            assert gain == 0.0
+            assert pos.total_cost == pytest.approx(1_000.0 - (year - 2015) * 200.0)
+
+        assert pos.total_cost == 0.0
+        assert pos.total_shares == 100.0
+
+        pos, gain = tracker.record_roc("RST", 100.0, date(2021, 5, 1))
+        assert gain == 100.0
+        assert pos.total_cost == 0.0
+        assert pos.total_shares == 100.0
+
     def test_roc_reduces_acb(self):
         tracker = ACBTracker(
             initial_positions={"VCN.TO": (100.0, 3500.0)}  # ACB/sh = 35.0
