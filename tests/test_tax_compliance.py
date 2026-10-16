@@ -84,6 +84,26 @@ def _sell(
 class TestACBTrackerCommission:
     """Commission-aware ACB tracking for Non-Registered accounts."""
 
+    def test_cra_commission_example(self):
+        """Reproduce CRA's $6,500 proceeds, $4,000 ACB, $60 commission gain.
+
+        The CRA example calculates a $2,440 capital gain. Source:
+        https://www.canada.ca/en/revenue-agency/services/forms-publications/
+        publications/t4037/capital-gains.html#toc3 ("Calculating your capital
+        gain or loss", Example).
+        """
+        tracker = ACBTracker(initial_positions={"XYZ": (400.0, 4_000.0)})
+
+        gain = tracker.record_sell(
+            "XYZ",
+            shares=400.0,
+            price_per_share=16.25,
+            trade_date=_d(0),
+            commission=60.0,
+        )
+
+        assert gain == pytest.approx(2_440.0)
+
     # -- Initialization -------------------------------------------------------
 
     def test_empty_initialization(self):
