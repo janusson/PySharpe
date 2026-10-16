@@ -35,6 +35,7 @@ from pysharpe.optimization.sharpe_optimizer import (
     SharpeOptimizer,
     SharpeOptimizerConfig,
 )
+from pysharpe.optimization.tax_location import ReturnBasis
 from pysharpe.visualization.utils import require_matplotlib
 
 _SETTINGS = get_settings()
@@ -579,6 +580,7 @@ def optimise_portfolio_for_sharpe(
     make_plot: bool = True,
     base_currency: str = "CAD",
     max_weight: float = 1.0,
+    return_basis: ReturnBasis | str | None = None,
 ) -> OptimisationResult:
     """Optimises a portfolio to maximize the Sharpe ratio using the custom SharpeOptimizer.
 
@@ -593,6 +595,9 @@ def optimise_portfolio_for_sharpe(
         make_plot: When ``True`` generate a pie chart of positive weights.
         base_currency: The target currency for all assets (default "CAD").
         max_weight: The maximum allowable weight for any single asset. Defaults to 1.0 (100%).
+        return_basis: ``net_of_expenses`` for observed ETF prices or
+            ``gross_of_expenses`` for an explicitly gross input. ``None`` is
+            unknown and raises when nonzero MER metadata applies.
 
     Returns:
         :class:`OptimisationResult` containing weights and performance stats.
@@ -600,6 +605,8 @@ def optimise_portfolio_for_sharpe(
     Raises:
         FileNotFoundError: If the collated CSV is missing.
         ValueError: If the constraint removes all usable data or no assets are found.
+        DataValidationError: If nonzero MER metadata is present but the input
+            return basis is unknown.
     """
     plot_strategy = _resolve_plot_strategy(make_plot)
 
@@ -641,7 +648,9 @@ def optimise_portfolio_for_sharpe(
         if max_portfolio_mer is not None:
             config.max_portfolio_mer = max_portfolio_mer
 
-    sharpe_optimizer = SharpeOptimizer(prices=prices, config=config)
+    sharpe_optimizer = SharpeOptimizer(
+        prices=prices, config=config, return_basis=return_basis
+    )
     optimization_result = sharpe_optimizer.optimize()
 
     # Calculate portfolio MER for performance reporting
@@ -689,6 +698,7 @@ def optimise_all_portfolios(
     sharpe_optimizer_config: SharpeOptimizerConfig | None = None,
     base_currency: str = "CAD",
     max_weight: float = 1.0,
+    return_basis: ReturnBasis | str | None = None,
 ) -> dict[str, OptimisationResult]:
     """Optimise every collated portfolio located in ``collated_dir``.
 
@@ -711,6 +721,8 @@ def optimise_all_portfolios(
             the default `optimise_portfolio`.
         base_currency: The target currency for all assets (default "CAD").
         max_weight: The maximum allowable weight for any single asset. Defaults to 1.0 (100%).
+        return_basis: Expense basis used by the Sharpe optimizer; unknown
+            basis requires caller clarification when MER metadata is nonzero.
 
     Returns:
         Mapping of portfolio name to :class:`OptimisationResult`.
@@ -735,6 +747,7 @@ def optimise_all_portfolios(
                 config=sharpe_optimizer_config,
                 base_currency=base_currency,
                 max_weight=max_weight,
+                return_basis=return_basis,
             )
         else:
             results[name] = optimise_portfolio(

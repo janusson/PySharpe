@@ -20,11 +20,12 @@ try:
 except ImportError:  # pragma: no cover
     LedoitWolf = None  # type: ignore[assignment]
 
-from pysharpe.exceptions import ExecutionConfigError
+from pysharpe.exceptions import DataValidationError, ExecutionConfigError
 from pysharpe.optimization.tax_location import (
     AccountType,
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -45,8 +46,9 @@ class SharpeOptimizerConfig:
     risk_free_rate : float
         Annual risk-free rate. Default is 0.025 (2.5 %).
     mer_by_ticker : dict[str, float]
-        Ticker → annual MER decimal (e.g. ``0.0017``).  When
-        ``asset_characteristics`` includes MER values those take precedence.
+        Ticker → annual MER decimal (e.g. ``0.0017``). MER is metadata;
+        ``return_basis`` determines whether it is deducted from expected returns.
+        When both sources provide MER, ``asset_characteristics`` takes precedence.
     max_portfolio_mer : float or None
         Maximum allowable weighted MER for the entire portfolio.
     tax_profile : TaxProfile
@@ -96,7 +98,16 @@ class SharpeOptimizer:
         self,
         prices: pd.DataFrame,
         config: SharpeOptimizerConfig | None = None,
+        *,
+        return_basis: ReturnBasis | str | None = None,
     ) -> None:
+        """Build the optimizer with an explicit basis when MER metadata is nonzero.
+
+        Existing positional ``prices`` and ``config`` arguments are unchanged.
+        ``net_of_expenses`` never deducts MER; ``gross_of_expenses`` deducts it
+        once. ``None`` means unknown and is accepted only when no nonzero MER
+        applies.
+        """
         if prices.empty:
             raise ValueError("Prices DataFrame cannot be empty.")
         if not isinstance(prices.index, pd.DatetimeIndex):
@@ -105,6 +116,16 @@ class SharpeOptimizer:
         self.prices = prices.dropna()
         self.assets = self.prices.columns.tolist()
         self.config = config if config is not None else SharpeOptimizerConfig()
+        try:
+            self.return_basis = (
+                None if return_basis is None else ReturnBasis(return_basis)
+            )
+        except (TypeError, ValueError) as exc:
+            choices = ", ".join(basis.value for basis in ReturnBasis)
+            raise DataValidationError(
+                f"return_basis must be one of {choices}, or None when unknown; "
+                f"got {return_basis!r}"
+            ) from exc
 
         if not self.assets:
             raise ValueError("No assets found in the prices DataFrame.")
@@ -148,11 +169,12 @@ class SharpeOptimizer:
         self._num_vars = self._num_assets * self._num_accounts
 
         # ------------------------------------------------------------------
-        # Gross expected returns (asset-level, annualised)
-        # ------------------------------------------------------------------
-        self._gross_returns = np.array(
+        # Annualized returns measured from the supplied price history. Their
+        # expense basis is declared separately by ``return_basis``.
+        self._annualized_price_returns = np.array(
             self.returns.mean() * self.num_periods_per_year
         )  # shape (N,)
+        self._validate_return_basis()
 
         # ------------------------------------------------------------------
         # 2-D net-return matrix  (N × M)
@@ -178,39 +200,65 @@ class SharpeOptimizer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_net_return_matrix(self) -> np.ndarray:
-        """Build (N × M) matrix of tax-adjusted annualised expected returns.
+    def _mer_for(self, ticker: str) -> float:
+        char = self.config.asset_characteristics.get(ticker)
+        return (
+            char.mer if char is not None else self.config.mer_by_ticker.get(ticker, 0.0)
+        )
 
-        When no accounts are configured the single-column result is the
-        gross return less any configured MER.
+    def _validate_return_basis(self) -> None:
+        if self.return_basis is None:
+            unknown_mer = [
+                ticker for ticker in self.assets if self._mer_for(ticker) > 0.0
+            ]
+            if unknown_mer:
+                tickers = ", ".join(unknown_mer)
+                raise DataValidationError(
+                    "return_basis is required when non-zero MER metadata is present "
+                    f"for {tickers}; MER metadata does not imply a deduction."
+                )
+
+    def _mer_deduction(self, ticker: str) -> float:
+        mer = self._mer_for(ticker)
+        if mer == 0.0 or self.return_basis is ReturnBasis.NET_OF_EXPENSES:
+            return 0.0
+        if self.return_basis is ReturnBasis.GROSS_OF_EXPENSES:
+            return mer
+        raise DataValidationError(
+            f"return_basis is required to apply MER for {ticker!r}."
+        )
+
+    def _build_net_return_matrix(self) -> np.ndarray:
+        """Build (N × M) matrix of tax-adjusted annualized returns.
+
+        MER is deducted exactly once, and only when the supplied prices are
+        explicitly identified as gross of expenses.
         """
         engine = AssetLocationEngine(self.config.tax_profile)
 
         if not self._accounts:
-            # Classic 1-D path — deduct MER only
             net = np.zeros((self._num_assets, 1))
             for i, ticker in enumerate(self.assets):
-                mer = self.config.mer_by_ticker.get(ticker, 0.0)
-                char = self.config.asset_characteristics.get(ticker)
-                if char is not None:
-                    mer = char.mer
-                net[i, 0] = self._gross_returns[i] - mer
+                net[i, 0] = self._annualized_price_returns[i] - self._mer_deduction(
+                    ticker
+                )
             return net
 
         # 2-D path — use AssetLocationEngine
         net = np.zeros((self._num_assets, self._num_accounts))
         for i, ticker in enumerate(self.assets):
             char = self.config.asset_characteristics.get(ticker)
-            gross = self._gross_returns[i]
+            observed_return = self._annualized_price_returns[i]
             for j, acct in enumerate(self._accounts):
                 if char is not None:
                     net[i, j] = engine.compute_tax_adjusted_return(
-                        gross, char, acct.value
+                        observed_return,
+                        char,
+                        acct.value,
+                        return_basis=self.return_basis,
                     )
                 else:
-                    # No characteristics → use MER from config only
-                    mer = self.config.mer_by_ticker.get(ticker, 0.0)
-                    net[i, j] = gross - mer
+                    net[i, j] = observed_return - self._mer_deduction(ticker)
         return net
 
     @staticmethod
@@ -304,13 +352,9 @@ class SharpeOptimizer:
             portfolio_return = float(np.sum(w2d * self._net_returns))
         else:
             # 1-D fallback
-            portfolio_return = float(np.dot(weights, self._gross_returns))
+            portfolio_return = float(np.dot(weights, self._annualized_price_returns))
             for i, ticker in enumerate(self.assets):
-                mer = self.config.mer_by_ticker.get(ticker, 0.0)
-                char = self.config.asset_characteristics.get(ticker)
-                if char is not None:
-                    mer = char.mer
-                portfolio_return -= weights[i] * mer
+                portfolio_return -= weights[i] * self._mer_deduction(ticker)
 
         # --- Volatility (asset-level covariance) ---
         if weights.size == self._num_vars:

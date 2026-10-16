@@ -33,6 +33,7 @@ from pysharpe.optimization.expected_returns import shrinkage_expected_return
 from pysharpe.optimization.tax_location import (
     AssetLocationEngine,
     AssetTaxCharacteristics,
+    ReturnBasis,
     TaxProfile,
 )
 
@@ -288,8 +289,7 @@ def _seeded_price_frame(n: int = 40, seed: int = 3) -> pd.DataFrame:
 
 
 def test_compute_adjusted_metrics_applies_shrinkage_and_tax_drag():
-    """Harmonized metrics use Bayes-Stein shrunk returns reduced by MER and
-    the AssetLocationEngine drag, with Sharpe recomputed at the 2% rf."""
+    """Harmonized metrics do not deduct MER from observed ETF prices."""
     prices = _seeded_price_frame()
     profile = TaxProfile(marginal_tax_rate=0.45)
     chars = {
@@ -303,7 +303,10 @@ def test_compute_adjusted_metrics_applies_shrinkage_and_tax_drag():
     }
 
     results = compute_adjusted_metrics(
-        prices, tax_profile=profile, asset_characteristics=chars
+        prices,
+        tax_profile=profile,
+        asset_characteristics=chars,
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
 
     assert isinstance(results, AdjustedMetricResults)
@@ -311,12 +314,15 @@ def test_compute_adjusted_metrics_applies_shrinkage_and_tax_drag():
     # Bayes-Stein shrinkage compresses the cross-section vs raw means.
     raw = prices.pct_change().dropna().mean() * 252
     assert results.expected_pre_drag.std() <= raw.std()
-    # Every asset is penalized by MER + Non-Registered income-tax drag.
+    # Non-Registered tax drag applies; observed ETF prices keep embedded MER.
     assert (results.expected < results.expected_pre_drag).all()
     engine = AssetLocationEngine(profile)
     for ticker in prices.columns:
         expected_adj = engine.compute_tax_adjusted_return(
-            float(results.expected_pre_drag[ticker]), chars[ticker], "NON_REG"
+            float(results.expected_pre_drag[ticker]),
+            chars[ticker],
+            "NON_REG",
+            return_basis=ReturnBasis.NET_OF_EXPENSES,
         )
         assert results.expected[ticker] == pytest.approx(expected_adj)
     # Sharpe is recomputed from the adjusted returns at the 2% risk-free rate.
@@ -386,12 +392,18 @@ def test_evaluate_adjusted_performance_uses_net_of_drag_returns():
         tax_profile=profile,
         asset_characteristics=chars,
         account="NON_REG",
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
 
     engine = AssetLocationEngine(profile)
     mu_adj = pd.Series(
         {
-            t: engine.compute_tax_adjusted_return(float(mu[t]), chars[t], "NON_REG")
+            t: engine.compute_tax_adjusted_return(
+                float(mu[t]),
+                chars[t],
+                "NON_REG",
+                return_basis=ReturnBasis.NET_OF_EXPENSES,
+            )
             for t in prices.columns
         }
     )
@@ -408,6 +420,7 @@ def test_evaluate_adjusted_performance_uses_net_of_drag_returns():
         tax_profile=profile,
         asset_characteristics=chars,
         account="NON_REG",
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
     assert (exp_norm, vol_norm, sharpe_norm) == pytest.approx((exp, vol, sharpe))
 

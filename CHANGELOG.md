@@ -13,6 +13,11 @@ and reported by `pysharpe.__version__` from the installed distribution metadata.
 This is a pre-1.0 tag: the CLI, the library surface, and the configuration schema may
 change between minor releases.
 
+- **Explicit MER return-basis handling:** observed ETF price histories are net of
+  fund expenses and never receive a second MER deduction. Gross inputs may deduct
+  MER only when explicitly tagged; unknown basis with nonzero MER fails clearly.
+  MER metadata remains available for reporting and portfolio constraints. The
+  legacy positional optimizer arguments remain valid when no nonzero MER applies.
 - **Look-ahead bias removed from price normalisation:** `apply_category_mapping`
   and the app's price loader no longer `bfill()` time series, which had pulled
   future prices backwards into earlier rows and contaminated category
@@ -41,12 +46,20 @@ change between minor releases.
 
 ### Test Suite
 
-- 1063 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
+- 1071 tests (3 MCMC integration tests skip-gated on compiler availability), all synthetic data with fixed seeds — no network calls. PyMC samplers isolated with `pytest.MonkeyPatch`.
 - Edge-case coverage: perfectly/near-perfectly correlated shrinkage, NaN-in-fold walk-forwards, same-day VFV↔VOO superficial-loss trades across TFSA/NON_REG, and ±30-day window boundaries.
 
 ### Presentation
 
-- **Harmonized comparison pipeline**: the dashboard's Performance Comparison now evaluates every row — 1/N equal-weight baseline, Custom Mix, PySharpe Optimized, and the six Canadian benchmarks — with a single estimator: Bayes-Stein shrunk expected returns (benchmarks shrunk *jointly with the asset universe*) reduced by MER and account-specific tax drag via `AssetLocationEngine`, with Sharpe ratios recomputed at the 2 % risk-free rate. Adds `compute_adjusted_metrics`/`evaluate_adjusted_performance` (`src/pysharpe/app/analytics.py`) and `BENCHMARK_MERS`/`build_benchmark_characteristics` (`src/pysharpe/analysis/benchmarks.py`); benchmark rows default to Non-Registered placement, stated in the UI caption. The `tax_profile=None` path of `fetch_benchmark_metrics` keeps the legacy raw-metric behavior for external callers.
+- **Harmonized comparison pipeline**: the dashboard's Performance Comparison
+  evaluates the 1/N baseline, Custom Mix, PySharpe Optimized, and Canadian
+  benchmarks with Bayes-Stein shrunk returns (benchmarks shrunk *jointly with the
+  asset universe*), a declared `ReturnBasis`, and account-specific tax drag.
+  Observed ETF prices are net of embedded MER; only explicitly gross inputs
+  receive a MER deduction. Sharpe ratios are recomputed at the 2 % risk-free rate.
+  Benchmark rows default to Non-Registered placement, stated in the UI caption.
+  The `tax_profile=None` path of `fetch_benchmark_metrics` retains legacy
+  raw-metric behavior for external callers.
 - **Streamlit dashboard rewrite**: four-tab workspace (Portfolio Metrics & Comparison, Efficient Frontier, DCA Simulation, Raw Data & Logs). Full price history is fetched first and the maximum overlapping date range across tickers becomes the UI defaults (`compute_overlapping_date_range` in `src/pysharpe/app/data.py`); every date/weight widget is keyed by the ticker-set signature so stale state cannot leak between selections; weights default to a strict 1/N allocation with a zero-sum fallback; backtesting and execution/rebalancing are preserved as collapsed expanders under the metrics tab. Fixed the missing `__main__` guard that rendered a blank page on `streamlit run app.py`.
 - README and docs overhaul with CI badges, engineering-rigor section, uv-first quickstart, and the `.agents/skills/` agentic-development framework.
 

@@ -27,12 +27,17 @@ import numpy as np
 
 from pysharpe import portfolio_optimization
 from pysharpe.config import ExecutionConfig
+from pysharpe.exceptions import DataValidationError
 from pysharpe.optimization.models import (
     OptimisationPerformance,
     OptimisationResult,
     PortfolioWeights,
 )
-from pysharpe.optimization.sharpe_optimizer import SharpeOptimizerConfig
+from pysharpe.optimization.sharpe_optimizer import (
+    SharpeOptimizer,
+    SharpeOptimizerConfig,
+)
+from pysharpe.optimization.tax_location import ReturnBasis
 from pysharpe.portfolio_optimization import (
     ConfigurationError,
     _load_collated_prices,
@@ -880,6 +885,7 @@ def test_optimise_portfolio_for_sharpe_tracks_portfolio_mer(tmp_path):
         config=SharpeOptimizerConfig(max_weight=1.0),
         mer_mapping=mer_mapping,
         max_portfolio_mer=0.0050,
+        return_basis=ReturnBasis.NET_OF_EXPENSES,
     )
 
     weights = result.weights.allocations
@@ -891,6 +897,30 @@ def test_optimise_portfolio_for_sharpe_tracks_portfolio_mer(tmp_path):
     assert result.performance.portfolio_mer is not None
     assert result.performance.portfolio_mer <= 0.0050 + 1e-4
     assert result.performance.portfolio_mer < 0.10
+
+    observed_prices = _load_collated_prices("sharpe_mer", collated).dropna()
+    annualized = (
+        observed_prices.pct_change().dropna().mean()
+        * SharpeOptimizer._estimate_periods_per_year(observed_prices.index)
+    )
+    expected_from_observed_history = sum(
+        weight * annualized[ticker] for ticker, weight in weights.items()
+    )
+    assert result.performance.expected_return == pytest.approx(
+        expected_from_observed_history
+    )
+
+
+def test_optimise_portfolio_for_sharpe_requires_basis_for_nonzero_mer(tmp_path):
+    collated = tmp_path / "collated"
+    _write_synth_collated(collated, "sharpe_unknown_basis")
+    with pytest.raises(DataValidationError, match="return_basis is required"):
+        optimise_portfolio_for_sharpe(
+            "sharpe_unknown_basis",
+            collated_dir=collated,
+            mer_mapping={"AAA": 0.0017},
+            make_plot=False,
+        )
 
 
 def test_optimise_portfolio_for_sharpe_raises_when_fx_removes_all_data(

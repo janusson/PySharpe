@@ -22,6 +22,7 @@ from pysharpe.optimization.models import (
     OptimisationResult,
     PortfolioWeights,
 )
+from pysharpe.optimization.tax_location import ReturnBasis
 
 
 class ColumnContext:
@@ -102,6 +103,7 @@ class SidebarAPI:
         self.slider_defaults: dict[str, object] = {}
         self.keyed_values: dict[str, float] = {}
         self.checkbox_values = {}
+        self.selectbox_values: dict[str, str] = {}
 
     def header(self, *_args, **_kwargs) -> None:
         return None
@@ -111,6 +113,9 @@ class SidebarAPI:
 
     def text_input(self, *_args, **_kwargs) -> str:
         return self.text_value
+
+    def selectbox(self, label: str, options, index: int = 0, **_kwargs):
+        return self.selectbox_values.get(label, options[index])
 
     def date_input(self, label: str, default: object = None, **_kwargs) -> dt.date:
         self.date_defaults.append((label, default))
@@ -523,6 +528,7 @@ def test_sidebar_controls_download_flow(
     controls = app.sidebar_controls()
 
     assert controls["source"] == "download"
+    assert controls["return_basis"] is ReturnBasis.NET_OF_EXPENSES
     assert controls["tickers"] == ("AAPL", "MSFT")
     assert list(controls["price_data"].columns) == ["AAPL", "MSFT"]
     assert controls["metadata"].index.name == "Ticker"
@@ -582,6 +588,7 @@ def test_sidebar_controls_upload_flow(
     controls = app.sidebar_controls()
 
     assert controls["source"] == "upload"
+    assert controls["return_basis"] is None
     assert controls["tickers"] == ("AAPL",)
     assert controls["metadata"].loc["AAPL", "name"] == "Provided via CSV"
     assert controls["download_summary"] is None
@@ -593,6 +600,13 @@ def test_sidebar_controls_upload_flow(
     )
     # Single-asset selection is still a strict 1/N allocation (N=1).
     assert controls["custom_weights"] == {"AAPL": 1.0}
+
+    csv_data.seek(0)
+    streamlit_stub.sidebar.selectbox_values["Uploaded price return basis"] = (
+        "Gross of fund expenses"
+    )
+    gross_controls = app.sidebar_controls()
+    assert gross_controls["return_basis"] is ReturnBasis.GROSS_OF_EXPENSES
 
 
 def test_sidebar_controls_weights_reset_on_ticker_change(
@@ -657,6 +671,13 @@ def test_sidebar_controls_weights_reset_on_ticker_change(
     third = app.sidebar_controls()
     assert set(third["tickers"]) == {"AAA", "CCC"}
     assert third["custom_weights"] == pytest.approx({"AAA": 0.5, "CCC": 0.5})
+    net_signature = app._analysis_signature(
+        {"return_basis": ReturnBasis.NET_OF_EXPENSES}
+    )
+    gross_signature = app._analysis_signature(
+        {"return_basis": ReturnBasis.GROSS_OF_EXPENSES}
+    )
+    assert net_signature != gross_signature
     assert fetch_counts[("AAA", "BBB")] == 1
     assert fetch_counts[("AAA", "BBB", "CCC")] == 1
     assert fetch_counts[("AAA", "CCC")] == 1

@@ -40,6 +40,12 @@ def test_dir_lists_lazy_exports():
     assert "compute_returns" in names
 
 
+def test_return_basis_is_lazily_exported():
+    basis = pysharpe.ReturnBasis.NET_OF_EXPENSES
+    assert basis.value == "net_of_expenses"
+    assert "ReturnBasis" in pysharpe.__all__
+
+
 def test_unknown_attribute_raises_helpful_error():
     with pytest.raises(AttributeError) as exc:
         _ = pysharpe.does_not_exist  # noqa: F841
