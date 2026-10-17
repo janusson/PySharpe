@@ -8,8 +8,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysharpe import MarketDataProvenance as PublicMarketDataProvenance
 from pysharpe import MomentumConfig as PublicMomentumConfig
+from pysharpe import WalkForwardConfig as PublicWalkForwardConfig
+from pysharpe import WalkForwardResearchResult as PublicWalkForwardResearchResult
 from pysharpe import run_cross_asset_momentum as public_run_cross_asset_momentum
+from pysharpe import run_walk_forward_momentum as public_run_walk_forward_momentum
+from pysharpe.analysis import MarketDataProvenance as AnalysisMarketDataProvenance
+from pysharpe.analysis import WalkForwardConfig as AnalysisWalkForwardConfig
 from pysharpe.analysis.tactical_momentum import (
     MomentumConfig,
     run_cross_asset_momentum,
@@ -62,7 +68,7 @@ def test_long_only_momentum_ranks_and_exports_versioned_result() -> None:
     assert {"VFV", "CASH"}.issubset(result.benchmarks.columns)
 
     payload = json.loads(result.to_json())
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert payload["strategy"]["name"] == "cross_asset_momentum"
     assert payload["signals"]
     assert payload["data_quality"]["return_basis"] == "net_of_expenses"
@@ -151,6 +157,73 @@ def test_cad_fx_alignment_uses_only_prior_rates_and_rejects_uncovered_lead() -> 
         ]
         .eq("USD_ASSET")
         .any()
+    )
+
+
+def test_momentum_ranking_uses_cad_converted_foreign_total_returns() -> None:
+    total_return, execution = _monthly_prices()
+    total_return["USD_ASSET"] = 100.0
+    execution["USD_ASSET"] = 100.0
+    fx = pd.DataFrame(
+        {"USD": 1.0 * 1.015 ** np.arange(len(total_return))},
+        index=total_return.index,
+    )
+    config = _config(
+        universe=("USD_ASSET", "B"),
+        top_n=1,
+        max_fx_staleness_days=40,
+    )
+
+    result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=config,
+        currencies={"USD_ASSET": "USD"},
+        fx_to_cad=fx,
+    )
+
+    recent_signals = result.signals.loc[
+        result.signals["signal_date"] >= total_return.index[-6], "ticker"
+    ]
+    assert not recent_signals.empty
+    assert recent_signals.eq("USD_ASSET").all()
+
+
+def test_future_fx_changes_do_not_rewrite_past_momentum_signals() -> None:
+    total_return, execution = _monthly_prices()
+    total_return["USD_ASSET"] = 100.0
+    execution["USD_ASSET"] = 100.0
+    fx = pd.DataFrame(
+        {"USD": 1.0 * 1.015 ** np.arange(len(total_return))},
+        index=total_return.index,
+    )
+    config = _config(
+        universe=("USD_ASSET", "B"),
+        top_n=1,
+        max_fx_staleness_days=40,
+    )
+    cutoff = total_return.index[20]
+    original = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=config,
+        currencies={"USD_ASSET": "USD"},
+        fx_to_cad=fx,
+    )
+    changed_fx = fx.copy()
+    changed_fx.loc[changed_fx.index > cutoff, "USD"] *= 2.0
+    changed = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=config,
+        currencies={"USD_ASSET": "USD"},
+        fx_to_cad=changed_fx,
+    )
+
+    original_past = original.signals.loc[original.signals["signal_date"] <= cutoff]
+    changed_past = changed.signals.loc[changed.signals["signal_date"] <= cutoff]
+    pd.testing.assert_frame_equal(
+        original_past.reset_index(drop=True), changed_past.reset_index(drop=True)
     )
 
 
@@ -260,3 +333,228 @@ def test_insufficient_signal_history_fails_with_actionable_error() -> None:
             execution,
             config=_config(lookback_months=12),
         )
+
+
+def test_market_data_provenance_is_validated_and_exported() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices()
+    provenance = {
+        f"{panel}:{ticker}": tactical.MarketDataProvenance(
+            source="synthetic_fixture",
+            retrieved_at=total_return.index[-1],
+            currency="CAD",
+            price_basis=basis,
+            max_staleness_days=3,
+        )
+        for panel, frame, basis in (
+            (
+                "total_return_prices",
+                total_return,
+                "adjusted_total_return_net_of_expenses",
+            ),
+            ("execution_prices", execution, "split_adjusted_close"),
+        )
+        for ticker in frame.columns
+    }
+
+    result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=_config(),
+        provenance=provenance,
+    )
+    payload = json.loads(result.to_json())
+
+    assert payload["schema_version"] == "1.1"
+    assert payload["data_quality"]["provenance_complete"] is True
+    assert payload["data_provenance"]["total_return_prices:A"]["source"] == (
+        "synthetic_fixture"
+    )
+    assert payload["data_provenance"]["execution_prices:A"]["stale"] is False
+    assert payload["cost_assumptions"]["fee_per_order"] == 0.0
+
+
+def test_stale_or_mislabeled_market_data_is_rejected() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices()
+    provenance = {
+        f"{panel}:{ticker}": tactical.MarketDataProvenance(
+            source="fixture",
+            retrieved_at=total_return.index[-1] + pd.Timedelta(days=10),
+            currency="CAD",
+            price_basis=basis,
+            max_staleness_days=3,
+        )
+        for panel, frame, basis in (
+            (
+                "total_return_prices",
+                total_return,
+                "adjusted_total_return_net_of_expenses",
+            ),
+            ("execution_prices", execution, "split_adjusted_close"),
+        )
+        for ticker in frame.columns
+    }
+
+    with pytest.raises(DataValidationError, match="stale market data"):
+        run_cross_asset_momentum(
+            total_return,
+            execution,
+            config=_config(),
+            provenance=provenance,
+        )
+
+    provenance["total_return_prices:A"] = tactical.MarketDataProvenance(
+        source="fixture",
+        retrieved_at=total_return.index[-1],
+        currency="CAD",
+        price_basis="unknown_basis",
+        max_staleness_days=3,
+    )
+    with pytest.raises(DataValidationError, match="price basis"):
+        run_cross_asset_momentum(
+            total_return,
+            execution,
+            config=_config(),
+            provenance=provenance,
+        )
+
+
+def test_fx_provenance_declares_conversion_direction_and_quote_basis() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices()
+    total_return["USD_ASSET"] = 100.0
+    execution["USD_ASSET"] = 100.0
+    fx = pd.DataFrame({"USD": 1.35}, index=total_return.index)
+    currencies = {"USD_ASSET": "USD"}
+    provenance: dict[str, tactical.MarketDataProvenance] = {}
+    for panel, frame, basis in (
+        ("total_return_prices", total_return, "adjusted_total_return_net_of_expenses"),
+        ("execution_prices", execution, "split_adjusted_close"),
+    ):
+        for ticker in frame.columns:
+            if ticker == "B":
+                continue
+            provenance[f"{panel}:{ticker}"] = tactical.MarketDataProvenance(
+                source="synthetic_fixture",
+                retrieved_at=total_return.index[-1],
+                currency=currencies.get(ticker, "CAD"),
+                price_basis=basis,
+            )
+    provenance["fx_to_cad:USD"] = tactical.MarketDataProvenance(
+        source="synthetic_fx_fixture",
+        retrieved_at=fx.index[-1],
+        currency="CAD/USD",
+        price_basis="CAD_per_currency_unit",
+        max_staleness_days=40,
+    )
+
+    result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=_config(
+            universe=("A", "USD_ASSET"),
+            top_n=1,
+            max_fx_staleness_days=40,
+        ),
+        currencies=currencies,
+        fx_to_cad=fx,
+        provenance=provenance,
+    )
+
+    fx_provenance = result.data_provenance["fx_to_cad:USD"]
+    assert fx_provenance["currency"] == "CAD/USD"
+    assert fx_provenance["price_basis"] == "CAD_per_currency_unit"
+    assert result.data_quality["provenance_complete"] is True
+
+
+def test_missing_provenance_is_reported_without_inventing_a_source() -> None:
+    total_return, execution = _monthly_prices()
+
+    result = run_cross_asset_momentum(total_return, execution, config=_config())
+
+    assert result.data_quality["provenance_complete"] is False
+    assert result.data_quality["signal_freshness_verified"] is False
+    assert "total_return_prices:A" in result.data_quality["unattributed_series"]
+    assert result.to_dict()["data_provenance"] == {}
+
+
+def test_walk_forward_uses_chronological_fixed_configuration_test_windows() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices(months=30)
+    result = tactical.run_walk_forward_momentum(
+        total_return,
+        execution,
+        strategy_config=_config(),
+        walk_forward_config=tactical.WalkForwardConfig(
+            training_months=8,
+            test_months=6,
+        ),
+    )
+
+    folds = result.to_dict()["folds"]
+    assert len(folds) == 4
+    assert folds[0]["test_start"] > folds[0]["training_end"]
+    assert folds[0]["test_end"] < folds[1]["test_start"]
+    assert all(fold["test_returns"] for fold in folds)
+    assert all("VFV" in fold["benchmark_risk"] for fold in folds)
+    assert result.to_dict()["strategy"]["config"]["top_n"] == 1
+    assert result.to_dict()["cost_assumptions"]["fee_per_order"] == 0.0
+    assert result.to_json() == result.to_json()
+
+
+def test_walk_forward_fold_results_do_not_depend_on_later_prices() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices(months=30)
+    walk_forward_config = tactical.WalkForwardConfig(
+        training_months=8,
+        test_months=6,
+    )
+    original = tactical.run_walk_forward_momentum(
+        total_return,
+        execution,
+        strategy_config=_config(),
+        walk_forward_config=walk_forward_config,
+    )
+    cutoff = pd.Timestamp(original.folds[0]["test_end"])
+    changed = total_return.copy()
+    changed.loc[changed.index > cutoff, "A"] *= 2.0
+    modified = tactical.run_walk_forward_momentum(
+        changed,
+        execution,
+        strategy_config=_config(),
+        walk_forward_config=walk_forward_config,
+    )
+
+    assert original.folds[0] == modified.folds[0]
+
+
+def test_walk_forward_rejects_insufficient_training_history() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices(months=10)
+
+    with pytest.raises(DataValidationError, match="training history must exceed"):
+        tactical.run_walk_forward_momentum(
+            total_return,
+            execution,
+            strategy_config=_config(),
+            walk_forward_config=tactical.WalkForwardConfig(
+                training_months=4,
+                test_months=2,
+            ),
+        )
+
+
+def test_provenance_and_walk_forward_symbols_are_public() -> None:
+    from pysharpe import analysis
+
+    assert PublicMarketDataProvenance is AnalysisMarketDataProvenance
+    assert PublicWalkForwardConfig is AnalysisWalkForwardConfig
+    assert PublicWalkForwardResearchResult.__name__ == "WalkForwardResearchResult"
+    assert public_run_walk_forward_momentum is analysis.run_walk_forward_momentum
