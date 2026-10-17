@@ -1077,3 +1077,10 @@ class TestRebalanceIntegration:
         assert plan.is_multi_account
         assert tfsa_vfv > 0
         assert rrsp_vfv > 0
+
+    def test_rejects_mer_greater_than_10_percent(self):
+        with pytest.raises(ValueError, match="MER must be a decimal fraction < 0.10"):
+            AssetTaxCharacteristics("X", dividend_yield=0.02, mer=0.15)
+
+        with pytest.raises(ValueError, match="MER must be a decimal fraction < 0.10"):
+            AssetTaxCharacteristics("X", dividend_yield=0.02, mer=1.5)

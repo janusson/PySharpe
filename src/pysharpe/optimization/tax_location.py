@@ -235,8 +235,8 @@ class AssetTaxCharacteristics:
             raise ValueError(
                 f"Income fractions for {self.ticker!r} must sum to 1.0; got {total}"
             )
-        if self.mer < 0.0:
-            raise ValueError(f"MER must be non-negative, got {self.mer}")
+        if self.mer < 0.0 or self.mer >= 0.10:
+            raise ValueError(f"MER must be a decimal fraction < 0.10, got {self.mer}")
 
     @property
     def has_us_equity_exposure(self) -> bool:
