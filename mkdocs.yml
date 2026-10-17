@@ -56,5 +56,6 @@ nav:
   - Test Map: TEST_MAP.md
   - Gotchas: GOTCHAS.md
   - Benchmarks: benchmarks.md
+  - Tactical Research: tactical_research.md
   - Proxy Mapping: proxies.md
   - API Reference: api.md

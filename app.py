@@ -397,6 +397,9 @@ def sidebar_controls() -> dict[str, object]:
             "Net of embedded fund expenses": ReturnBasis.NET_OF_EXPENSES,
             "Gross of fund expenses": ReturnBasis.GROSS_OF_EXPENSES,
         }
+        # The source branch implies a current upload, but pyright cannot infer
+        # that relationship from the separately stored session state.
+        assert uploaded_file is not None
         uploaded_content = uploaded_file.getvalue()
         if isinstance(uploaded_content, str):
             uploaded_content = uploaded_content.encode("utf-8")

@@ -226,6 +226,15 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.analysis.comparison",
         "compare_two_funds",
     ),
+    "MomentumConfig": ("pysharpe.analysis.tactical_momentum", "MomentumConfig"),
+    "MomentumResearchResult": (
+        "pysharpe.analysis.tactical_momentum",
+        "MomentumResearchResult",
+    ),
+    "run_cross_asset_momentum": (
+        "pysharpe.analysis.tactical_momentum",
+        "run_cross_asset_momentum",
+    ),
     # Validation / trial ledger
     "DuckDBLedger": ("pysharpe.validation.ledger", "DuckDBLedger"),
     "ExecutionStatus": ("pysharpe.validation.ledger", "ExecutionStatus"),
@@ -373,6 +382,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     )
     from pysharpe.analysis.comparison import (  # noqa: F401
         compare_two_funds,
+    )
+    from pysharpe.analysis.tactical_momentum import (  # noqa: F401
+        MomentumConfig,
+        MomentumResearchResult,
+        run_cross_asset_momentum,
     )
     from pysharpe.config import (  # noqa: F401
         AccountType,
