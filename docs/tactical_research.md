@@ -66,7 +66,9 @@ infer whether a vendor column is adjusted.
 ### Costs and benchmarks
 
 For each rebalance, gross traded notional is the portfolio value multiplied by
-the sum of absolute changes in asset weights. The cost is:
+the sum of absolute changes between target weights and the portfolio weights
+after applying returns through the execution date. Thus the transaction record
+captures drift trades even when the target allocation is unchanged. The cost is:
 
 ```text
 gross_traded_notional * (slippage_bps + spread_bps / 2) / 10_000
@@ -78,6 +80,8 @@ Spread is the full quoted spread, so the model charges half the spread per
 traded side. Cost inputs default to zero and are reported as supplied; they
 are not presented as a broker quote. VFV (configured benchmark ticker) and a
 zero-return cash baseline use the same initial capital and reported period.
+VFV must have a CAD-convertible observation at the simulation start; otherwise
+the run fails instead of reporting benchmark metrics over a shorter interval.
 The cash baseline assumes no yield and is not a cash-rate forecast.
 
 ## JSON contract for Northstar

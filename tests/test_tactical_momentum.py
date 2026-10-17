@@ -172,6 +172,46 @@ def test_trading_costs_reduce_nav_and_turnover_is_reported() -> None:
     assert (result.backtest["portfolio_value"] < 10_000.0).any()
 
 
+def test_rebalance_turnover_uses_weights_drifted_through_current_return() -> None:
+    total_return, execution = _monthly_prices()
+    result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=_config(top_n=2),
+    )
+
+    second_trade = result.trades.iloc[1]
+    trade_position = total_return.index.get_loc(pd.Timestamp(second_trade["date"]))
+    a_return = (
+        total_return["A"].iloc[trade_position]
+        / total_return["A"].iloc[trade_position - 1]
+        - 1
+    )
+    b_return = (
+        total_return["B"].iloc[trade_position]
+        / total_return["B"].iloc[trade_position - 1]
+        - 1
+    )
+    drifted_a_weight = (
+        0.5 * (1.0 + a_return) / (0.5 * (1.0 + a_return) + 0.5 * (1.0 + b_return))
+    )
+    expected_turnover = 2.0 * abs(drifted_a_weight - 0.5)
+
+    assert second_trade["turnover"] == pytest.approx(expected_turnover)
+    assert second_trade["turnover"] > 0.0
+
+
+def test_benchmark_must_cover_full_reported_strategy_period() -> None:
+    total_return, execution = _monthly_prices()
+    total_return.loc[total_return.index[:6], "VFV"] = np.nan
+    execution.loc[execution.index[:6], "VFV"] = np.nan
+
+    with pytest.raises(
+        DataValidationError, match="benchmark must cover simulation start"
+    ):
+        run_cross_asset_momentum(total_return, execution, config=_config())
+
+
 def test_fx_conversion_fee_applies_only_to_foreign_trade_notional() -> None:
     total_return, execution = _monthly_prices()
     total_return["USD_ASSET"] = total_return["A"]

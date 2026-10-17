@@ -335,10 +335,26 @@ def run_cross_asset_momentum(
         if not np.isfinite(nav_before_cost) or nav_before_cost <= 0.0:
             raise DataValidationError("simulated portfolio value became non-positive")
 
+        drifted_weights = held_weights.copy()
+        if position > 0:
+            growth = 1.0 + period_return
+            drifted_weights = {
+                ticker: (
+                    weight
+                    * (1.0 + cast(float, cadence_returns.at[date, ticker]))
+                    / growth
+                    if weight
+                    else 0.0
+                )
+                for ticker, weight in held_weights.items()
+            }
+            if sum(drifted_weights.values()) > 1.0 + 1e-9:
+                raise DataValidationError("portfolio weights exceeded 100 percent")
+
         if date in signal_targets:
             target = signal_targets[date]
             deltas = {
-                ticker: target.get(ticker, 0.0) - held_weights.get(ticker, 0.0)
+                ticker: target.get(ticker, 0.0) - drifted_weights.get(ticker, 0.0)
                 for ticker in config.universe
             }
             traded = {
@@ -379,16 +395,7 @@ def run_cross_asset_momentum(
             }
         else:
             nav = nav_before_cost
-            if position > 0:
-                growth = 1.0 + period_return
-                updated = {}
-                for ticker, weight in held_weights.items():
-                    value = cast(float, cadence_returns.at[date, ticker])
-                    updated[ticker] = weight * (1.0 + value) / growth if weight else 0.0
-                invested = sum(updated.values())
-                if invested > 1.0 + 1e-9:
-                    raise DataValidationError("portfolio weights exceeded 100 percent")
-                held_weights = updated
+            held_weights = drifted_weights
 
         portfolio_values.append(float(nav))
         net_returns.append(float(nav / previous_value - 1.0) if position else 0.0)
@@ -405,6 +412,8 @@ def run_cross_asset_momentum(
     benchmark_values = cad_total[config.benchmark_ticker].dropna()
     if benchmark_values.empty:
         raise DataValidationError("benchmark has no CAD-convertible history")
+    if benchmark_values.index[0] != simulation_index[0]:
+        raise DataValidationError("benchmark must cover simulation start")
     benchmark_series[config.benchmark_ticker] = (
         config.initial_capital
         * cad_total[config.benchmark_ticker]

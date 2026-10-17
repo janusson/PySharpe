@@ -7,6 +7,8 @@
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,
   and versioned JSON export. See `docs/tactical_research.md` for its data
   contract, Northstar integration boundary, and current limitations.
+- Correct turnover accounting to include return-driven weight drift at rebalance
+  dates, and require VFV benchmark coverage from the same simulation start.
 
 ## 0.4.0 - 2026-10-10
 
