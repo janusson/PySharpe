@@ -227,6 +227,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "compare_two_funds",
     ),
     "MomentumConfig": ("pysharpe.analysis.tactical_momentum", "MomentumConfig"),
+    "MarketDataProvenance": (
+        "pysharpe.analysis.tactical_momentum",
+        "MarketDataProvenance",
+    ),
     "MomentumResearchResult": (
         "pysharpe.analysis.tactical_momentum",
         "MomentumResearchResult",
@@ -234,6 +238,18 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "run_cross_asset_momentum": (
         "pysharpe.analysis.tactical_momentum",
         "run_cross_asset_momentum",
+    ),
+    "WalkForwardConfig": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "WalkForwardConfig",
+    ),
+    "WalkForwardResearchResult": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "WalkForwardResearchResult",
+    ),
+    "run_walk_forward_momentum": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "run_walk_forward_momentum",
     ),
     # Validation / trial ledger
     "DuckDBLedger": ("pysharpe.validation.ledger", "DuckDBLedger"),
@@ -384,9 +400,15 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         compare_two_funds,
     )
     from pysharpe.analysis.tactical_momentum import (  # noqa: F401
+        MarketDataProvenance,
         MomentumConfig,
         MomentumResearchResult,
         run_cross_asset_momentum,
+    )
+    from pysharpe.analysis.tactical_walk_forward import (  # noqa: F401
+        WalkForwardConfig,
+        WalkForwardResearchResult,
+        run_walk_forward_momentum,
     )
     from pysharpe.config import (  # noqa: F401
         AccountType,
