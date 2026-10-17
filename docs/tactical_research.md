@@ -9,16 +9,16 @@ Northstar and do not fetch data or place orders.
 
 | Responsibility | Module boundary | Current state |
 | --- | --- | --- |
-| Market data and provenance | `pysharpe.data` adapters supply named total-return, executable-price, FX, currency, and observation-time inputs | Existing fetchers and FX tools are reusable; no tactical data adapter is added |
+| Market data and provenance | Callers supply named total-return, executable-price, and FX series with `MarketDataProvenance` records | Validation and quality reporting are implemented; no network provider is coupled to the strategy |
 | Signal rules and simulation | `pysharpe.analysis.tactical_momentum` owns strategy configuration, momentum ranks, portfolio simulation, trading costs, and result serialization | Implemented for monthly, long-only cross-asset momentum |
 | Performance and risk | `pysharpe.metrics` supplies CAGR, volatility, Sharpe, and drawdown calculations | Reused by this strategy |
-| Validation | `pysharpe.validation` owns walk-forward, purged resampling, and trial accounting | Existing tools are reusable; this slice does not claim walk-forward validation |
+| Validation | `pysharpe.analysis.tactical_walk_forward` evaluates fixed configurations over chronological windows; `pysharpe.validation` owns purged resampling and trial accounting | Fixed-configuration monthly walk-forward evaluation is implemented; no parameter search or tuning is performed |
 | Portfolio exposures | `pysharpe.analysis.portfolio_analytics` can report look-through exposure for saved holdings | Existing holdings analytics are separate from this strategy result; overlap analysis is deferred |
 | User interface and transport | Northstar or another client reads the versioned JSON result | Contract is documented below; no Northstar runtime, file access, or service is assumed |
 
-Trend-following, breakout rules, and walk-forward evaluation should be separate
-strategy or validation components that consume the same explicit market-data
-contract. They are not part of this first vertical slice.
+Trend-following, breakout rules, and parameter searches remain separate
+follow-on strategies or validation work that can consume the same explicit
+market-data contract.
 
 ## Implemented strategy
 
@@ -59,6 +59,15 @@ history become eligible only after the entire scoring window is available.
   later. Interior missing price observations are rejected to prevent a stale
   quote from being mistaken for a current mark.
 
+`provenance` optionally maps series keys such as `total_return_prices:VFV.TO`,
+`execution_prices:VFV.TO`, and `fx_to_cad:USD` to `MarketDataProvenance`
+records. Each record declares `source`, `retrieved_at`, `currency`,
+`price_basis`, and `max_staleness_days`. The engine checks the declared basis
+and currency against its input contract and rejects data that was already
+stale when retrieved. Omitted records are reported as unattributed; PySharpe
+does not invent a vendor or retrieval timestamp. FX series use currency
+`CAD/USD` and price basis `CAD_per_currency_unit`.
+
 The caller remains responsible for supplying trustworthy, correctly adjusted
 histories and their provenance. The module does not invent missing history or
 infer whether a vendor column is adjusted.
@@ -77,8 +86,9 @@ gross_traded_notional * (slippage_bps + spread_bps / 2) / 10_000
 ```
 
 Spread is the full quoted spread, so the model charges half the spread per
-traded side. Cost inputs default to zero and are reported as supplied; they
-are not presented as a broker quote. VFV (configured benchmark ticker) and a
+traded side. Commissions use a fixed-per-order model and default to `$0`;
+spread, slippage, and FX cost remain independent assumptions. Inputs are
+reported as supplied, not presented as a broker quote. VFV (configured benchmark ticker) and a
 zero-return cash baseline use the same initial capital and reported period.
 VFV must have a CAD-convertible observation at the simulation start; otherwise
 the run fails instead of reporting benchmark metrics over a shorter interval.
@@ -87,11 +97,11 @@ The cash baseline assumes no yield and is not a cash-rate forecast.
 ## JSON contract for Northstar
 
 `MomentumResearchResult.to_dict()` and `.to_json()` expose a read-only,
-versioned result. Version `1.0` has this top-level shape:
+versioned result. Version `1.1` adds provenance and cost assumptions:
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "generated_at": "2024-01-31T00:00:00",
   "strategy": {"name": "cross_asset_momentum", "config": {}},
   "signals": [],
@@ -101,7 +111,9 @@ versioned result. Version `1.0` has this top-level shape:
   "trades": [],
   "risk": {},
   "benchmark_risk": {},
-  "data_quality": {}
+  "data_quality": {},
+  "data_provenance": {},
+  "cost_assumptions": {}
 }
 ```
 
@@ -115,9 +127,24 @@ Undefined statistics serialize as JSON `null`, never `NaN` or `Infinity`.
 
 `data_quality` identifies the input return and execution-price bases, FX
 alignment rule and coverage gaps, incomplete listing history, signal warm-up,
-signal count, and data end timestamp. Clients should branch on
+signal count, data end timestamp, provenance completeness, and stale-series
+status. `signal_freshness_verified` is false when any required input has no
+provenance record. `data_provenance` records each declared source alongside its latest
+observation and age at retrieval. `cost_assumptions` reports commissions,
+spread, slippage, and FX parameters. Clients should branch on
 `schema_version`, treat the payload as research output, and display its
 timestamps and quality fields with the results.
+
+### Fixed-configuration walk-forward evaluation
+
+`run_walk_forward_momentum()` uses `WalkForwardConfig(training_months,
+test_months)` to report non-overlapping chronological test windows. The first
+training period must exceed `lookback_months + skip_months`; later periods
+expand through the history available before each fold. Signals use only prior
+observations, and each test window exports its equity path, returns, strategy
+metrics, and same-period VFV/cash metrics. Strategy settings remain fixed:
+there is no parameter search, fit step, or claim that chosen parameters
+generalize beyond the evaluated periods.
 
 Feasible Northstar integrations include reading a user-exported JSON artifact,
 receiving the payload from an authenticated API that runs PySharpe elsewhere,
@@ -130,11 +157,14 @@ PySharpe's local files.
 
 The deterministic test fixtures cover future-data leakage, incomplete listing
 windows, interior missing observations, backward-only FX and uncovered history,
-transaction costs, split-adjusted execution-price separation, benchmark output,
-and insufficient lookback history. They use synthetic values only.
+transaction costs and zero-commission defaults, split-adjusted execution-price
+separation, benchmark alignment, provenance basis/freshness, and chronological
+walk-forward folds. They use synthetic values only; no real market observations
+are mixed into test fixtures.
 
-This slice does not fetch or validate live vendor data, provide dividend or
-corporate-action reconstruction, estimate market impact, model interest on
-cash, calculate tax, measure portfolio look-through overlap, or run
-walk-forward/out-of-sample folds. Slippage, spread, commission, FX fees, and
-cash returns must therefore be interpreted as explicit user assumptions.
+This slice does not fetch or independently verify live vendor data, provide
+dividend or corporate-action reconstruction, estimate market impact, model
+interest on cash, calculate tax, measure portfolio look-through overlap, or
+search parameters. Walk-forward folds evaluate a fixed rule and do not correct
+for strategy selection outside the engine. Slippage, spread, FX fees, and cash
+returns remain explicit user assumptions.
