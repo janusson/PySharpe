@@ -102,6 +102,11 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.base`
 - Missing-price (NaN) handling incl. fully-missing asset columns
 
+## `test_tactical_momentum.py`
+- `pysharpe.analysis.tactical_momentum` (momentum signals, portfolio simulation, CAD/FX handling, costs, benchmarks, JSON contract)
+- `pysharpe.metrics` (risk metrics)
+- `pysharpe.exceptions` (input and data-quality validation)
+
 ## `test_analysis_time_series.py`
 - `pysharpe.analysis.time_series`
 
@@ -178,6 +183,7 @@ your change instead of the full suite every time.
 | `analysis/categorization.py` | `pytest tests/test_categorization.py` |
 | `analysis/comparison.py` | `pytest tests/test_analysis_comparison.py` |
 | `analysis/time_series.py` | `pytest tests/test_analysis_time_series.py` |
+| `analysis/tactical_momentum.py` | `pytest tests/test_tactical_momentum.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `cli.py` | `pytest tests/test_cli.py` |
 | `config.py` | `pytest tests/test_config.py tests/test_2d_allocation.py` |

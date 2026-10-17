@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add a standalone, long-only cross-asset momentum research slice with explicit
+  adjusted total-return and executable-price inputs, backward-only CAD FX,
+  monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,
+  and versioned JSON export. See `docs/tactical_research.md` for its data
+  contract, Northstar integration boundary, and current limitations.
+
 ## 0.4.0 - 2026-10-10
 
 - Replace the shipped `portfolio_config.json` with an opt-in example; the
