@@ -71,3 +71,39 @@ def test_apply_category_mapping_requires_remaining_assets():
 
     with pytest.raises(ValueError):
         apply_category_mapping(prices, {}, include_unmapped=False)
+
+def test_no_bfill_lookahead_bias(monkeypatch):
+    """
+    Ensure that apply_category_mapping does not use .bfill() on the time-series dataframe,
+    preventing any potential lookahead bias.
+    """
+    from pysharpe.analysis.categorization import apply_category_mapping
+    import pandas as pd
+
+    # Mock pd.DataFrame.bfill to raise an error if called
+    original_bfill = pd.DataFrame.bfill
+    def mocked_bfill(*args, **kwargs):
+        raise RuntimeError("bfill() was called, which introduces lookahead bias!")
+
+    monkeypatch.setattr(pd.DataFrame, "bfill", mocked_bfill)
+
+    prices = pd.DataFrame({
+        "AAPL": [pd.NA, 150.0, 155.0],
+        "MSFT": [250.0, 255.0, 260.0]
+    }, index=pd.to_datetime(["2021-01-01", "2021-01-02", "2021-01-03"]))
+    mapping = {"AAPL": "Tech", "MSFT": "Tech"}
+
+    # This should succeed without calling bfill
+    result = apply_category_mapping(prices, mapping)
+
+    # Verify the results match expectations
+    assert list(result.prices.columns) == ["Tech"]
+    assert len(result.prices) == 3
+
+    # The first row for AAPL is missing, but MSFT is 1.0 (250/250)
+    # The first category average should be based on available data
+    # Wait, 1st row: AAPL is NA, MSFT is 1.0 -> Mean of Tech = 1.0
+    # 2nd row: AAPL is 1.0 (150/150), MSFT is 1.02 (255/250) -> Mean = 1.01
+    # 3rd row: AAPL is 1.0333 (155/150), MSFT is 1.04 (260/250) -> Mean = 1.03666
+
+    assert pd.notna(result.prices.iloc[0, 0])

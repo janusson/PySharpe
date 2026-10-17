@@ -40,6 +40,7 @@ dependencies = [
     "matplotlib>=3.9",
     "seaborn>=0.13",
     "streamlit>=1.52",
+    "tzdata>=2026.2",
 ]
 
 [project.optional-dependencies]
