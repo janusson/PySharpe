@@ -359,7 +359,11 @@ def _run_tactical_strategy(
     first_signalable_month = (
         config.lookback_months + skip_months
         if isinstance(config, MomentumConfig)
-        else config.lookback_months
+        else (
+            config.lookback_months - 1
+            if config.rule == "moving_average"
+            else config.lookback_months
+        )
     )
     if len(monthly) <= first_signalable_month:
         raise DataValidationError(
@@ -456,7 +460,7 @@ def _run_tactical_strategy(
             ]
         else:
             tradable = selected
-        if isinstance(config, TrendConfig) and effective_date is not None:
+        if isinstance(config, TrendConfig):
             target: dict[str, float] = {}
             if tradable:
                 target_weight = 1.0 / len(tradable)
@@ -471,7 +475,8 @@ def _run_tactical_strategy(
                         "target_weight": 1.0,
                     }
                 )
-            signal_targets[pd.Timestamp(effective_date)] = target
+            if effective_date is not None:
+                signal_targets[pd.Timestamp(effective_date)] = target
         if isinstance(config, TrendConfig) and config.rule == "breakout":
             active_breakouts = {ticker for ticker, _score in tradable}
         if tradable:

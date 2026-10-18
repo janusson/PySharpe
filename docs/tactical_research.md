@@ -166,6 +166,8 @@ the same inputs deterministic. Each signal row contains `signal_date`,
 portfolio value and net return. Trade rows expose date, gross traded notional,
 turnover, order count, transaction cost, and foreign-currency notional. Risk
 metrics contain CAGR, annualized volatility, Sharpe ratio, and maximum drawdown.
+Signals on the final input date have `effective_date: null` because no later
+execution session was supplied; a terminal cash exit is still reported.
 Undefined statistics serialize as JSON `null`, never `NaN` or `Infinity`.
 
 `data_quality` identifies the input return and execution-price bases, FX

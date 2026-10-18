@@ -120,6 +120,11 @@ def test_trend_rules_exit_to_cash_when_their_exit_condition_fails(rule: str) -> 
 
     assert result.weights["UP"].max() > 0.0
     assert result.weights.iloc[-1].sum() == pytest.approx(0.0)
+    terminal_signals = result.signals.loc[
+        result.signals["signal_date"] == total.index[-1]
+    ]
+    assert terminal_signals["ticker"].tolist() == ["CASH"]
+    assert pd.isna(terminal_signals.iloc[0]["effective_date"])
 
 
 def test_breakout_holds_below_prior_high_until_prior_window_floor_breaks() -> None:
@@ -211,6 +216,18 @@ def test_trend_strategy_rejects_insufficient_lookback_history() -> None:
     total, execution = _histories(6)
     with pytest.raises(DataValidationError, match="insufficient history"):
         run_trend_strategy(total, execution, config=_trend_config(lookback_months=12))
+
+
+def test_moving_average_signals_with_exactly_lookback_observations() -> None:
+    total, execution = _histories(6)
+    result = run_trend_strategy(
+        total,
+        execution,
+        config=_trend_config(rule="moving_average", lookback_months=6),
+    )
+
+    assert result.signals.iloc[-1]["signal_date"] == total.index[-1]
+    assert pd.isna(result.signals.iloc[-1]["effective_date"])
 
 
 def test_trend_config_rejects_invalid_rules_and_fractional_months() -> None:
