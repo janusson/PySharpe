@@ -1,5 +1,18 @@
 # Financial verification: returns across missing prices
 
+Audit **FMV-2026-10-17-001**, conducted 2026-10-17 (America/Vancouver).
+See the [audit register and continuation protocol](financial_verification/index.md).
+
+- Delivery: [PR #100](https://github.com/janusson/PySharpe/pull/100); its live
+  status is authoritative. This report does not assert that it has merged.
+- Original correction: `4e57e2df7bc926a0327420ac94bba03e292b4b3b`.
+- Reference environment: Python 3.12.15, pandas 3.0.3, NumPy 2.4.5, and the
+  committed `uv.lock`. The imported module was verified inside the dedicated
+  `verify-missing-price-returns` worktree, not the dirty primary checkout.
+- Reproduction: `uv sync --locked --all-extras`, then
+  `uv run pytest tests/test_metrics.py tests/test_analysis_comparison.py`.
+  Integration gates: `make check` and `make build_docs`.
+
 ## Scope and finding
 
 This audit tested one invariant in `metrics.compute_returns` against base commit
@@ -67,6 +80,8 @@ are not investment forecasts or adequate samples for performance estimation.
 
 ## Evidence and limits
 
+### Original correction, revision `4e57e2d`
+
 The original metrics/comparison subset passed all 74 tests. The new regression
 cases then produced 21 expected failures on the original code, while two
 existing-validation checks passed. After correction, the expanded subset passed
@@ -78,10 +93,26 @@ synthetic values and make no market-data requests.
 The full suite passed **1,107 tests**, with **3 skipped** and **83.51%** total
 coverage (75% required). Type checking reported zero errors/warnings, the strict
 documentation build passed, and lint/format checks passed for the changed Python
-files. Repository-wide lint remains blocked by inherited `I001` / `F841` findings
+files. At this revision, repository-wide lint was blocked by inherited `I001` / `F841` findings
 in `tests/test_categorization.py`; repository-wide formatting also flags that
-file and `src/pysharpe/analysis/categorization.py`. These files are unchanged by
-this correction, and the same findings were verified from the base commit.
+file and `src/pysharpe/analysis/categorization.py`. Those files were unchanged in
+the original correction, and the same findings were verified from the base commit.
+The [initial CI run](https://github.com/janusson/PySharpe/actions/runs/39095143468)
+passed tests, docs, installed-wheel smoke, and the secret scan; its quality job
+failed on those inherited lint findings. This historical result is separate
+from checks on later PR heads.
+
+### Durability follow-up
+
+The follow-up removes only the inherited import/unused-variable/formatting
+blockers in the categorization files; their production behavior is unchanged.
+It adds a seeded sparse-frame oracle test across both return methods and drop
+policies, with and without duplicate index labels. The register, developer
+entry point, documentation navigation, test map, and changelog make the invariant
+and its reproduction discoverable beyond the original chat. These regressions
+run in the normal CI suite.
+
+### Limits and follow-up candidates
 
 The pattern search covered `dropna`, `pct_change`, and `shift` throughout
 `src/pysharpe`. Caller-side price compaction remains in `analysis/comparison.py`

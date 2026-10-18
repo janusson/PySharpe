@@ -113,6 +113,36 @@ def test_compute_returns_is_independent_of_other_assets(method):
 
 
 @pytest.mark.parametrize("method", ["simple", "log"])
+@pytest.mark.parametrize("dropna", [False, True])
+@pytest.mark.parametrize("duplicate_index", [False, True])
+def test_compute_returns_sparse_frame_matches_reference(
+    method, dropna, duplicate_index
+):
+    rng = np.random.default_rng(20261017)
+    values = 100.0 * np.exp(np.cumsum(rng.normal(0.001, 0.02, (32, 4)), axis=0))
+    values[rng.random(values.shape) < 0.25] = np.nan
+    values[[5, 17], :] = np.nan  # Include whole-frame gaps among partial gaps.
+    dates = pd.date_range("2024-01-01", periods=32, freq="B")
+    if duplicate_index:
+        dates = dates[:16].repeat(2)
+    prices = pd.DataFrame(
+        values, index=dates, columns=["VFV.TO", "VCN.TO", "VIU.TO", "VEE.TO"]
+    )
+    original = prices.copy(deep=True)
+    expected = pd.concat(
+        [_adjacent_return_reference(prices[column], method) for column in prices],
+        axis=1,
+    )
+    if dropna:
+        expected = expected.dropna(how="all")
+
+    actual = compute_returns(prices, method=method, dropna=dropna)
+
+    pd.testing.assert_frame_equal(actual, expected)
+    pd.testing.assert_frame_equal(prices, original)
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
 @pytest.mark.parametrize("missing", [np.nan, np.inf, -np.inf, "invalid"])
 def test_compute_returns_treats_invalid_prices_as_gaps(method, missing):
     prices = pd.Series([100.0, missing, 110.0, 121.0], name="VFV.TO")

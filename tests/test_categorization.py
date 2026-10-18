@@ -72,25 +72,26 @@ def test_apply_category_mapping_requires_remaining_assets():
     with pytest.raises(ValueError):
         apply_category_mapping(prices, {}, include_unmapped=False)
 
+
 def test_no_bfill_lookahead_bias(monkeypatch):
     """
     Ensure that apply_category_mapping does not use .bfill() on the time-series dataframe,
     preventing any potential lookahead bias.
     """
-    from pysharpe.analysis.categorization import apply_category_mapping
     import pandas as pd
 
+    from pysharpe.analysis.categorization import apply_category_mapping
+
     # Mock pd.DataFrame.bfill to raise an error if called
-    original_bfill = pd.DataFrame.bfill
     def mocked_bfill(*args, **kwargs):
         raise RuntimeError("bfill() was called, which introduces lookahead bias!")
 
     monkeypatch.setattr(pd.DataFrame, "bfill", mocked_bfill)
 
-    prices = pd.DataFrame({
-        "AAPL": [pd.NA, 150.0, 155.0],
-        "MSFT": [250.0, 255.0, 260.0]
-    }, index=pd.to_datetime(["2021-01-01", "2021-01-02", "2021-01-03"]))
+    prices = pd.DataFrame(
+        {"AAPL": [pd.NA, 150.0, 155.0], "MSFT": [250.0, 255.0, 260.0]},
+        index=pd.to_datetime(["2021-01-01", "2021-01-02", "2021-01-03"]),
+    )
     mapping = {"AAPL": "Tech", "MSFT": "Tech"}
 
     # This should succeed without calling bfill

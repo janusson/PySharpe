@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Preserve missing price rows when computing simple/log returns, so a move
+  across a data gap is not mislabeled as a one-period return. `dropna=False`
+  retains the original index, and rolling volatility waits for covered windows.
+  Independent-reference regressions run in normal CI; see the audit register in
+  `docs/financial_verification/index.md` for the derivation and limitations.
 - Add a standalone, long-only cross-asset momentum research slice with explicit
   adjusted total-return and executable-price inputs, backward-only CAD FX,
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,
