@@ -134,6 +134,16 @@ installed-wheel rerun was performed: packaging is checked by the existing
 installed-wheel CI job on the actual pushed PR head. Remote checks and integration
 status must be read separately from these local results.
 
+Remote snapshot, 2026-10-18 08:22 PDT: all eight checks passed on
+`b941cc4d65461b65aed67c1258310d023aaf530d`, including quality, coverage,
+strict docs, installed-wheel smoke, secret scanning, and CodeQL. The retained
+[CI run](https://github.com/janusson/PySharpe/actions/runs/39140059416)
+and [CodeQL run](https://github.com/janusson/PySharpe/actions/runs/39140056781)
+identify that head; this snapshot does not assert success for later heads.
+PR #100 was open and draft, with no submitted GitHub reviews or merge. Human
+review and integration approval remain required; PR #103 also needs ordinary
+overlap reconciliation. Later report-only commits preserve the tested code.
+
 All eight new seeded sparse-frame cases also rejected the original base code.
 The following offline command reuses the retained scalar oracle without changing
 the working source or removing the correction:
