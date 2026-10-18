@@ -272,6 +272,104 @@ def test_walk_forward_insufficient_data(_dummy_prices):
         backtester.run(_dummy_prices)
 
 
+def test_walk_forward_preserves_prices_across_window_boundaries():
+    dates = pd.date_range("2024-01-01", periods=6)
+    prices = pd.DataFrame({"ETF": [100, 100, 100, 110, 121, 133.1]}, index=dates)
+
+    result = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=10_000.0,
+    ).run(prices)
+
+    assert result.portfolio_value.tolist() == pytest.approx(
+        [10_000.0, 11_000.0, 12_100.0, 13_310.0]
+    )
+
+
+def test_walk_forward_preserves_returns_with_one_day_test_windows():
+    dates = pd.date_range("2024-01-01", periods=5)
+    prices = pd.DataFrame({"ETF": [100, 100, 100, 110, 121]}, index=dates)
+
+    result = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=2,
+        test_window_days=1,
+        initial_capital=10_000.0,
+        fee_per_trade=5.0,
+    ).run(prices)
+
+    assert result.portfolio_value.tolist() == pytest.approx(
+        [9_995.0, 10_994.5, 12_093.95]
+    )
+
+
+def test_walk_forward_appending_future_prices_preserves_existing_prefix():
+    dates = pd.date_range("2024-01-01", periods=8)
+    prices = pd.DataFrame(
+        {
+            "A": [100, 110, 121, 133.1, 146.41, 161.051, 177.1561, 194.87171],
+            "B": [100, 90, 81, 72.9, 65.61, 59.049, 200, 200],
+        },
+        index=dates,
+    )
+
+    class BestTrainingReturnOptimizer:
+        def __init__(self, data: pd.DataFrame):
+            self.data = data
+
+        def optimize(self) -> OptimizationResult:
+            returns = self.data.pct_change(fill_method=None).mean()
+            winner = str(returns.idxmax())
+            return OptimizationResult({winner: 1.0}, 0.0, 0.0, 0.0)
+
+    backtester = WalkForwardBacktester(
+        optimizer_factory=BestTrainingReturnOptimizer,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=10_000.0,
+    )
+
+    prefix = backtester.run(prices.iloc[:6])
+    extended = backtester.run(prices)
+
+    pd.testing.assert_series_equal(
+        prefix.portfolio_value,
+        extended.portfolio_value.loc[prefix.portfolio_value.index],
+    )
+
+
+def test_walk_forward_charges_only_actual_transition_trades():
+    dates = pd.date_range("2024-01-01", periods=6)
+    prices = pd.DataFrame(
+        {"A": [100, 100, 100, 110, 121, 133.1], "B": [100] * 6}, index=dates
+    )
+    targets = iter(({"A": 1.0}, {"B": 1.0}))
+
+    class FixedTargetOptimizer:
+        def __init__(self, data: pd.DataFrame, weights: dict[str, float]):
+            self.weights = weights
+
+        def optimize(self) -> OptimizationResult:
+            return OptimizationResult(self.weights, 0.0, 0.0, 0.0)
+
+    def optimizer_factory(data: pd.DataFrame) -> FixedTargetOptimizer:
+        return FixedTargetOptimizer(data, next(targets))
+
+    result = WalkForwardBacktester(
+        optimizer_factory=optimizer_factory,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=10_000.0,
+        fee_per_trade=5.0,
+    ).run(prices)
+
+    assert result.portfolio_value.tolist() == pytest.approx(
+        [9_995.0, 10_994.5, 12_083.95, 12_083.95]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Walk-forward with missing price data (NaNs)
 # ---------------------------------------------------------------------------

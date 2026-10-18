@@ -265,6 +265,20 @@
 - Grep guard: `grep -rn "test_end_idx >= n" src/pysharpe/validation/resampling.py`
   must be empty.
 
+### 2026 — Walk-forward folds must carry holdings through price boundaries
+
+- Symptom: each `WalkForwardBacktester` fold began with the prior fold's dollar
+  value and bought the newly optimized target at the next test close. This
+  discarded the return earned by existing shares between the previous test
+  close and the new test close, and charged another initial-purchase cost.
+- Root cause: each test window created a fresh `HistoricalBacktester` with
+  capital only; it did not carry asset share counts across windows.
+- Fix: carry fractional shares, mark them at the new window's first close,
+  then rebalance and charge costs on actual share changes. The first out-of-
+  sample close remains the initial investment timestamp.
+- Regression tests: walk-forward boundary, one-day window, changed-target cost,
+  and future-prefix cases in `tests/test_analysis_backtest_engine.py`.
+
 ### 2026 — Walk-forward backtests silently ignored transaction costs
 
 - Symptom: `WalkForwardBacktester` constructed `HistoricalBacktester`
