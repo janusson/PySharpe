@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import warnings
 from collections.abc import Iterable
 from importlib.util import find_spec
 from pathlib import Path
@@ -112,18 +113,22 @@ def pytest_configure(config: pytest.Config) -> None:
     if not _pyright_available():
         return
 
-    errors, warnings, detail = _run_pyright()
+    errors, warning_count, detail = _run_pyright()
 
     if errors < 0:
         # pyright failed to run at all — warn but don't block
-        config.warn("C1", f"pyright is installed but failed to run: {detail[:200]}")
+        warnings.warn(
+            f"pyright is installed but failed to run: {detail[:200]}",
+            pytest.PytestWarning,
+            stacklevel=2,
+        )
         return
 
     if errors > 0:
         msg = (
             f"\n{'=' * 60}\n"
             f"  TYPE SAFETY CHECK FAILED\n"
-            f"  pyright reports {errors} error(s), {warnings} warning(s)\n"
+            f"  pyright reports {errors} error(s), {warning_count} warning(s)\n"
             f"{'=' * 60}\n"
             f"  Fix them with:  make typecheck\n"
             f"  Or bypass with: PYSHARPE_SKIP_PYRIGHT=1 pytest ...\n"
@@ -132,7 +137,7 @@ def pytest_configure(config: pytest.Config) -> None:
         if _REQUIRE_PYRIGHT:
             pytest.exit(msg, returncode=1)
         else:
-            config.warn("C1", msg)
+            warnings.warn(msg, pytest.PytestWarning, stacklevel=2)
 
 
 # ---------------------------------------------------------------------------

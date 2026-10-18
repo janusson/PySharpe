@@ -12,10 +12,12 @@ from ..exceptions import DataValidationError
 from .tactical_momentum import (
     MarketDataProvenance,
     MomentumConfig,
+    TrendConfig,
     _cost_assumptions,
     _json_safe,
     _risk_metrics,
-    run_cross_asset_momentum,
+    _strategy_name,
+    run_tactical_strategy,
 )
 
 
@@ -43,7 +45,7 @@ class WalkForwardResearchResult:
     """Fold-level out-of-sample returns, risk, benchmarks, and provenance."""
 
     generated_at: pd.Timestamp
-    strategy_config: MomentumConfig
+    strategy_config: MomentumConfig | TrendConfig
     walk_forward_config: WalkForwardConfig
     folds: tuple[dict[str, Any], ...]
     data_quality: dict[str, Any]
@@ -53,11 +55,13 @@ class WalkForwardResearchResult:
         """Return the versioned, JSON-compatible walk-forward contract."""
         return _json_safe(
             {
-                "schema_version": "1.1",
+                "schema_version": (
+                    "1.2" if isinstance(self.strategy_config, TrendConfig) else "1.1"
+                ),
                 "evaluation": "fixed_configuration_walk_forward",
                 "generated_at": self.generated_at,
                 "strategy": {
-                    "name": "cross_asset_momentum",
+                    "name": _strategy_name(self.strategy_config),
                     "config": asdict(self.strategy_config),
                 },
                 "walk_forward_config": asdict(self.walk_forward_config),
@@ -75,11 +79,11 @@ class WalkForwardResearchResult:
         )
 
 
-def run_walk_forward_momentum(
+def run_walk_forward_strategy(
     total_return_prices: pd.DataFrame,
     execution_prices: pd.DataFrame,
     *,
-    strategy_config: MomentumConfig,
+    strategy_config: MomentumConfig | TrendConfig,
     walk_forward_config: WalkForwardConfig,
     currencies: dict[str, str] | None = None,
     fx_to_cad: pd.DataFrame | None = None,
@@ -93,14 +97,17 @@ def run_walk_forward_momentum(
     not overlap.
     """
     training_months = walk_forward_config.training_months
-    minimum_training_months = (
-        strategy_config.lookback_months + strategy_config.skip_months + 1
+    skip_months = (
+        strategy_config.skip_months
+        if isinstance(strategy_config, MomentumConfig)
+        else 0
     )
+    minimum_training_months = strategy_config.lookback_months + skip_months + 1
     if training_months < minimum_training_months:
         raise DataValidationError(
-            "training history must exceed the configured momentum lookback and skip window"
+            "training history must exceed the configured strategy lookback and skip window"
         )
-    full_result = run_cross_asset_momentum(
+    full_result = run_tactical_strategy(
         total_return_prices,
         execution_prices,
         config=strategy_config,
@@ -199,8 +206,33 @@ def run_walk_forward_momentum(
     )
 
 
+def run_walk_forward_momentum(
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    *,
+    strategy_config: MomentumConfig,
+    walk_forward_config: WalkForwardConfig,
+    currencies: dict[str, str] | None = None,
+    fx_to_cad: pd.DataFrame | None = None,
+    provenance: dict[str, MarketDataProvenance] | None = None,
+) -> WalkForwardResearchResult:
+    """Evaluate a fixed momentum configuration over chronological test windows."""
+    if not isinstance(strategy_config, MomentumConfig):
+        raise DataValidationError("strategy_config must be a MomentumConfig")
+    return run_walk_forward_strategy(
+        total_return_prices,
+        execution_prices,
+        strategy_config=strategy_config,
+        walk_forward_config=walk_forward_config,
+        currencies=currencies,
+        fx_to_cad=fx_to_cad,
+        provenance=provenance,
+    )
+
+
 __all__ = [
     "WalkForwardConfig",
     "WalkForwardResearchResult",
     "run_walk_forward_momentum",
+    "run_walk_forward_strategy",
 ]
