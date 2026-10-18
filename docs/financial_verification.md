@@ -112,6 +112,80 @@ entry point, documentation navigation, test map, and changelog make the invarian
 and its reproduction discoverable beyond the original chat. These regressions
 run in the normal CI suite.
 
+### Continuation validation, 2026-10-18
+
+The interrupted follow-up was recovered on the existing PR branch. Its tested
+code and regression revision is `5c2bf4c072e89c6da2aa137ec7e8e62c50f261ae`;
+the base remains `e4fb3f78f3046366036403c2ca33d9df1a7c83f7`. Subsequent report-only
+commits do not change that tested code. Local validation used the reference
+environment above in the same dedicated checkout, on 2026-10-18 at 08:19 PDT
+(15:19 UTC):
+
+| Command | Result |
+| --- | --- |
+| `uv run pytest tests/test_metrics.py tests/test_analysis_comparison.py tests/test_categorization.py` | 110 passed |
+| `make check` | Ruff lint/format passed (121 files); Pyright: 0 errors, 0 warnings; 1,115 tests passed, 3 skipped, 9 warnings; coverage 83.51%, above the unchanged 75% gate |
+| `make build_docs` | Strict build passed; the historical report remains linked from the navigable register |
+| `git diff --check` | Passed |
+
+The three skipped tests and nine warnings are retained as limits of the full
+suite result; a passing gate does not mean every test executed. No local
+installed-wheel rerun was performed: packaging is checked by the existing
+installed-wheel CI job on the actual pushed PR head. Remote checks and integration
+status must be read separately from these local results.
+
+All eight new seeded sparse-frame cases also rejected the original base code.
+The following offline command reuses the retained scalar oracle without changing
+the working source or removing the correction:
+
+```bash
+uv run python - <<'PY'
+import importlib.util
+import subprocess
+import types
+
+spec = importlib.util.spec_from_file_location("verification_tests", "tests/test_metrics.py")
+tests = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tests)
+baseline = types.ModuleType("baseline_metrics")
+source = subprocess.check_output(
+    ["git", "show", "e4fb3f7:src/pysharpe/metrics.py"], text=True
+)
+exec(compile(source, "baseline_metrics.py", "exec"), baseline.__dict__)
+tests.compute_returns = baseline.compute_returns
+failures = 0
+for method in ("simple", "log"):
+    for dropna in (False, True):
+        for duplicate_index in (False, True):
+            try:
+                tests.test_compute_returns_sparse_frame_matches_reference(
+                    method, dropna, duplicate_index
+                )
+            except AssertionError:
+                failures += 1
+assert failures == 8, failures
+print("All 8 seeded sparse-frame cases reject the original implementation.")
+PY
+```
+
+The original independent review found no actionable findings and checked 400
+randomized scalar-reference comparisons, duplicate indexes, and nullable numeric
+gap recovery. A second independent review on 2026-10-18 found no actionable
+findings in the continuation or original correction; its documented `uv run`
+invocation passed all eight sparse-frame cases. A direct virtualenv invocation
+initially failed in the existing pytest/Pyright hook before test collection; it
+does not count as a successful test run. The reviewer did not run the full suite
+or remote CI. The inherited categorization cleanup changes only formatting,
+import order, and removal of an unused test binding. No allocator weights, fee
+units, FX rules, tax fractions, caches, public exports, or financial semantics
+beyond the original missing-price correction were changed. The pattern search
+and unresolved caller-side compaction described below remain applicable.
+
+PR #100 remains the delivery record; PR #103 separately corrects historical
+Sharpe arithmetic and overlaps the metrics tests and documentation. Neither
+open PR is evidence of integration. Reconcile both during human integration;
+this continuation starts no competing audit or verification PR.
+
 ### Limits and follow-up candidates
 
 The pattern search covered `dropna`, `pct_change`, and `shift` throughout
