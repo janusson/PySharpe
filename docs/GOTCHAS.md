@@ -1,5 +1,26 @@
 # Gotchas
 
+### 2026 — Removing missing prices before differencing invents periodic returns
+
+- Symptom: `compute_returns` treated `[100, NaN, 110]` as a one-period 10%
+  return and lost index alignment even with `dropna=False`. Adding an unrelated
+  fully observed asset changed the first asset's returns.
+- Root cause: shared numeric preparation dropped all-NaN rows before shifting
+  prices. A missing period disappeared for a Series or wholly missing frame row,
+  but remained when another asset had an observation on the same date.
+- Fix: preserve input rows during price preparation; compute simple/log returns
+  from adjacent original endpoints, with `pct_change(fill_method=None)` for an
+  explicit no-imputation policy. Drop wholly undefined return rows only afterward
+  when requested. Other metrics retain their existing numeric-cleaning default.
+- Regression coverage: `tests/test_metrics.py::test_compute_returns_preserves_price_gaps`,
+  `test_compute_returns_is_independent_of_other_assets`, invalid/non-finite
+  endpoints, no adjacent coverage, and rolling-volatility gap recovery.
+- Pattern search: inspect `rg -n 'dropna|pct_change|shift' src/pysharpe` for
+  price-row removal before differencing. Existing upstream compaction in
+  `analysis/comparison.py` and `analysis/benchmarks.py` remains a separate caller
+  policy; this correction cannot recover rows already removed before input.
+- Evidence and limits: [missing-price return verification](financial_verification.md).
+
 ### 2026 — CWD portfolio config silently constrains unrelated optimisations
 
 - Symptom: `pysharpe optimise` run from the checkout failed for any portfolio

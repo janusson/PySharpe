@@ -28,18 +28,18 @@ def _coerce_to_dataframe(data: PandasLike) -> tuple[pd.DataFrame, bool]:
     return data.copy(), False
 
 
-def _prep_numeric(frame: pd.DataFrame) -> pd.DataFrame:
+def _prep_numeric(frame: pd.DataFrame, *, drop_empty_rows: bool = True) -> pd.DataFrame:
     cleaned = frame.apply(pd.to_numeric, errors="coerce")
     if isinstance(cleaned, pd.Series):
         cleaned = cleaned.to_frame()
     cleaned = cast(pd.DataFrame, cleaned)
     cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
-    cleaned.dropna(how="all", inplace=True)
-    if cleaned.empty:
+    valid_rows = cleaned.notna().any(axis=1)
+    if not valid_rows.any():
         raise ValueError(
             "Input must contain at least one finite observation per column."
         )
-    return cleaned
+    return cleaned.loc[valid_rows] if drop_empty_rows else cleaned
 
 
 def compute_returns(
@@ -51,10 +51,12 @@ def compute_returns(
     """Compute periodic returns from a price series.
 
     Args:
-        prices: Ordered price levels for one or more assets.
+        prices: Ordered price levels for one or more assets. Returns use adjacent
+            input rows; missing or non-finite endpoints leave an undefined return.
         method: ``"simple"`` for percentage change, ``"log"`` for log returns.
-        dropna: When ``True`` the initial NaN row is removed. Set to ``False``
-            when callers prefer to retain alignment with the original index.
+        dropna: When ``True``, remove rows where every asset's return is undefined
+            after computing returns. When ``False``, preserve the original index,
+            including missing price rows. Prices are never filled or skipped.
 
     Returns:
         Returns with the same dimensionality as ``prices``.
@@ -72,7 +74,7 @@ def compute_returns(
     """
 
     frame, was_series = _coerce_to_dataframe(prices)
-    numeric = _prep_numeric(frame)
+    numeric = _prep_numeric(frame, drop_empty_rows=False)
 
     if method not in {"simple", "log"}:
         raise ValueError("method must be 'simple' or 'log'")
@@ -85,7 +87,7 @@ def compute_returns(
             pd.DataFrame(raw, index=numeric.index, columns=numeric.columns),
         )
     else:
-        returns = cast(pd.DataFrame, numeric.pct_change())
+        returns = cast(pd.DataFrame, numeric.pct_change(fill_method=None))
 
     returns.replace([np.inf, -np.inf], np.nan, inplace=True)
     if dropna:
