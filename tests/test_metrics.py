@@ -83,10 +83,45 @@ def test_expected_return_matches_mean(sample_price_frame):
 def test_sharpe_ratio_handles_risk_free_rate(sample_price_series):
     returns = compute_returns(sample_price_series)
     sharpe = sharpe_ratio(returns, risk_free_rate=0.02, periods_per_year=252)
-    ann_return = annualize_return(returns, periods_per_year=252)
-    ann_vol = annualize_volatility(returns, periods_per_year=252)
-    expected = (ann_return - 0.02) / ann_vol
+    expected = (returns.mean() * 252 - 0.02) / (returns.std(ddof=1) * np.sqrt(252))
     assert pytest.approx(expected, rel=1e-9) == sharpe
+
+
+def test_sharpe_ratio_zero_arithmetic_mean_despite_compounding_loss():
+    # +10%, -10% loses 1% of wealth but has zero mean periodic excess return.
+    returns = pd.Series([0.10, -0.10])
+    assert sharpe_ratio(returns, periods_per_year=2) == pytest.approx(0.0)
+    assert annualize_return(returns, periods_per_year=2) == pytest.approx(-0.01)
+
+
+@pytest.mark.parametrize("periods_per_year", [2, 12, 252])
+@pytest.mark.parametrize("risk_free_rate", [0.0, 0.02, -0.01])
+def test_sharpe_ratio_matches_periodic_excess_reference(
+    periods_per_year, risk_free_rate
+):
+    # Mean = 0.05, sample variance = 0.045. A constant risk-free return
+    # changes the mean of excess returns but leaves their variance unchanged.
+    returns = pd.Series([0.20, -0.10])
+    expected = (0.05 - risk_free_rate / periods_per_year) / np.sqrt(0.045)
+    expected *= np.sqrt(periods_per_year)
+    assert sharpe_ratio(
+        returns, risk_free_rate=risk_free_rate, periods_per_year=periods_per_year
+    ) == pytest.approx(expected, rel=1e-12)
+
+
+def test_sharpe_ratio_dataframe_uses_each_columns_finite_observations():
+    returns = pd.DataFrame(
+        {"gain": [0.20, np.nan, -0.10], "loss": [-0.20, -0.10, np.inf]}
+    )
+    result = sharpe_ratio(returns, periods_per_year=2)
+    # gain: mean 0.05, sample std sqrt(0.045); loss: mean -0.15, std sqrt(0.005).
+    expected = pd.Series({"gain": 1 / 3, "loss": -3.0})
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_sharpe_ratio_requires_two_finite_observations():
+    with pytest.raises(ValueError, match="Not enough observations"):
+        sharpe_ratio(pd.Series([0.1, np.nan]))
 
 
 def test_sharpe_ratio_raises_when_vol_zero():

@@ -24,6 +24,8 @@ your change instead of the full suite every time.
 
 ## `test_metrics.py`
 - `pysharpe.metrics`
+- Historical Sharpe arithmetic-excess reference cases (including nonzero risk-free
+  rates, multiple frequencies, and column-specific finite observations).
 
 ## `test_optimization_base.py`
 - `pysharpe.exceptions`
@@ -125,6 +127,7 @@ your change instead of the full suite every time.
 ## `test_analysis_comparison.py`
 - `pysharpe.analysis.comparison`
 - `pysharpe.metrics`
+- Hand-checkable fund-comparison Sharpe regression independent of metric helpers.
 
 ## `test_cash_flow_rebalance.py`
 - `pysharpe.execution.cash_flow_rebalance` (multi-account contribution routing, taxable-sale guardrails)
