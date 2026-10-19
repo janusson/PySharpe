@@ -61,7 +61,7 @@ execution and presentation.
 ```
 Config Layer   →  config.py (LRU-cached singleton), portfolio_config.example.json (opt-in, never auto-loaded), proxy_map.json
 Data Pipeline  →  YFinance → DuckDB cache → FX (CAD, no .bfill()) → CSV collation → DuckDB linkage
-Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, GARCH, VAR)
+Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, tactical research, GARCH, VAR)
 Execution      →  allocator.py (60/40 VA) + rebalance.py + tax_tracker.py + cash_flow_rebalance.py
 Presentation   →  cli.py (5 subcommands) + app.py (Streamlit, 4 tabs: Metrics & Comparison, Efficient Frontier, DCA, Raw Data & Logs) + visualization/
 ```
@@ -103,8 +103,9 @@ src/pysharpe/
 │   ├── time_series.py       # ADF, GARCH, VAR
 │   ├── benchmarks.py        # Canadian ETF baselines (VEQT, XEQT, etc.)
 │   ├── comparison.py        # Head-to-head fund comparison
-│   ├── tactical_momentum.py # Provenance-checked cross-asset momentum
+│   ├── tactical_momentum.py # Provenance-checked momentum, trend, and breakout research
 │   ├── tactical_walk_forward.py # Fixed-configuration OOS evaluation
+│   ├── portfolio_overlap.py # Explicit-constituent portfolio overlap analysis
 │   ├── scoring.py           # Strategy scoring utilities
 │   └── visualization.py     # Backtest result visualization
 ├── validation/
@@ -161,6 +162,15 @@ src/pysharpe/
   sub-window; costs are computed only from execution-date prices and
   holdings (no future cost information).  Missing prices: all-NaN asset
   columns are dropped with a warning, then rows are listwise-deleted.
+- **Tactical research** (`analysis/tactical_momentum.py`): monthly momentum,
+  moving-average trend, and prior-high breakout rules share CAD/FX alignment,
+  provenance checks, execution-date costs, benchmarks, and versioned JSON
+  results. Fixed-configuration OOS folds are in
+  `analysis/tactical_walk_forward.py`; no tuning is performed.
+- **Portfolio overlap** (`analysis/portfolio_overlap.py`): calculations use
+  caller-supplied portfolio weights and constituent fractions. Missing fund
+  look-through and constituent residuals remain unknown; the pure function
+  does not load or modify saved portfolio records.
 - **PyMC test isolation**: tests that need the sampler use
   `pytest.MonkeyPatch` on `pm.sample` / `pytensor.function` — never a real
   MCMC run — so CI passes even when FAST_COMPILE is broken.

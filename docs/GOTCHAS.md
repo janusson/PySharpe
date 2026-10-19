@@ -24,6 +24,18 @@
   the training boundary.
 - Regression test:
   `test_walk_forward_fold_preserves_fixed_fees_at_actual_boundary_nav`.
+### 2026 — pytest 9 removed `Config.warn` from the Pyright collection hook
+
+- Symptom: `make check` reached pytest collection and failed with an internal
+  error when the collection-time Pyright subprocess exceeded its timeout.
+- Root cause: the hook's documented fallback used `config.warn`, removed in
+  pytest 9, so a non-fatal Pyright runner failure became a fatal test startup
+  error.
+- Fix: emit `pytest.PytestWarning` through `warnings.warn`; a Pyright runner
+  failure remains visible without blocking tests, while the separate Makefile
+  typecheck remains authoritative.
+- Regression test: `tests/test_pytest_configure.py` exercises the fallback.
+- Grep guard: `rg -n "config\\.warn" tests/conftest.py` must be empty.
 
 ### 2026 — CWD portfolio config silently constrains unrelated optimisations
 

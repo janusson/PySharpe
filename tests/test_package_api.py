@@ -52,6 +52,13 @@ def test_tactical_research_validation_exports_are_lazy_and_complete():
         "WalkForwardConfig",
         "WalkForwardResearchResult",
         "run_walk_forward_momentum",
+        "run_walk_forward_strategy",
+        "TrendConfig",
+        "TacticalResearchResult",
+        "run_trend_strategy",
+        "run_tactical_strategy",
+        "PortfolioOverlapResult",
+        "analyze_portfolio_overlap",
     }
 
     assert names.issubset(pysharpe.__all__)
