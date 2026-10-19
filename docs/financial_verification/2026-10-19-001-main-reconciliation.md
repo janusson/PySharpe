@@ -61,7 +61,7 @@ The primary dirty checkout and other worktrees were preserved.
 | `make build_docs` | Strict build passed; repeated after adding this dated report |
 | `git diff --check` | Passed after resolving conflicts |
 | Independent continuation review | No actionable findings; 139 targeted tests passed and all 8 sparse-frame cases rejected the original baseline |
-| Actual latest-head CI, including installed wheel | Pending push |
+| Remote snapshot at `afeac2522b1d01a0804570d7e461bf565993de53` | All 8 checks passed, including installed wheel; source/test revision remains `b2bd478` |
 
 The independent reviewer compared merge `b2bd478` against both parents, confirmed
 that metrics code/oracle regressions match the audit parent and every other
@@ -75,6 +75,17 @@ The corrected command above covers walk-forward tests in
 `tests/test_tactical_momentum.py` and passed. This failed invocation is not
 counted as validation. No local installed-wheel rerun was performed; packaging
 must be verified by the existing installed-wheel CI job on the pushed head.
+
+Remote snapshot recorded 2026-10-19, 12:03 UTC: all eight GitHub checks passed
+on documentation head `afeac2522b1d01a0804570d7e461bf565993de53`:
+[PySharpe CI](https://github.com/janusson/PySharpe/actions/runs/39248845758),
+[CodeQL](https://github.com/janusson/PySharpe/actions/runs/39248840396).
+This includes the existing isolated installed-wheel smoke check. GitHub now
+reports the PR mergeable; it remains open/draft with no submitted GitHub reviews.
+This snapshot does not assert success for a later head; the evidence-only commit
+retaining this snapshot must have its own actual-head checks inspected. Local
+independent review is separate from a submitted GitHub approval. No full suite
+was repeated for documentation-only edits after the tested source revision.
 
 ## Boundaries and remaining action
 
