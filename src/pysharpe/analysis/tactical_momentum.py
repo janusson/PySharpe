@@ -87,6 +87,40 @@ class MomentumConfig:
             )
 
 
+@dataclass(frozen=True)
+class MarketDataProvenance:
+    """Source and freshness declaration for one supplied data series."""
+
+    source: str
+    retrieved_at: pd.Timestamp
+    currency: str
+    price_basis: str
+    max_staleness_days: int = 3
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise DataValidationError("provenance source must be non-empty")
+        if (
+            not isinstance(self.currency, str)
+            or not self.currency.strip()
+            or not isinstance(self.price_basis, str)
+            or not self.price_basis.strip()
+        ):
+            raise DataValidationError(
+                "provenance currency and price basis are required"
+            )
+        if (
+            not isinstance(self.max_staleness_days, int)
+            or isinstance(self.max_staleness_days, bool)
+            or self.max_staleness_days < 0
+        ):
+            raise DataValidationError("provenance staleness limit cannot be negative")
+        retrieved_at = pd.Timestamp(self.retrieved_at)
+        if pd.isna(retrieved_at):
+            raise DataValidationError("provenance retrieval timestamp is invalid")
+        object.__setattr__(self, "retrieved_at", retrieved_at)
+
+
 @dataclass
 class MomentumResearchResult:
     """Signals, simulated portfolio path, benchmarks, and JSON export."""
@@ -101,12 +135,13 @@ class MomentumResearchResult:
     risk: dict[str, float | None]
     benchmark_risk: dict[str, dict[str, float | None]]
     data_quality: dict[str, Any] = field(default_factory=dict)
+    data_provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the versioned, JSON-compatible Northstar read contract."""
         return _json_safe(
             {
-                "schema_version": "1.0",
+                "schema_version": "1.1",
                 "generated_at": self.generated_at.isoformat(),
                 "strategy": {
                     "name": "cross_asset_momentum",
@@ -120,6 +155,8 @@ class MomentumResearchResult:
                 "risk": self.risk,
                 "benchmark_risk": self.benchmark_risk,
                 "data_quality": self.data_quality,
+                "data_provenance": self.data_provenance,
+                "cost_assumptions": _cost_assumptions(self.config),
             }
         )
 
@@ -137,6 +174,7 @@ def run_cross_asset_momentum(
     config: MomentumConfig,
     currencies: dict[str, str] | None = None,
     fx_to_cad: pd.DataFrame | None = None,
+    provenance: dict[str, MarketDataProvenance] | None = None,
 ) -> MomentumResearchResult:
     """Generate historical signals and simulate the specified strategy.
 
@@ -192,6 +230,23 @@ def run_cross_asset_momentum(
         fx_to_cad=fx_to_cad,
         max_staleness_days=config.max_fx_staleness_days,
     )
+    provenance_details, provenance_missing, provenance_unverified = _data_provenance(
+        provenance=provenance or {},
+        assets=assets,
+        currencies=currency_by_ticker,
+        total_return_prices=total,
+        execution_prices=execution,
+        fx_to_cad=fx_to_cad,
+        foreign_currencies=sorted(unknown),
+        config=config,
+    )
+    stale_series = [
+        key for key, details in provenance_details.items() if details["stale"]
+    ]
+    if stale_series:
+        raise DataValidationError(
+            f"stale market data prevents signal generation: {', '.join(stale_series)}"
+        )
     cad_total = total.copy()
     cad_execution_fx = fx_aligned
     fx_uncovered = 0
@@ -443,6 +498,12 @@ def run_cross_asset_momentum(
         "signal_warmup_months": config.lookback_months + config.skip_months,
         "data_end": pd.Timestamp(total.index[-1]).isoformat(),
         "stale_signals_executed": 0,
+        "provenance_complete": not provenance_missing and not provenance_unverified,
+        "signal_freshness_verified": not provenance_missing
+        and not provenance_unverified,
+        "unattributed_series": provenance_missing,
+        "unverified_series": sorted(set(provenance_missing + provenance_unverified)),
+        "stale_data_series": stale_series,
     }
     return MomentumResearchResult(
         config=config,
@@ -455,6 +516,7 @@ def run_cross_asset_momentum(
         risk=strategy_risk,
         benchmark_risk=benchmark_risk,
         data_quality=data_quality,
+        data_provenance=provenance_details,
     )
 
 
@@ -554,6 +616,124 @@ def _align_fx(
     return aligned
 
 
+def _data_provenance(
+    *,
+    provenance: dict[str, MarketDataProvenance],
+    assets: list[str],
+    currencies: dict[str, str],
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    fx_to_cad: pd.DataFrame | None,
+    foreign_currencies: list[str],
+    config: MomentumConfig,
+) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
+    expected: dict[str, tuple[pd.Series, str, str, int]] = {}
+    for ticker in assets:
+        expected[f"total_return_prices:{ticker}"] = (
+            total_return_prices[ticker],
+            currencies[ticker],
+            "adjusted_total_return_net_of_expenses",
+            config.max_price_staleness_days,
+        )
+        expected[f"execution_prices:{ticker}"] = (
+            execution_prices[ticker],
+            currencies[ticker],
+            "split_adjusted_close",
+            config.max_price_staleness_days,
+        )
+    if fx_to_cad is not None:
+        for currency in foreign_currencies:
+            expected[f"fx_to_cad:{currency}"] = (
+                fx_to_cad[currency],
+                f"CAD/{currency}",
+                "CAD_per_currency_unit",
+                config.max_fx_staleness_days,
+            )
+    unknown = set(provenance) - set(expected)
+    if unknown:
+        raise DataValidationError(
+            f"provenance contains unknown series: {', '.join(sorted(unknown))}"
+        )
+
+    details: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    unverified: list[str] = []
+    for key, (
+        series,
+        expected_currency,
+        expected_basis,
+        configured_age,
+    ) in expected.items():
+        record = provenance.get(key)
+        if record is None:
+            missing.append(key)
+            continue
+        if not isinstance(record, MarketDataProvenance):
+            raise DataValidationError(f"provenance for {key} has an invalid type")
+        if record.currency.upper() != expected_currency.upper():
+            raise DataValidationError(
+                f"provenance currency for {key} must be {expected_currency}"
+            )
+        if record.price_basis != expected_basis:
+            raise DataValidationError(
+                f"provenance price basis for {key} must be {expected_basis}"
+            )
+        observed_at = series.last_valid_index()
+        age_days: int | None = None
+        stale = False
+        allowed_age = min(record.max_staleness_days, configured_age)
+        if observed_at is not None:
+            age_days = _calendar_age_days(
+                record.retrieved_at, cast(pd.Timestamp, observed_at)
+            )
+            if age_days < 0:
+                raise DataValidationError(
+                    f"provenance retrieval time for {key} precedes its latest observation"
+                )
+            stale = age_days > allowed_age
+        else:
+            unverified.append(key)
+        details[key] = {
+            "source": record.source,
+            "retrieved_at": pd.Timestamp(record.retrieved_at),
+            "currency": record.currency.upper(),
+            "price_basis": record.price_basis,
+            "latest_observation": cast(pd.Timestamp, observed_at)
+            if observed_at is not None
+            else None,
+            "age_days_at_retrieval": age_days,
+            "max_staleness_days": allowed_age,
+            "stale": stale,
+            "observation_available": observed_at is not None,
+        }
+    return details, missing, unverified
+
+
+def _calendar_age_days(retrieved_at: pd.Timestamp, observed_at: pd.Timestamp) -> int:
+    retrieved = pd.Timestamp(retrieved_at)
+    observed = pd.Timestamp(observed_at)
+    if (retrieved.tz is None) != (observed.tz is None):
+        raise DataValidationError(
+            "provenance retrieval and market-data timestamps must use compatible timezones"
+        )
+    if retrieved.tz is not None:
+        retrieved = retrieved.tz_convert("UTC")
+        observed = observed.tz_convert("UTC")
+    return int((retrieved.normalize() - observed.normalize()).days)
+
+
+def _cost_assumptions(config: MomentumConfig) -> dict[str, Any]:
+    return {
+        "commission_model": "fixed_per_order",
+        "fee_per_order": config.fee_per_order,
+        "slippage_bps": config.slippage_bps,
+        "spread_bps_full_quote": config.spread_bps,
+        "fx_fee_bps": config.fx_fee_bps,
+        "fee_source": "caller_configured",
+        "fx_rate_convention": "CAD_per_unit_of_local_currency",
+    }
+
+
 def _risk_metrics(values: pd.Series, periods_per_year: int) -> dict[str, float | None]:
     values = values.dropna()
     returns = values.pct_change(fill_method=None).dropna()
@@ -614,4 +794,21 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-__all__ = ["MomentumConfig", "MomentumResearchResult", "run_cross_asset_momentum"]
+def __getattr__(name: str) -> Any:
+    if name in {
+        "WalkForwardConfig",
+        "WalkForwardResearchResult",
+        "run_walk_forward_momentum",
+    }:
+        from . import tactical_walk_forward
+
+        return getattr(tactical_walk_forward, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "MarketDataProvenance",
+    "MomentumConfig",
+    "MomentumResearchResult",
+    "run_cross_asset_momentum",
+]

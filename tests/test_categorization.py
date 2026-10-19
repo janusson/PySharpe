@@ -78,11 +78,7 @@ def test_no_bfill_lookahead_bias(monkeypatch):
     Ensure that apply_category_mapping does not use .bfill() on the time-series dataframe,
     preventing any potential lookahead bias.
     """
-    import pandas as pd
 
-    from pysharpe.analysis.categorization import apply_category_mapping
-
-    # Mock pd.DataFrame.bfill to raise an error if called
     def mocked_bfill(*args, **kwargs):
         raise RuntimeError("bfill() was called, which introduces lookahead bias!")
 

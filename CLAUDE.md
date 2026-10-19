@@ -103,6 +103,8 @@ src/pysharpe/
 │   ├── time_series.py       # ADF, GARCH, VAR
 │   ├── benchmarks.py        # Canadian ETF baselines (VEQT, XEQT, etc.)
 │   ├── comparison.py        # Head-to-head fund comparison
+│   ├── tactical_momentum.py # Provenance-checked cross-asset momentum
+│   ├── tactical_walk_forward.py # Fixed-configuration OOS evaluation
 │   ├── scoring.py           # Strategy scoring utilities
 │   └── visualization.py     # Backtest result visualization
 ├── validation/

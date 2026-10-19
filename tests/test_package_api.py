@@ -46,6 +46,19 @@ def test_return_basis_is_lazily_exported():
     assert "ReturnBasis" in pysharpe.__all__
 
 
+def test_tactical_research_validation_exports_are_lazy_and_complete():
+    names = {
+        "MarketDataProvenance",
+        "WalkForwardConfig",
+        "WalkForwardResearchResult",
+        "run_walk_forward_momentum",
+    }
+
+    assert names.issubset(pysharpe.__all__)
+    assert names.issubset(dir(pysharpe))
+    assert all(getattr(pysharpe, name) is not None for name in names)
+
+
 def test_unknown_attribute_raises_helpful_error():
     with pytest.raises(AttributeError) as exc:
         _ = pysharpe.does_not_exist  # noqa: F841
