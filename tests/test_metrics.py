@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+from math import isfinite, log
+from statistics import stdev
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,6 +55,137 @@ def test_compute_returns_log_matches_manual(sample_price_series):
 def test_compute_returns_validates_method(sample_price_series):
     with pytest.raises(ValueError):
         compute_returns(sample_price_series, method="bogus")
+
+
+def _adjacent_return_reference(prices: pd.Series, method: str) -> pd.Series:
+    """Scalar oracle using only adjacent original observations, with no filling."""
+    values = [np.nan]
+    for previous, current in zip(prices.iloc[:-1], prices.iloc[1:], strict=True):
+        if not (isfinite(previous) and isfinite(current)):
+            values.append(np.nan)
+        elif method == "simple":
+            values.append(current / previous - 1.0)
+        else:
+            values.append(log(current / previous))
+    return pd.Series(values, index=prices.index, name=prices.name)
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+@pytest.mark.parametrize("dropna", [False, True])
+@pytest.mark.parametrize("as_frame", [False, True])
+def test_compute_returns_preserves_price_gaps(method, dropna, as_frame):
+    prices = pd.Series(
+        [np.nan, 100.0, np.nan, np.nan, 110.0, 99.0, 108.9, np.nan],
+        index=pd.date_range("2024-01-01", periods=8, freq="B"),
+        name="VFV.TO",
+    )
+    original = prices.copy()
+    expected = _adjacent_return_reference(prices, method)
+    if dropna:
+        expected = expected.dropna()
+
+    actual = compute_returns(
+        prices.to_frame() if as_frame else prices, method=method, dropna=dropna
+    )
+
+    if as_frame:
+        pd.testing.assert_frame_equal(actual, expected.to_frame())
+    else:
+        pd.testing.assert_series_equal(actual, expected)
+    pd.testing.assert_series_equal(prices, original)
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+def test_compute_returns_is_independent_of_other_assets(method):
+    prices = pd.Series(
+        [100.0, np.nan, 110.0, 99.0, 108.9],
+        index=pd.date_range("2024-01-01", periods=5, freq="B"),
+        name="VFV.TO",
+    )
+    expected = _adjacent_return_reference(prices, method)
+    joint = prices.to_frame().assign(**{"VCN.TO": 100.0})
+
+    alone = compute_returns(prices, method=method, dropna=False)
+    together = compute_returns(joint, method=method, dropna=False)
+
+    pd.testing.assert_series_equal(together["VFV.TO"], expected)
+    pd.testing.assert_series_equal(alone, expected)
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+@pytest.mark.parametrize("dropna", [False, True])
+@pytest.mark.parametrize("duplicate_index", [False, True])
+def test_compute_returns_sparse_frame_matches_reference(
+    method, dropna, duplicate_index
+):
+    rng = np.random.default_rng(20261017)
+    values = 100.0 * np.exp(np.cumsum(rng.normal(0.001, 0.02, (32, 4)), axis=0))
+    values[rng.random(values.shape) < 0.25] = np.nan
+    values[[5, 17], :] = np.nan  # Include whole-frame gaps among partial gaps.
+    dates = pd.date_range("2024-01-01", periods=32, freq="B")
+    if duplicate_index:
+        dates = dates[:16].repeat(2)
+    prices = pd.DataFrame(
+        values, index=dates, columns=["VFV.TO", "VCN.TO", "VIU.TO", "VEE.TO"]
+    )
+    original = prices.copy(deep=True)
+    expected = pd.concat(
+        [_adjacent_return_reference(prices[column], method) for column in prices],
+        axis=1,
+    )
+    if dropna:
+        expected = expected.dropna(how="all")
+
+    actual = compute_returns(prices, method=method, dropna=dropna)
+
+    pd.testing.assert_frame_equal(actual, expected)
+    pd.testing.assert_frame_equal(prices, original)
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+@pytest.mark.parametrize("missing", [np.nan, np.inf, -np.inf, "invalid"])
+def test_compute_returns_treats_invalid_prices_as_gaps(method, missing):
+    prices = pd.Series([100.0, missing, 110.0, 121.0], name="VFV.TO")
+    finite_reference = pd.Series([100.0, np.nan, 110.0, 121.0], name="VFV.TO")
+
+    actual = compute_returns(prices, method=method, dropna=False)
+
+    pd.testing.assert_series_equal(
+        actual, _adjacent_return_reference(finite_reference, method)
+    )
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+def test_compute_returns_without_adjacent_coverage_is_empty(method):
+    prices = pd.Series([100.0, np.nan, 121.0], name="VFV.TO")
+
+    actual = compute_returns(prices, method=method)
+
+    pd.testing.assert_series_equal(actual, prices.iloc[:0])
+
+
+@pytest.mark.parametrize("method", ["simple", "log"])
+def test_compute_returns_rejects_fully_missing_input(method):
+    with pytest.raises(ValueError, match="at least one finite observation"):
+        compute_returns(pd.Series([np.nan, np.nan]), method=method, dropna=False)
+
+
+def test_realized_volatility_preserves_gaps_and_recovers_after_coverage():
+    prices = pd.Series(
+        [100.0, 101.0, np.nan, 102.0, 104.0, 103.0],
+        index=pd.date_range("2024-01-01", periods=6, freq="B"),
+        name="VFV.TO",
+    )
+    # The final two log returns are the first complete two-period window
+    # following the gap. No rolling window may bridge the missing observation.
+    final_volatility = stdev([log(104.0 / 102.0), log(103.0 / 104.0)]) * np.sqrt(252)
+    expected = pd.Series(
+        [np.nan] * 5 + [final_volatility], index=prices.index, name=prices.name
+    )
+
+    actual = compute_realized_volatility(prices, window=2)
+
+    pd.testing.assert_series_equal(actual, expected)
 
 
 def test_annualize_return_series(sample_price_series):

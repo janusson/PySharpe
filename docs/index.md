@@ -89,6 +89,7 @@ and commissions using only execution-date prices.
 | [Data Flow](flowchart.md) | Mermaid diagram of the data pipeline |
 | [Test Map](TEST_MAP.md) | Test-file to source-module mapping |
 | [Gotchas](GOTCHAS.md) | Known failure patterns and guardrails |
+| [Financial Verification](financial_verification/index.md) | Audit register, mathematical evidence, reproduction, and integration follow-up |
 | [Benchmarks](benchmarks.md) | Canadian ETF baselines |
 | [Proxy Mapping](proxies.md) | Ticker proxy resolution and FX adjustment |
 | [API Reference](api.md) | Auto-generated API documentation |

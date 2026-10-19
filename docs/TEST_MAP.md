@@ -24,6 +24,10 @@ your change instead of the full suite every time.
 
 ## `test_metrics.py`
 - `pysharpe.metrics`
+- Adjacent-price simple/log returns: missing and invalid endpoints, column
+  independence, original-index preservation, and rolling-volatility gap recovery.
+- Seeded sparse multi-asset frames, including duplicate index labels, are
+  compared against the independent scalar adjacent-endpoint reference.
 
 ## `test_optimization_base.py`
 - `pysharpe.exceptions`

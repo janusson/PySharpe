@@ -208,3 +208,14 @@ predictive ML, day-trading algorithms, gamified UI.
 
 See `docs/TEST_MAP.md` for the complete test-to-module mapping table to run
 only the relevant test subset instead of the full suite.
+
+## Financial Correctness Verification
+
+Start at `docs/financial_verification/index.md` before a new numerical/financial
+audit. Reconcile pending verification PRs and their latest checks before selecting
+another invariant; reports may still live only on an unmerged branch. Preserve
+prior independent-reference regressions, record what changed and why, and update
+the register, changelog, test map, and gotchas when applicable. The normal CI
+suite runs these tests on every PR update. Audit evidence, passing CI, and
+integration into main are separate states; recurring verification never merges,
+enables auto-merge, or releases.
