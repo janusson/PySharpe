@@ -230,7 +230,7 @@ def run_cross_asset_momentum(
         fx_to_cad=fx_to_cad,
         max_staleness_days=config.max_fx_staleness_days,
     )
-    provenance_details, provenance_missing = _data_provenance(
+    provenance_details, provenance_missing, provenance_unverified = _data_provenance(
         provenance=provenance or {},
         assets=assets,
         currencies=currency_by_ticker,
@@ -498,9 +498,11 @@ def run_cross_asset_momentum(
         "signal_warmup_months": config.lookback_months + config.skip_months,
         "data_end": pd.Timestamp(total.index[-1]).isoformat(),
         "stale_signals_executed": 0,
-        "provenance_complete": not provenance_missing,
-        "signal_freshness_verified": not provenance_missing,
+        "provenance_complete": not provenance_missing and not provenance_unverified,
+        "signal_freshness_verified": not provenance_missing
+        and not provenance_unverified,
         "unattributed_series": provenance_missing,
+        "unverified_series": sorted(set(provenance_missing + provenance_unverified)),
         "stale_data_series": stale_series,
     }
     return MomentumResearchResult(
@@ -624,7 +626,7 @@ def _data_provenance(
     fx_to_cad: pd.DataFrame | None,
     foreign_currencies: list[str],
     config: MomentumConfig,
-) -> tuple[dict[str, dict[str, Any]], list[str]]:
+) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
     expected: dict[str, tuple[pd.Series, str, str, int]] = {}
     for ticker in assets:
         expected[f"total_return_prices:{ticker}"] = (
@@ -655,6 +657,7 @@ def _data_provenance(
 
     details: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
+    unverified: list[str] = []
     for key, (
         series,
         expected_currency,
@@ -688,6 +691,8 @@ def _data_provenance(
                     f"provenance retrieval time for {key} precedes its latest observation"
                 )
             stale = age_days > allowed_age
+        else:
+            unverified.append(key)
         details[key] = {
             "source": record.source,
             "retrieved_at": pd.Timestamp(record.retrieved_at),
@@ -699,8 +704,9 @@ def _data_provenance(
             "age_days_at_retrieval": age_days,
             "max_staleness_days": allowed_age,
             "stale": stale,
+            "observation_available": observed_at is not None,
         }
-    return details, missing
+    return details, missing, unverified
 
 
 def _calendar_age_days(retrieved_at: pd.Timestamp, observed_at: pd.Timestamp) -> int:

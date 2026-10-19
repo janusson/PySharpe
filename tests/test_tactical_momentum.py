@@ -482,6 +482,46 @@ def test_missing_provenance_is_reported_without_inventing_a_source() -> None:
     assert result.to_dict()["data_provenance"] == {}
 
 
+def test_provenance_with_no_series_observations_is_not_verified() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices()
+    total_return = total_return.drop(columns="B")
+    execution = execution.drop(columns="B")
+    total_return["EMPTY"] = np.nan
+    execution["EMPTY"] = np.nan
+    provenance: dict[str, tactical.MarketDataProvenance] = {}
+    for panel, frame, basis in (
+        (
+            "total_return_prices",
+            total_return,
+            "adjusted_total_return_net_of_expenses",
+        ),
+        ("execution_prices", execution, "split_adjusted_close"),
+    ):
+        for ticker in frame.columns:
+            provenance[f"{panel}:{ticker}"] = tactical.MarketDataProvenance(
+                source="synthetic_fixture",
+                retrieved_at=total_return.index[-1],
+                currency="CAD",
+                price_basis=basis,
+            )
+
+    result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=_config(universe=("A", "EMPTY")),
+        provenance=provenance,
+    )
+
+    assert result.data_quality["provenance_complete"] is False
+    assert result.data_quality["signal_freshness_verified"] is False
+    assert result.data_quality["unverified_series"] == [
+        "execution_prices:EMPTY",
+        "total_return_prices:EMPTY",
+    ]
+
+
 def test_walk_forward_uses_chronological_fixed_configuration_test_windows() -> None:
     from pysharpe.analysis import tactical_momentum as tactical
 
@@ -532,6 +572,39 @@ def test_walk_forward_fold_results_do_not_depend_on_later_prices() -> None:
     )
 
     assert original.folds[0] == modified.folds[0]
+
+
+def test_walk_forward_fold_preserves_fixed_fees_at_actual_boundary_nav() -> None:
+    from pysharpe.analysis import tactical_momentum as tactical
+
+    total_return, execution = _monthly_prices(months=30)
+    config = _config(initial_capital=1_000.0, fee_per_order=25.0)
+    walk_forward_config = tactical.WalkForwardConfig(
+        training_months=8,
+        test_months=6,
+    )
+    full_result = run_cross_asset_momentum(
+        total_return,
+        execution,
+        config=config,
+    )
+    result = tactical.run_walk_forward_momentum(
+        total_return,
+        execution,
+        strategy_config=config,
+        walk_forward_config=walk_forward_config,
+    )
+    fold = result.folds[0]
+    training_end = pd.Timestamp(fold["training_end"])
+
+    assert fold["strategy_equity"][0]["value"] == pytest.approx(
+        full_result.backtest.loc[training_end, "portfolio_value"]
+    )
+    for row in fold["strategy_equity"][1:]:
+        timestamp = pd.Timestamp(row["timestamp"])
+        assert row["value"] == pytest.approx(
+            full_result.backtest.loc[timestamp, "portfolio_value"]
+        )
 
 
 def test_walk_forward_rejects_insufficient_training_history() -> None:

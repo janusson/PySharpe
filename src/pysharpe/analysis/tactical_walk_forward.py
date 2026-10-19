@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -136,11 +136,12 @@ def run_walk_forward_momentum(
             continue
 
         strategy_returns = full_result.backtest.loc[fold_index, "return"]
-        strategy_equity = (
-            strategy_config.initial_capital * (1.0 + strategy_returns).cumprod()
+        boundary_nav = cast(
+            float, full_result.backtest.loc[training_end, "portfolio_value"]
         )
+        strategy_equity = boundary_nav * (1.0 + strategy_returns).cumprod()
         baseline = pd.Series(
-            [strategy_config.initial_capital],
+            [boundary_nav],
             index=pd.DatetimeIndex([training_end]),
             dtype=float,
         )
@@ -153,9 +154,7 @@ def run_walk_forward_momentum(
                 .pct_change(fill_method=None)
                 .loc[fold_index]
             )
-            equity = (
-                strategy_config.initial_capital * (1.0 + benchmark_returns).cumprod()
-            )
+            equity = boundary_nav * (1.0 + benchmark_returns).cumprod()
             equity = pd.concat([baseline, equity]).sort_index()
             benchmark_equity[ticker] = [
                 {"timestamp": date, "value": float(value)}

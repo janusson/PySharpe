@@ -105,7 +105,7 @@ your change instead of the full suite every time.
 ## `test_tactical_momentum.py`
 - `pysharpe.analysis.tactical_momentum` (momentum signals, portfolio simulation, CAD/FX handling, costs, benchmarks, JSON contract)
 - `pysharpe.analysis.tactical_walk_forward` (chronological fixed-configuration OOS folds)
-- `MarketDataProvenance` (basis, retrieval-age, and completeness validation)
+- `MarketDataProvenance` (basis, retrieval-age, completeness, and empty-series verification)
 - `pysharpe.metrics` (risk metrics)
 - `pysharpe.exceptions` (input and data-quality validation)
 

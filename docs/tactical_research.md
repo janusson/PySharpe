@@ -129,8 +129,13 @@ Undefined statistics serialize as JSON `null`, never `NaN` or `Infinity`.
 alignment rule and coverage gaps, incomplete listing history, signal warm-up,
 signal count, data end timestamp, provenance completeness, and stale-series
 status. `signal_freshness_verified` is false when any required input has no
-provenance record. `data_provenance` records each declared source alongside its latest
-observation and age at retrieval. `cost_assumptions` reports commissions,
+provenance record or has no observations. `data_provenance` records each
+declared source alongside its latest observation and age at retrieval. A
+declared empty series has `latest_observation: null` and appears in
+`unverified_series`; it is not treated
+as fresh merely because staleness cannot be calculated. Missing provenance
+records appear in both `unattributed_series` and `unverified_series`.
+`cost_assumptions` reports commissions,
 spread, slippage, and FX parameters. Clients should branch on
 `schema_version`, treat the payload as research output, and display its
 timestamps and quality fields with the results.
@@ -145,6 +150,11 @@ observations, and each test window exports its equity path, returns, strategy
 metrics, and same-period VFV/cash metrics. Strategy settings remain fixed:
 there is no parameter search, fit step, or claim that chosen parameters
 generalize beyond the evaluated periods.
+
+Each out-of-sample fold starts at the strategy's actual simulated NAV on its
+training boundary. This preserves fixed-dollar order-fee effects accumulated
+before that boundary; benchmarks are scaled to the same starting NAV for a
+comparable fold path.
 
 Feasible Northstar integrations include reading a user-exported JSON artifact,
 receiving the payload from an authenticated API that runs PySharpe elsewhere,
