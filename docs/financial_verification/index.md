@@ -9,7 +9,7 @@ evidence is not independent financial validation or investment advice.
 
 | Audit ID | Invariant and outcome | Evidence | Regression coverage | Delivery |
 | --- | --- | --- | --- | --- |
-| FMV-2026-10-17-001 | Returns use adjacent original price rows; a gap-bridging defect was reproduced and corrected on the PR branch. | [Missing-price returns](../financial_verification.md), base `e4fb3f7` | `tests/test_metrics.py`: price gaps, column independence, sparse-frame oracle, and rolling-volatility recovery | [PR #100](https://github.com/janusson/PySharpe/pull/100) |
+| FMV-2026-10-17-001 | Returns use adjacent original price rows; a gap-bridging defect was reproduced and corrected on the PR branch. | [Missing-price returns](../financial_verification.md), [2026-10-19 reconciliation](2026-10-19-001-main-reconciliation.md), original base `e4fb3f7` | `tests/test_metrics.py`: price gaps, column independence, sparse-frame oracle, and rolling-volatility recovery | [PR #100](https://github.com/janusson/PySharpe/pull/100) |
 
 The audit outcome and delivery state are separate. The linked PR is authoritative
 for its current head, checks, reviews, and merge state. An open PR is not an
