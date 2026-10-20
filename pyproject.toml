@@ -39,7 +39,7 @@ dependencies = [
     "duckdb>=0.10",
     "matplotlib>=3.9",
     "seaborn>=0.13",
-    "streamlit>=1.52",
+    "streamlit>=1.66.0",
     "tzdata>=2026.2",
 ]
 
@@ -48,7 +48,7 @@ cli = [
     "matplotlib>=3.9",
 ]
 gui = [
-    "streamlit>=1.35",
+    "streamlit>=1.66.0",
     "altair>=5.3",
     "plotly>=5.24",
 ]
