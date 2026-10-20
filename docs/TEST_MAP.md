@@ -90,6 +90,10 @@ your change instead of the full suite every time.
 ## `test_pytest_configure.py`
 - `tests/conftest.py` collection-time Pyright gate and failure warning
 
+## `test_security_hygiene.py`
+- Git ignore rules for local credential files, MCP / agent configuration, Streamlit secrets, and generated Repomix output
+- Keeps safe `.env` and MCP example templates available for tracking
+
 ## `test_config.py`
 - `pysharpe.config`
 - `pysharpe.logging_utils`
