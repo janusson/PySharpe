@@ -149,6 +149,7 @@ your change instead of the full suite every time.
 ## `test_app_streamlit.py`
 - `app`
 - `pysharpe.optimization.models`
+- Uploaded-CSV removal and re-upload lifecycle; stops before download fallback
 
 ## `test_app_helpers.py`
 - `app`

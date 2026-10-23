@@ -369,6 +369,10 @@ def sidebar_controls() -> dict[str, object]:
 
     state = st.session_state.get(_SS_DATA)
 
+    if uploaded_file is None and state is not None and state.get("source") == "upload":
+        st.error("Re-upload the price CSV to select its return basis.")
+        st.stop()
+
     if uploaded_file is not None:
         sig, state = _build_upload_state(uploaded_file)
         st.session_state[_SS_DATA] = state
