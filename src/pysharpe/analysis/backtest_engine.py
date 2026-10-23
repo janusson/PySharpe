@@ -98,7 +98,8 @@ class HistoricalBacktester:
         initial_shares : dict of str to float, optional
             Existing positions valued at the first price row. When supplied,
             positions are reallocated to `target_weights` at that close and
-            transaction costs are based on shares actually traded.
+            transaction costs are based on final shares actually traded,
+            including trades needed to fund the fees.
 
         Raises
         ------
@@ -175,6 +176,59 @@ class HistoricalBacktester:
         fixed = n_orders * self.fee_per_trade
         return float(variable + fixed)
 
+    def _carried_starting_capital(self, asset_values: np.ndarray) -> float:
+        """Solve equity plus executed transition costs equals starting value.
+
+        Final equity determines every target position and hence the turnover
+        and number of orders, including sales needed to pay fees. The equation
+        is linear between position sign changes and the existing $0.0001
+        commission threshold. Enumerate those intervals rather than iterating
+        a potentially discontinuous fixed-fee equation to apparent convergence.
+        """
+        value = float(asset_values.sum())
+        order_threshold = 1e-4
+        variable_rate = self.slippage_pct + self.spread_pct / 2.0
+        nonzero_targets = self.targets != 0.0
+        position_breaks = (
+            asset_values[nonzero_targets, None]
+            + np.array([-order_threshold, 0.0, order_threshold])
+        ) / self.targets[nonzero_targets, None]
+        breaks = np.unique(np.concatenate(([0.0, value], position_breaks.ravel())))
+        breaks = breaks[(breaks >= 0.0) & (breaks <= value)]
+        midpoints = (breaks[:-1] + breaks[1:]) / 2.0
+        deltas = midpoints[:, None] * self.targets - asset_values
+        signs = np.sign(deltas)
+        orders = (np.abs(deltas) > order_threshold).sum(axis=1)
+        denominator = 1.0 + variable_rate * (signs @ self.targets)
+        numerator = (
+            value - self.fee_per_trade * orders + variable_rate * (signs @ asset_values)
+        )
+        roots = np.divide(
+            numerator,
+            denominator,
+            out=np.full_like(numerator, np.nan),
+            where=denominator != 0.0,
+        )
+        inside_interval = (roots >= breaks[:-1]) & (roots <= breaks[1:])
+        candidates = np.concatenate((breaks, roots[inside_interval], midpoints))
+        final_trades = np.abs(candidates[:, None] * self.targets - asset_values)
+        fees = variable_rate * final_trades.sum(axis=1) + self.fee_per_trade * (
+            final_trades > order_threshold
+        ).sum(axis=1)
+        feasible = np.isclose(candidates + fees, value, rtol=1e-12, atol=1e-9)
+        if feasible.any():
+            return float(candidates[feasible].max())
+
+        liquidation_fees = self._transaction_costs(
+            float(np.abs(asset_values).sum()),
+            int((np.abs(asset_values) > order_threshold).sum()),
+        )
+        if liquidation_fees >= value:
+            return 0.0
+        raise RuntimeError(
+            "No self-financing exact-target transition exists with these fixed fees."
+        )
+
     def run(self) -> BacktestResult:
         """Execute the chronological backtest simulation.
 
@@ -192,6 +246,13 @@ class HistoricalBacktester:
         BacktestResult
             An object containing the portfolio value series, the historical weight
             drift dataframe, and a DatetimeIndex of dates where rebalancing occurred.
+
+        Raises
+        ------
+        RuntimeError
+            If fixed fees make a fully invested, self-financing exact-target
+            transition from carried holdings impossible. No approximate
+            allocation or implicit cash balance is substituted.
         """
         price_matrix = self.prices[self.assets].values
         dates = self.prices.index
@@ -252,15 +313,7 @@ class HistoricalBacktester:
             asset_values = current_shares * initial_prices
             actual_starting_capital = float(np.sum(asset_values))
             if actual_starting_capital > 0.0:
-                target_shares = actual_starting_capital * self.targets / initial_prices
-                traded_dollars = np.abs(target_shares - current_shares) * initial_prices
-                initial_num_trades = np.sum(traded_dollars > 1e-4)
-                total_initial_fees = self._transaction_costs(
-                    float(np.sum(traded_dollars)), int(initial_num_trades)
-                )
-                actual_starting_capital = max(
-                    0.0, actual_starting_capital - total_initial_fees
-                )
+                actual_starting_capital = self._carried_starting_capital(asset_values)
         else:
             initial_target_dollars = self.initial_capital * self.targets
             initial_num_trades = np.sum(initial_target_dollars > 1e-4)

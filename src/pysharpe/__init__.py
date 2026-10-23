@@ -227,13 +227,54 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "compare_two_funds",
     ),
     "MomentumConfig": ("pysharpe.analysis.tactical_momentum", "MomentumConfig"),
+    "MarketDataProvenance": (
+        "pysharpe.analysis.tactical_momentum",
+        "MarketDataProvenance",
+    ),
     "MomentumResearchResult": (
         "pysharpe.analysis.tactical_momentum",
         "MomentumResearchResult",
     ),
+    "TacticalResearchResult": (
+        "pysharpe.analysis.tactical_momentum",
+        "TacticalResearchResult",
+    ),
+    "TrendConfig": ("pysharpe.analysis.tactical_momentum", "TrendConfig"),
+    "run_trend_strategy": (
+        "pysharpe.analysis.tactical_momentum",
+        "run_trend_strategy",
+    ),
+    "PortfolioOverlapResult": (
+        "pysharpe.analysis.portfolio_overlap",
+        "PortfolioOverlapResult",
+    ),
+    "analyze_portfolio_overlap": (
+        "pysharpe.analysis.portfolio_overlap",
+        "analyze_portfolio_overlap",
+    ),
     "run_cross_asset_momentum": (
         "pysharpe.analysis.tactical_momentum",
         "run_cross_asset_momentum",
+    ),
+    "run_tactical_strategy": (
+        "pysharpe.analysis.tactical_momentum",
+        "run_tactical_strategy",
+    ),
+    "WalkForwardConfig": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "WalkForwardConfig",
+    ),
+    "WalkForwardResearchResult": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "WalkForwardResearchResult",
+    ),
+    "run_walk_forward_momentum": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "run_walk_forward_momentum",
+    ),
+    "run_walk_forward_strategy": (
+        "pysharpe.analysis.tactical_walk_forward",
+        "run_walk_forward_strategy",
     ),
     # Validation / trial ledger
     "DuckDBLedger": ("pysharpe.validation.ledger", "DuckDBLedger"),
@@ -383,10 +424,25 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
     from pysharpe.analysis.comparison import (  # noqa: F401
         compare_two_funds,
     )
+    from pysharpe.analysis.portfolio_overlap import (  # noqa: F401
+        PortfolioOverlapResult,
+        analyze_portfolio_overlap,
+    )
     from pysharpe.analysis.tactical_momentum import (  # noqa: F401
+        MarketDataProvenance,
         MomentumConfig,
         MomentumResearchResult,
+        TacticalResearchResult,
+        TrendConfig,
         run_cross_asset_momentum,
+        run_tactical_strategy,
+        run_trend_strategy,
+    )
+    from pysharpe.analysis.tactical_walk_forward import (  # noqa: F401
+        WalkForwardConfig,
+        WalkForwardResearchResult,
+        run_walk_forward_momentum,
+        run_walk_forward_strategy,
     )
     from pysharpe.config import (  # noqa: F401
         AccountType,

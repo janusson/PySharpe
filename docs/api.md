@@ -81,6 +81,12 @@ Auto-generated from module docstrings with
 
 ::: pysharpe.analysis.categorization
 
+::: pysharpe.analysis.tactical_momentum
+
+::: pysharpe.analysis.tactical_walk_forward
+
+::: pysharpe.analysis.portfolio_overlap
+
 ## Validation
 
 ::: pysharpe.validation.friction

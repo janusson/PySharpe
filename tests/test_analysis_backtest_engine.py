@@ -288,6 +288,33 @@ def test_walk_forward_preserves_prices_across_window_boundaries():
     )
 
 
+def test_walk_forward_carries_drifted_multi_asset_holdings():
+    """A fold must mark drifted shares before restoring equal target weights."""
+    prices = pd.DataFrame(
+        {
+            "A": [100, 100, 100, 200, 300, 330, 363],
+            "B": [100, 100, 100, 100, 100, 100, 100],
+        },
+        index=pd.date_range("2024-01-01", periods=7),
+    )
+    result = WalkForwardBacktester(
+        optimizer_factory=_DummyOptimizer,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=10_000.0,
+    ).run(prices)
+
+    # Initially 50 shares of each asset. At the next fold's first close,
+    # those shares are worth 20,000, then rebalance to 10,000 per asset.
+    # The resulting 100/3 A shares and 100 B shares grow to 21,000, then
+    # 22,100 before the final fold's rebalance.
+    assert result.portfolio_value.tolist() == pytest.approx(
+        [10_000.0, 15_000.0, 20_000.0, 21_000.0, 22_100.0]
+    )
+    assert result.historical_weights.iloc[1].tolist() == pytest.approx([2 / 3, 1 / 3])
+    assert result.historical_weights.iloc[2].tolist() == pytest.approx([0.5, 0.5])
+
+
 def test_walk_forward_preserves_returns_with_one_day_test_windows():
     dates = pd.date_range("2024-01-01", periods=5)
     prices = pd.DataFrame({"ETF": [100, 100, 100, 110, 121]}, index=dates)

@@ -45,6 +45,115 @@ def test_initial_fees(prices):
     assert pytest.approx(result.portfolio_value.iloc[0]) == 980.0
 
 
+@pytest.mark.parametrize(
+    ("slippage", "spread", "expected_equity"),
+    [(0.0, 0.0, 9985.0), (0.01, 0.02, 9785.0)],
+)
+def test_carried_transition_counts_fee_financing_trades(
+    slippage, spread, expected_equity
+):
+    prices = pd.DataFrame(
+        {"A": [100.0], "B": [100.0], "C": [100.0]},
+        index=pd.date_range("2024-01-01", periods=1),
+    )
+    result = HistoricalBacktester(
+        prices,
+        {"A": 0.5, "C": 0.5},
+        initial_shares={"A": 50.0, "B": 50.0},
+        fee_per_trade=5.0,
+        slippage_pct=slippage,
+        spread_pct=spread,
+    ).run()
+
+    # B is sold and C bought. Paying those fees also sells some A, so all
+    # three assets trade. Final turnover is exactly 10,000 dollars: A's
+    # extra sale offsets the reduction in C's purchase.
+    assert result.portfolio_value.iloc[0] == pytest.approx(expected_equity)
+    assert result.historical_weights.iloc[0].to_dict() == pytest.approx(
+        {"A": 0.5, "B": 0.0, "C": 0.5}
+    )
+
+
+def test_carried_transition_variable_costs_use_final_holdings():
+    prices = pd.DataFrame({"A": [100.0], "B": [100.0]})
+    result = HistoricalBacktester(
+        prices,
+        {"A": 0.8, "B": 0.2},
+        initial_shares={"A": 90.0, "B": 10.0},
+        fee_per_trade=5.0,
+        slippage_pct=0.01,
+    ).run()
+
+    # At final equity x, turnover is (9000 - .8x) + (.2x - 1000).
+    # x + .01*(8000 - .6x) + 2*5 = 10000, hence .994x = 9910.
+    assert result.portfolio_value.iloc[0] == pytest.approx(9910.0 / 0.994)
+
+
+def test_carried_transition_unchanged_holdings_have_no_cost():
+    result = HistoricalBacktester(
+        pd.DataFrame({"A": [100.0], "B": [100.0]}),
+        {"A": 0.5, "B": 0.5},
+        initial_shares={"A": 50.0, "B": 50.0},
+        fee_per_trade=5.0,
+        slippage_pct=0.01,
+        spread_pct=0.02,
+    ).run()
+    assert result.portfolio_value.iloc[0] == pytest.approx(10_000.0)
+
+
+def test_carried_transition_rejects_inconsistent_fixed_fee_allocation():
+    # Two orders imply equity 9990, where A is unchanged and only B trades.
+    # One order implies equity 9995, where both A and B trade. There is no
+    # self-financing, fully invested exact-target allocation for this input.
+    backtester = HistoricalBacktester(
+        pd.DataFrame({"A": [1.0], "B": [1.0]}),
+        {"A": 0.5, "B": 0.5},
+        initial_shares={"A": 4995.0, "B": 5005.0},
+        fee_per_trade=5.0,
+    )
+    with pytest.raises(RuntimeError, match="self-financing"):
+        backtester.run()
+
+
+def test_carried_transition_extreme_fees_exhaust_capital():
+    result = HistoricalBacktester(
+        pd.DataFrame({"A": [100.0], "B": [100.0]}),
+        {"B": 1.0},
+        initial_shares={"A": 1.0},
+        fee_per_trade=100.0,
+    ).run()
+    assert result.portfolio_value.iloc[0] == 0.0
+    assert (result.historical_weights.iloc[0] == 0.0).all()
+
+
+def test_carried_transition_conserves_value_with_executed_costs():
+    rng = np.random.default_rng(20261022)
+    assets = ["A", "B", "C", "D"]
+    for _ in range(32):
+        old_values = rng.uniform(100.0, 10_000.0, len(assets))
+        targets = rng.dirichlet(np.ones(len(assets)))
+        result = HistoricalBacktester(
+            pd.DataFrame({asset: [1.0] for asset in assets}),
+            dict(zip(assets, targets)),
+            initial_shares=dict(zip(assets, old_values)),
+            fee_per_trade=5.0,
+            slippage_pct=0.003,
+            spread_pct=0.004,
+        ).run()
+
+        final_equity = result.portfolio_value.iloc[0]
+        final_positions = result.historical_weights.iloc[0].to_numpy() * final_equity
+        executed_dollars = np.abs(final_positions - old_values)
+        # Independent conservation invariant, using the observable final
+        # allocation rather than the solver's breakpoints or intermediate costs.
+        paid_costs = 0.005 * executed_dollars.sum() + 5.0 * np.count_nonzero(
+            executed_dollars > 1e-4
+        )
+        assert final_equity + paid_costs == pytest.approx(
+            old_values.sum(), rel=1e-12, abs=1e-8
+        )
+
+
 def test_rebalance_fees(prices):
     targets = {"A": 0.5, "B": 0.5}
     initial_capital = 1000.0

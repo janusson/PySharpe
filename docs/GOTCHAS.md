@@ -1,5 +1,68 @@
 # Gotchas
 
+### 2026 — Transition fees can create additional trades
+
+- Symptom: carrying $5,000 each of A and B into a 50% A / 50% C target
+  charged two $5 commissions, then assigned $4,995 each to A and C. Paying
+  fees also sold A, so three orders were executed and equity must be $9,985.
+- Root cause: counting orders and turnover before deducting fees, then
+  rescaling positions, changes the trades whose costs were just calculated.
+- Fix for carried-holdings transitions: solve
+  `equity + rate * sum(abs(equity * target - old_value)) + fee * orders = NAV`
+  on the finitely many linear intervals bounded by position sign changes and
+  the existing $0.0001 order threshold. Verify candidate solutions against
+  final executed holdings; keep the greatest feasible equity. This has no
+  iterative convergence assumption. Unchanged holdings cost zero; insolvent
+  liquidation retains the existing zero-equity behavior.
+- Fixed-fee discontinuities can leave no fully invested exact-target solution
+  (A=$4,995, B=$5,005, 50/50 targets, $5 per order). Raise `RuntimeError`
+  rather than invent a cash balance or report an inconsistent allocation.
+- Regressions: `test_carried_transition_counts_fee_financing_trades`,
+  `test_carried_transition_variable_costs_use_final_holdings`,
+  `test_carried_transition_rejects_inconsistent_fixed_fee_allocation`, and
+  unchanged-holdings / insolvent-transition cases in `test_analysis_transaction_costs.py`.
+- Related-pattern audit: the separate initial cash purchase and ordinary
+  intra-window rebalance still estimate costs on pre-fee notional. This PR's
+  exact solver covers only the new carried-holdings boundary path; it does not
+  establish exact execution accounting for those older paths.
+
+### 2026 — Empty market-data series cannot prove freshness
+
+- Symptom: a caller supplied provenance metadata for an all-missing price or FX
+  series, and the result reported provenance complete and signal freshness
+  verified because no latest observation existed to calculate an age from.
+- Root cause: missing observations were treated like a non-stale observation
+  rather than an unknown freshness state.
+- Fix: report declared empty series in `unverified_series` with
+  `latest_observation: null`; keep `unattributed_series` for absent metadata.
+  Either condition makes provenance completeness and signal-freshness
+  verification false.
+- Regression test: `test_provenance_with_no_series_observations_is_not_verified`.
+
+### 2026 — Walk-forward folds must preserve boundary NAV for fixed fees
+
+- Symptom: a walk-forward fold's equity path did not match the same dates in
+  the full simulated path when fixed dollar-per-order fees had changed NAV
+  during training.
+- Root cause: every fold restarted at configured initial capital, which
+  changed the effective return impact of fixed-dollar fees in its test window.
+- Fix: anchor each strategy and benchmark fold at the strategy's actual NAV at
+  the training boundary.
+- Regression test:
+  `test_walk_forward_fold_preserves_fixed_fees_at_actual_boundary_nav`.
+### 2026 — pytest 9 removed `Config.warn` from the Pyright collection hook
+
+- Symptom: `make check` reached pytest collection and failed with an internal
+  error when the collection-time Pyright subprocess exceeded its timeout.
+- Root cause: the hook's documented fallback used `config.warn`, removed in
+  pytest 9, so a non-fatal Pyright runner failure became a fatal test startup
+  error.
+- Fix: emit `pytest.PytestWarning` through `warnings.warn`; a Pyright runner
+  failure remains visible without blocking tests, while the separate Makefile
+  typecheck remains authoritative.
+- Regression test: `tests/test_pytest_configure.py` exercises the fallback.
+- Grep guard: `rg -n "config\\.warn" tests/conftest.py` must be empty.
+
 ### 2026 — CWD portfolio config silently constrains unrelated optimisations
 
 - Symptom: `pysharpe optimise` run from the checkout failed for any portfolio

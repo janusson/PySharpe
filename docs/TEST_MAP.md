@@ -87,6 +87,9 @@ your change instead of the full suite every time.
 ## `test_package_api.py`
 - `pysharpe.__init__`
 
+## `test_pytest_configure.py`
+- `tests/conftest.py` collection-time Pyright gate and failure warning
+
 ## `test_config.py`
 - `pysharpe.config`
 - `pysharpe.logging_utils`
@@ -100,14 +103,23 @@ your change instead of the full suite every time.
 ## `test_analysis_backtest_engine.py`
 - `pysharpe.analysis.backtest_engine`
 - `pysharpe.optimization.base`
+- Walk-forward multi-asset share drift, boundary valuation and partial final fold
 - Missing-price (NaN) handling incl. fully-missing asset columns
 - Walk-forward holdings and price continuity across folds, including one-day
   test windows and future-prefix invariance
 
 ## `test_tactical_momentum.py`
 - `pysharpe.analysis.tactical_momentum` (momentum signals, portfolio simulation, CAD/FX handling, costs, benchmarks, JSON contract)
+- `pysharpe.analysis.tactical_walk_forward` (chronological fixed-configuration OOS folds)
+- `MarketDataProvenance` (basis, retrieval-age, completeness, and empty-series verification)
 - `pysharpe.metrics` (risk metrics)
 - `pysharpe.exceptions` (input and data-quality validation)
+
+## `test_tactical_extensions.py`
+- `pysharpe.analysis.tactical_momentum` (moving-average and breakout rules, cash exits, shared costs and benchmarks)
+- `pysharpe.analysis.tactical_walk_forward` (fixed-configuration OOS folds for trend rules)
+- `pysharpe.analysis.portfolio_overlap` (explicit look-through, residual unknown weight, and pairwise overlap)
+- Public lazy API registration for new research symbols
 
 ## `test_analysis_time_series.py`
 - `pysharpe.analysis.time_series`
@@ -115,6 +127,7 @@ your change instead of the full suite every time.
 ## `test_analysis_transaction_costs.py`
 - `pysharpe.analysis.backtest_engine` (spread/slippage/commission model,
   walk-forward transition costs, no-lookahead)
+- Carried-position self-financing equity, fee-funding orders, fixed-fee discontinuities and insolvency
 
 ## `test_resampling.py`
 - `pysharpe.validation.resampling` (PurgedKFold leakage guarantees, autocorrelation-decay gap sizing, regime bootstrapping)
@@ -187,6 +200,9 @@ your change instead of the full suite every time.
 | `analysis/comparison.py` | `pytest tests/test_analysis_comparison.py` |
 | `analysis/time_series.py` | `pytest tests/test_analysis_time_series.py` |
 | `analysis/tactical_momentum.py` | `pytest tests/test_tactical_momentum.py` |
+| `analysis/tactical_walk_forward.py` | `pytest tests/test_tactical_momentum.py` |
+| `analysis/tactical_momentum.py` trend rules | `pytest tests/test_tactical_extensions.py tests/test_tactical_momentum.py` |
+| `analysis/portfolio_overlap.py` | `pytest tests/test_tactical_extensions.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `cli.py` | `pytest tests/test_cli.py` |
 | `config.py` | `pytest tests/test_config.py tests/test_2d_allocation.py` |
