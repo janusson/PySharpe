@@ -56,6 +56,7 @@ class HistoricalBacktester:
         fee_per_trade: float = 0.0,
         slippage_pct: float = 0.0,
         spread_pct: float = 0.0,
+        initial_shares: dict[str, float] | None = None,
     ) -> None:
         """Initialize the backtester with price data and rule configurations.
 
@@ -94,6 +95,12 @@ class HistoricalBacktester:
             the ask (mid + spread/2) and sells receive the bid (mid − spread/2),
             so a rebalance with total turnover $X costs ``X * spread_pct / 2``.
 
+        initial_shares : dict of str to float, optional
+            Existing positions valued at the first price row. When supplied,
+            positions are reallocated to `target_weights` at that close and
+            transaction costs are based on final shares actually traded,
+            including trades needed to fund the fees.
+
         Raises
         ------
         ValueError
@@ -117,18 +124,36 @@ class HistoricalBacktester:
         self.slippage_pct = slippage_pct
         self.spread_pct = spread_pct
 
-        # Identify valid assets
+        # Identify target and carried positions that can be valued.
         available_assets = set(self.prices.columns)
         target_assets = set(self.target_weights.keys())
-        self.assets = sorted(list(available_assets.intersection(target_assets)))
+        self.initial_shares = initial_shares
+        initial_assets = set(initial_shares or {})
+        missing_initial_assets = initial_assets.difference(available_assets)
+        if missing_initial_assets:
+            raise ValueError(
+                "Initial holdings have no price data for: "
+                + ", ".join(sorted(missing_initial_assets))
+            )
 
-        if not self.assets:
+        self.assets = sorted(
+            available_assets.intersection(target_assets | initial_assets)
+        )
+        matching_targets = available_assets.intersection(target_assets)
+
+        if not matching_targets:
             raise ValueError(
                 "No overlapping assets found between prices and target weights."
             )
 
+        if any(
+            not np.isfinite(shares) or shares < 0.0
+            for shares in (initial_shares or {}).values()
+        ):
+            raise ValueError("Initial shares must be finite and non-negative.")
+
         # Construct target vector
-        raw_targets = np.array([self.target_weights[a] for a in self.assets])
+        raw_targets = np.array([self.target_weights.get(a, 0.0) for a in self.assets])
         total_target = raw_targets.sum()
         if total_target <= 0:
             raise ValueError("Total target weight must be positive.")
@@ -151,6 +176,59 @@ class HistoricalBacktester:
         fixed = n_orders * self.fee_per_trade
         return float(variable + fixed)
 
+    def _carried_starting_capital(self, asset_values: np.ndarray) -> float:
+        """Solve equity plus executed transition costs equals starting value.
+
+        Final equity determines every target position and hence the turnover
+        and number of orders, including sales needed to pay fees. The equation
+        is linear between position sign changes and the existing $0.0001
+        commission threshold. Enumerate those intervals rather than iterating
+        a potentially discontinuous fixed-fee equation to apparent convergence.
+        """
+        value = float(asset_values.sum())
+        order_threshold = 1e-4
+        variable_rate = self.slippage_pct + self.spread_pct / 2.0
+        nonzero_targets = self.targets != 0.0
+        position_breaks = (
+            asset_values[nonzero_targets, None]
+            + np.array([-order_threshold, 0.0, order_threshold])
+        ) / self.targets[nonzero_targets, None]
+        breaks = np.unique(np.concatenate(([0.0, value], position_breaks.ravel())))
+        breaks = breaks[(breaks >= 0.0) & (breaks <= value)]
+        midpoints = (breaks[:-1] + breaks[1:]) / 2.0
+        deltas = midpoints[:, None] * self.targets - asset_values
+        signs = np.sign(deltas)
+        orders = (np.abs(deltas) > order_threshold).sum(axis=1)
+        denominator = 1.0 + variable_rate * (signs @ self.targets)
+        numerator = (
+            value - self.fee_per_trade * orders + variable_rate * (signs @ asset_values)
+        )
+        roots = np.divide(
+            numerator,
+            denominator,
+            out=np.full_like(numerator, np.nan),
+            where=denominator != 0.0,
+        )
+        inside_interval = (roots >= breaks[:-1]) & (roots <= breaks[1:])
+        candidates = np.concatenate((breaks, roots[inside_interval], midpoints))
+        final_trades = np.abs(candidates[:, None] * self.targets - asset_values)
+        fees = variable_rate * final_trades.sum(axis=1) + self.fee_per_trade * (
+            final_trades > order_threshold
+        ).sum(axis=1)
+        feasible = np.isclose(candidates + fees, value, rtol=1e-12, atol=1e-9)
+        if feasible.any():
+            return float(candidates[feasible].max())
+
+        liquidation_fees = self._transaction_costs(
+            float(np.abs(asset_values).sum()),
+            int((np.abs(asset_values) > order_threshold).sum()),
+        )
+        if liquidation_fees >= value:
+            return 0.0
+        raise RuntimeError(
+            "No self-financing exact-target transition exists with these fixed fees."
+        )
+
     def run(self) -> BacktestResult:
         """Execute the chronological backtest simulation.
 
@@ -168,6 +246,13 @@ class HistoricalBacktester:
         BacktestResult
             An object containing the portfolio value series, the historical weight
             drift dataframe, and a DatetimeIndex of dates where rebalancing occurred.
+
+        Raises
+        ------
+        RuntimeError
+            If fixed fees make a fully invested, self-financing exact-target
+            transition from carried holdings impossible. No approximate
+            allocation or implicit cash balance is substituted.
         """
         price_matrix = self.prices[self.assets].values
         dates = self.prices.index
@@ -218,18 +303,26 @@ class HistoricalBacktester:
         daily_weights = np.zeros((n_days, n_assets))
         rebalance_dates = []
 
-        # Initial Setup (Day 0)
-        # Assume buy at Close of Day 0
+        # Initial Setup (Day 0). Carried holdings are marked at today's close
+        # before any target-weight transition is executed.
         initial_prices = price_matrix[0]
-        initial_target_dollars = self.initial_capital * self.targets
-
-        # Calculate initial fees
-        initial_num_trades = np.sum(initial_target_dollars > 1e-4)
-        total_initial_fees = self._transaction_costs(
-            float(np.sum(initial_target_dollars)), int(initial_num_trades)
-        )
-
-        actual_starting_capital = max(0.0, self.initial_capital - total_initial_fees)
+        if self.initial_shares is not None:
+            current_shares = np.array(
+                [self.initial_shares.get(asset, 0.0) for asset in self.assets]
+            )
+            asset_values = current_shares * initial_prices
+            actual_starting_capital = float(np.sum(asset_values))
+            if actual_starting_capital > 0.0:
+                actual_starting_capital = self._carried_starting_capital(asset_values)
+        else:
+            initial_target_dollars = self.initial_capital * self.targets
+            initial_num_trades = np.sum(initial_target_dollars > 1e-4)
+            total_initial_fees = self._transaction_costs(
+                float(np.sum(initial_target_dollars)), int(initial_num_trades)
+            )
+            actual_starting_capital = max(
+                0.0, self.initial_capital - total_initial_fees
+            )
         if actual_starting_capital <= 0.0:
             # Initial costs consume the whole stake: no positions are opened
             # and the simulation records a flat zero equity curve.
@@ -441,7 +534,7 @@ class WalkForwardBacktester:
         historical_weights = []
         rebalance_events = []
 
-        current_capital = self.initial_capital
+        current_shares: dict[str, float] | None = None
         start_idx = 0
 
         # Run until we can't form a full training window
@@ -459,16 +552,18 @@ class WalkForwardBacktester:
             test_data = prices.iloc[train_end_idx:test_end_idx]
 
             # Use HistoricalBacktester to simulate the test window
-            # Start the test window with the ending capital of the previous window
+            # Carry actual positions so the new window first marks the prior
+            # portfolio at this close, then trades to the new target weights.
             sub_backtester = HistoricalBacktester(
                 prices=test_data,
                 target_weights=target_weights,
-                initial_capital=current_capital,
+                initial_capital=self.initial_capital,
                 # Rebalance only at the start of the test window (implicitly by target_weights)
                 rebalance_freq=None,
                 fee_per_trade=self.fee_per_trade,
                 slippage_pct=self.slippage_pct,
                 spread_pct=self.spread_pct,
+                initial_shares=current_shares,
             )
             sub_result = sub_backtester.run()
 
@@ -477,8 +572,18 @@ class WalkForwardBacktester:
             historical_weights.append(sub_result.historical_weights)
             rebalance_events.append(dates[train_end_idx])
 
-            # Update capital for the next iteration
-            current_capital = sub_result.portfolio_value.iloc[-1]
+            # Recover exact fractional positions from the final marked value
+            # and weights to hand them into the next test window.
+            ending_value = float(sub_result.portfolio_value.iloc[-1])
+            ending_prices = test_data.iloc[-1]
+            ending_weights = sub_result.historical_weights.iloc[-1]
+            current_shares = {
+                asset: ending_value
+                * float(ending_weights[asset])
+                / float(ending_prices[asset])
+                for asset in sub_backtester.assets
+                if ending_weights[asset] > 0.0
+            }
 
             # Step forward
             start_idx += self.test_window_days

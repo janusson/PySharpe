@@ -1,5 +1,31 @@
 # Gotchas
 
+### 2026 — Transition fees can create additional trades
+
+- Symptom: carrying $5,000 each of A and B into a 50% A / 50% C target
+  charged two $5 commissions, then assigned $4,995 each to A and C. Paying
+  fees also sold A, so three orders were executed and equity must be $9,985.
+- Root cause: counting orders and turnover before deducting fees, then
+  rescaling positions, changes the trades whose costs were just calculated.
+- Fix for carried-holdings transitions: solve
+  `equity + rate * sum(abs(equity * target - old_value)) + fee * orders = NAV`
+  on the finitely many linear intervals bounded by position sign changes and
+  the existing $0.0001 order threshold. Verify candidate solutions against
+  final executed holdings; keep the greatest feasible equity. This has no
+  iterative convergence assumption. Unchanged holdings cost zero; insolvent
+  liquidation retains the existing zero-equity behavior.
+- Fixed-fee discontinuities can leave no fully invested exact-target solution
+  (A=$4,995, B=$5,005, 50/50 targets, $5 per order). Raise `RuntimeError`
+  rather than invent a cash balance or report an inconsistent allocation.
+- Regressions: `test_carried_transition_counts_fee_financing_trades`,
+  `test_carried_transition_variable_costs_use_final_holdings`,
+  `test_carried_transition_rejects_inconsistent_fixed_fee_allocation`, and
+  unchanged-holdings / insolvent-transition cases in `test_analysis_transaction_costs.py`.
+- Related-pattern audit: the separate initial cash purchase and ordinary
+  intra-window rebalance still estimate costs on pre-fee notional. This PR's
+  exact solver covers only the new carried-holdings boundary path; it does not
+  establish exact execution accounting for those older paths.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX
@@ -301,6 +327,20 @@
 - Regression tests: `tests/test_resampling.py::TestPurgedKFoldLeakagePrevention`
 - Grep guard: `grep -rn "test_end_idx >= n" src/pysharpe/validation/resampling.py`
   must be empty.
+
+### 2026 — Walk-forward folds must carry holdings through price boundaries
+
+- Symptom: each `WalkForwardBacktester` fold began with the prior fold's dollar
+  value and bought the newly optimized target at the next test close. This
+  discarded the return earned by existing shares between the previous test
+  close and the new test close, and charged another initial-purchase cost.
+- Root cause: each test window created a fresh `HistoricalBacktester` with
+  capital only; it did not carry asset share counts across windows.
+- Fix: carry fractional shares, mark them at the new window's first close,
+  then rebalance and charge costs on actual share changes. The first out-of-
+  sample close remains the initial investment timestamp.
+- Regression tests: walk-forward boundary, one-day window, changed-target cost,
+  and future-prefix cases in `tests/test_analysis_backtest_engine.py`.
 
 ### 2026 — Walk-forward backtests silently ignored transaction costs
 

@@ -103,7 +103,10 @@ your change instead of the full suite every time.
 ## `test_analysis_backtest_engine.py`
 - `pysharpe.analysis.backtest_engine`
 - `pysharpe.optimization.base`
+- Walk-forward multi-asset share drift, boundary valuation and partial final fold
 - Missing-price (NaN) handling incl. fully-missing asset columns
+- Walk-forward holdings and price continuity across folds, including one-day
+  test windows and future-prefix invariance
 
 ## `test_tactical_momentum.py`
 - `pysharpe.analysis.tactical_momentum` (momentum signals, portfolio simulation, CAD/FX handling, costs, benchmarks, JSON contract)
@@ -122,7 +125,9 @@ your change instead of the full suite every time.
 - `pysharpe.analysis.time_series`
 
 ## `test_analysis_transaction_costs.py`
-- `pysharpe.analysis.backtest_engine` (spread/slippage/commission model, walk-forward costs, no-lookahead)
+- `pysharpe.analysis.backtest_engine` (spread/slippage/commission model,
+  walk-forward transition costs, no-lookahead)
+- Carried-position self-financing equity, fee-funding orders, fixed-fee discontinuities and insolvency
 
 ## `test_resampling.py`
 - `pysharpe.validation.resampling` (PurgedKFold leakage guarantees, autocorrelation-decay gap sizing, regime bootstrapping)
