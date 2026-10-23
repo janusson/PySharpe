@@ -24,6 +24,43 @@
 - Grep guard: review `annualize_return` calls in `src/pysharpe/metrics.py`
   before using them in any arithmetic risk-adjusted ratio.
 
+### 2026 — Empty market-data series cannot prove freshness
+
+- Symptom: a caller supplied provenance metadata for an all-missing price or FX
+  series, and the result reported provenance complete and signal freshness
+  verified because no latest observation existed to calculate an age from.
+- Root cause: missing observations were treated like a non-stale observation
+  rather than an unknown freshness state.
+- Fix: report declared empty series in `unverified_series` with
+  `latest_observation: null`; keep `unattributed_series` for absent metadata.
+  Either condition makes provenance completeness and signal-freshness
+  verification false.
+- Regression test: `test_provenance_with_no_series_observations_is_not_verified`.
+
+### 2026 — Walk-forward folds must preserve boundary NAV for fixed fees
+
+- Symptom: a walk-forward fold's equity path did not match the same dates in
+  the full simulated path when fixed dollar-per-order fees had changed NAV
+  during training.
+- Root cause: every fold restarted at configured initial capital, which
+  changed the effective return impact of fixed-dollar fees in its test window.
+- Fix: anchor each strategy and benchmark fold at the strategy's actual NAV at
+  the training boundary.
+- Regression test:
+  `test_walk_forward_fold_preserves_fixed_fees_at_actual_boundary_nav`.
+### 2026 — pytest 9 removed `Config.warn` from the Pyright collection hook
+
+- Symptom: `make check` reached pytest collection and failed with an internal
+  error when the collection-time Pyright subprocess exceeded its timeout.
+- Root cause: the hook's documented fallback used `config.warn`, removed in
+  pytest 9, so a non-fatal Pyright runner failure became a fatal test startup
+  error.
+- Fix: emit `pytest.PytestWarning` through `warnings.warn`; a Pyright runner
+  failure remains visible without blocking tests, while the separate Makefile
+  typecheck remains authoritative.
+- Regression test: `tests/test_pytest_configure.py` exercises the fallback.
+- Grep guard: `rg -n "config\\.warn" tests/conftest.py` must be empty.
+
 ### 2026 — CWD portfolio config silently constrains unrelated optimisations
 
 - Symptom: `pysharpe optimise` run from the checkout failed for any portfolio

@@ -13,6 +13,8 @@
   contract, Northstar integration boundary, and current limitations.
 - Correct turnover accounting to include return-driven weight drift at rebalance
   dates, and require VFV benchmark coverage from the same simulation start.
+- Add per-series provenance and freshness checks, fixed-configuration
+  chronological walk-forward folds, and explicit exported cost assumptions.
 
 ## 0.4.0 - 2026-10-10
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -87,11 +87,124 @@ class MomentumConfig:
             )
 
 
-@dataclass
-class MomentumResearchResult:
-    """Signals, simulated portfolio path, benchmarks, and JSON export."""
+@dataclass(frozen=True)
+class TrendConfig:
+    """Settings for monthly moving-average trend or prior-high breakouts.
 
-    config: MomentumConfig
+    Rules use the CAD-converted total-return index. A signal is computed after
+    a month-end observation and takes effect at the next supplied session.
+    """
+
+    universe: tuple[str, ...]
+    rule: Literal["moving_average", "breakout"] = "moving_average"
+    lookback_months: int = 12
+    top_n: int = 3
+    benchmark_ticker: str = "VFV.TO"
+    rebalance_frequency: str = "monthly"
+    initial_capital: float = 10_000.0
+    fee_per_order: float = 0.0
+    slippage_bps: float = 0.0
+    spread_bps: float = 0.0
+    fx_fee_bps: float = 0.0
+    max_fx_staleness_days: int = 3
+    max_price_staleness_days: int = 5
+    periods_per_year: int = 252
+
+    def __post_init__(self) -> None:
+        if not self.universe or len(set(self.universe)) != len(self.universe):
+            raise DataValidationError("universe must contain unique ticker symbols")
+        if any(
+            not isinstance(ticker, str) or not ticker.strip()
+            for ticker in self.universe
+        ):
+            raise DataValidationError("universe symbols must be non-empty strings")
+        if not isinstance(self.rule, str) or self.rule not in {
+            "moving_average",
+            "breakout",
+        }:
+            raise DataValidationError("rule must be 'moving_average' or 'breakout'")
+        integer_values = (
+            self.lookback_months,
+            self.top_n,
+            self.periods_per_year,
+            self.max_fx_staleness_days,
+            self.max_price_staleness_days,
+        )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool)
+            for value in integer_values
+        ):
+            raise DataValidationError("lookbacks, limits, and periods must be integers")
+        if self.lookback_months < 1 or self.top_n < 1:
+            raise DataValidationError("lookback_months and top_n must be positive")
+        if self.rebalance_frequency != "monthly":
+            raise DataValidationError("rebalance_frequency must be 'monthly'")
+        if (
+            not np.isfinite(self.initial_capital)
+            or self.initial_capital <= 0
+            or self.periods_per_year <= 0
+        ):
+            raise DataValidationError(
+                "initial_capital and periods_per_year must be positive"
+            )
+        if (
+            not isinstance(self.benchmark_ticker, str)
+            or not self.benchmark_ticker.strip()
+        ):
+            raise DataValidationError("benchmark_ticker must be a non-empty symbol")
+        if self.max_fx_staleness_days < 0 or self.max_price_staleness_days < 0:
+            raise DataValidationError("staleness limits cannot be negative")
+        costs = (
+            self.fee_per_order,
+            self.slippage_bps,
+            self.spread_bps,
+            self.fx_fee_bps,
+        )
+        if any(not np.isfinite(value) or value < 0.0 for value in costs):
+            raise DataValidationError(
+                "transaction costs must be finite and non-negative"
+            )
+
+
+@dataclass(frozen=True)
+class MarketDataProvenance:
+    """Source and freshness declaration for one supplied data series."""
+
+    source: str
+    retrieved_at: pd.Timestamp
+    currency: str
+    price_basis: str
+    max_staleness_days: int = 3
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise DataValidationError("provenance source must be non-empty")
+        if (
+            not isinstance(self.currency, str)
+            or not self.currency.strip()
+            or not isinstance(self.price_basis, str)
+            or not self.price_basis.strip()
+        ):
+            raise DataValidationError(
+                "provenance currency and price basis are required"
+            )
+        if (
+            not isinstance(self.max_staleness_days, int)
+            or isinstance(self.max_staleness_days, bool)
+            or self.max_staleness_days < 0
+        ):
+            raise DataValidationError("provenance staleness limit cannot be negative")
+        retrieved_at = pd.Timestamp(self.retrieved_at)
+        if pd.isna(retrieved_at):
+            raise DataValidationError("provenance retrieval timestamp is invalid")
+        object.__setattr__(self, "retrieved_at", retrieved_at)
+
+
+@dataclass
+class TacticalResearchResult:
+    """Signals, simulated tactical portfolio, benchmarks, and JSON export."""
+
+    config: MomentumConfig | TrendConfig
     generated_at: pd.Timestamp
     signals: pd.DataFrame
     weights: pd.DataFrame
@@ -101,15 +214,18 @@ class MomentumResearchResult:
     risk: dict[str, float | None]
     benchmark_risk: dict[str, dict[str, float | None]]
     data_quality: dict[str, Any] = field(default_factory=dict)
+    data_provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the versioned, JSON-compatible Northstar read contract."""
         return _json_safe(
             {
-                "schema_version": "1.0",
+                "schema_version": "1.2"
+                if isinstance(self.config, TrendConfig)
+                else "1.1",
                 "generated_at": self.generated_at.isoformat(),
                 "strategy": {
-                    "name": "cross_asset_momentum",
+                    "name": _strategy_name(self.config),
                     "config": asdict(self.config),
                 },
                 "signals": _frame_records(self.signals),
@@ -120,6 +236,8 @@ class MomentumResearchResult:
                 "risk": self.risk,
                 "benchmark_risk": self.benchmark_risk,
                 "data_quality": self.data_quality,
+                "data_provenance": self.data_provenance,
+                "cost_assumptions": _cost_assumptions(self.config),
             }
         )
 
@@ -130,15 +248,16 @@ class MomentumResearchResult:
         )
 
 
-def run_cross_asset_momentum(
+def _run_tactical_strategy(
     total_return_prices: pd.DataFrame,
     execution_prices: pd.DataFrame,
     *,
-    config: MomentumConfig,
+    config: MomentumConfig | TrendConfig,
     currencies: dict[str, str] | None = None,
     fx_to_cad: pd.DataFrame | None = None,
-) -> MomentumResearchResult:
-    """Generate historical signals and simulate the specified strategy.
+    provenance: dict[str, MarketDataProvenance] | None = None,
+) -> TacticalResearchResult:
+    """Generate historical tactical signals and simulate the specified rule.
 
     ``total_return_prices`` must be an adjusted total-return index in each
     asset's local currency and already net of embedded expenses. ``execution_prices``
@@ -192,6 +311,23 @@ def run_cross_asset_momentum(
         fx_to_cad=fx_to_cad,
         max_staleness_days=config.max_fx_staleness_days,
     )
+    provenance_details, provenance_missing, provenance_unverified = _data_provenance(
+        provenance=provenance or {},
+        assets=assets,
+        currencies=currency_by_ticker,
+        total_return_prices=total,
+        execution_prices=execution,
+        fx_to_cad=fx_to_cad,
+        foreign_currencies=sorted(unknown),
+        config=config,
+    )
+    stale_series = [
+        key for key, details in provenance_details.items() if details["stale"]
+    ]
+    if stale_series:
+        raise DataValidationError(
+            f"stale market data prevents signal generation: {', '.join(stale_series)}"
+        )
     cad_total = total.copy()
     cad_execution_fx = fx_aligned
     fx_uncovered = 0
@@ -218,10 +354,20 @@ def run_cross_asset_momentum(
                 monthly_observation_dates.at[month_end, ticker] = observed[-1]
     signal_rows: list[dict[str, Any]] = []
     signal_targets: dict[pd.Timestamp, dict[str, float]] = {}
-    first_signalable_month = config.lookback_months + config.skip_months
+    active_breakouts: set[str] = set()
+    skip_months = config.skip_months if isinstance(config, MomentumConfig) else 0
+    first_signalable_month = (
+        config.lookback_months + skip_months
+        if isinstance(config, MomentumConfig)
+        else (
+            config.lookback_months - 1
+            if config.rule == "moving_average"
+            else config.lookback_months
+        )
+    )
     if len(monthly) <= first_signalable_month:
         raise DataValidationError(
-            "insufficient history for the configured momentum lookback and skip window"
+            "insufficient history for the configured strategy lookback and skip window"
         )
 
     date_index = price_index
@@ -233,10 +379,24 @@ def run_cross_asset_momentum(
         ]
         if not len(signal_month_dates):
             continue
-        start_pos = month_pos - config.skip_months - config.lookback_months
-        end_pos = month_pos - config.skip_months
-        window = monthly.iloc[start_pos : end_pos + 1]
-        scores = monthly.iloc[end_pos] / monthly.iloc[start_pos] - 1.0
+        prior = monthly.iloc[0:0]
+        if isinstance(config, TrendConfig):
+            if config.rule == "moving_average":
+                start_pos = month_pos - config.lookback_months + 1
+                end_pos = month_pos
+                window = monthly.iloc[start_pos : end_pos + 1]
+                scores = monthly.iloc[end_pos] / window.mean(axis=0) - 1.0
+            else:
+                start_pos = month_pos - config.lookback_months
+                end_pos = month_pos
+                prior = monthly.iloc[start_pos:end_pos]
+                window = monthly.iloc[start_pos : end_pos + 1]
+                scores = monthly.iloc[end_pos] / prior.max(axis=0) - 1.0
+        else:
+            start_pos = month_pos - skip_months - config.lookback_months
+            end_pos = month_pos - skip_months
+            window = monthly.iloc[start_pos : end_pos + 1]
+            scores = monthly.iloc[end_pos] / monthly.iloc[start_pos] - 1.0
         eligible = scores.loc[list(config.universe)].replace([np.inf, -np.inf], np.nan)
         observation_dates = monthly_observation_dates.iloc[start_pos : end_pos + 1]
         fresh = pd.DataFrame(index=observation_dates.index, columns=config.universe)
@@ -252,10 +412,30 @@ def run_cross_asset_momentum(
             :, list(config.universe)
         ].astype(bool).all(axis=0)
         eligible = eligible.loc[complete & eligible.notna()]
-        eligible = eligible.loc[eligible > -1.0]
-        if eligible.empty:
-            continue
-
+        if isinstance(config, TrendConfig):
+            eligible = (
+                eligible.loc[eligible > 0.0]
+                if config.rule == "moving_average"
+                else eligible
+            )
+            if config.rule == "breakout":
+                held_candidates: dict[str, float] = {}
+                current = monthly.iloc[end_pos]
+                for ticker, score in eligible.items():
+                    ticker = str(ticker)
+                    prior_values = prior[ticker].dropna()
+                    if len(prior_values) != config.lookback_months:
+                        continue
+                    threshold = (
+                        float(prior_values.min())
+                        if ticker in active_breakouts
+                        else float(prior_values.max())
+                    )
+                    if float(current[ticker]) > threshold:
+                        held_candidates[ticker] = float(score)
+                eligible = pd.Series(held_candidates, dtype=float)
+        else:
+            eligible = eligible.loc[eligible > -1.0]
         # Monthly aggregation drops missing listing history only if the entire
         # lookback window is present; ties resolve lexicographically.
         ranked = sorted(
@@ -280,6 +460,25 @@ def run_cross_asset_momentum(
             ]
         else:
             tradable = selected
+        if isinstance(config, TrendConfig):
+            target: dict[str, float] = {}
+            if tradable:
+                target_weight = 1.0 / len(tradable)
+                target = {ticker: target_weight for ticker, _score in tradable}
+            else:
+                signal_rows.append(
+                    {
+                        "signal_date": actual_signal_date,
+                        "effective_date": effective_date,
+                        "ticker": "CASH",
+                        "score": 0.0,
+                        "target_weight": 1.0,
+                    }
+                )
+            if effective_date is not None:
+                signal_targets[pd.Timestamp(effective_date)] = target
+        if isinstance(config, TrendConfig) and config.rule == "breakout":
+            active_breakouts = {ticker for ticker, _score in tradable}
         if tradable:
             target_weight = 1.0 / len(tradable)
             if effective_date is not None:
@@ -297,12 +496,15 @@ def run_cross_asset_momentum(
                     }
                 )
 
-    if not signal_rows:
+    if not signal_rows and isinstance(config, MomentumConfig):
         raise DataValidationError(
             "insufficient history or data coverage to generate an executable signal"
         )
 
-    signals = pd.DataFrame(signal_rows)
+    signals = pd.DataFrame(
+        signal_rows,
+        columns=["signal_date", "effective_date", "ticker", "score", "target_weight"],
+    )
     signals.sort_values(["signal_date", "ticker"], inplace=True, ignore_index=True)
     simulation_index = date_index
     cadence_returns = cad_total.pct_change(fill_method=None)
@@ -440,11 +642,17 @@ def run_cross_asset_momentum(
         "fx_uncovered_observations": fx_uncovered,
         "assets_with_incomplete_history": incomplete,
         "signal_count": int(len(signals)),
-        "signal_warmup_months": config.lookback_months + config.skip_months,
+        "signal_warmup_months": config.lookback_months + skip_months,
         "data_end": pd.Timestamp(total.index[-1]).isoformat(),
         "stale_signals_executed": 0,
+        "provenance_complete": not provenance_missing and not provenance_unverified,
+        "signal_freshness_verified": not provenance_missing
+        and not provenance_unverified,
+        "unattributed_series": provenance_missing,
+        "unverified_series": sorted(set(provenance_missing + provenance_unverified)),
+        "stale_data_series": stale_series,
     }
-    return MomentumResearchResult(
+    return TacticalResearchResult(
         config=config,
         generated_at=pd.Timestamp(total.index[-1]),
         signals=signals,
@@ -455,6 +663,71 @@ def run_cross_asset_momentum(
         risk=strategy_risk,
         benchmark_risk=benchmark_risk,
         data_quality=data_quality,
+        data_provenance=provenance_details,
+    )
+
+
+def run_tactical_strategy(
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    *,
+    config: MomentumConfig | TrendConfig,
+    currencies: dict[str, str] | None = None,
+    fx_to_cad: pd.DataFrame | None = None,
+    provenance: dict[str, MarketDataProvenance] | None = None,
+) -> TacticalResearchResult:
+    """Run a configured momentum, moving-average, or breakout strategy."""
+    return _run_tactical_strategy(
+        total_return_prices,
+        execution_prices,
+        config=config,
+        currencies=currencies,
+        fx_to_cad=fx_to_cad,
+        provenance=provenance,
+    )
+
+
+def run_cross_asset_momentum(
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    *,
+    config: MomentumConfig,
+    currencies: dict[str, str] | None = None,
+    fx_to_cad: pd.DataFrame | None = None,
+    provenance: dict[str, MarketDataProvenance] | None = None,
+) -> TacticalResearchResult:
+    """Run the long-only cross-asset momentum strategy."""
+    if not isinstance(config, MomentumConfig):
+        raise DataValidationError("run_cross_asset_momentum requires a MomentumConfig")
+    return run_tactical_strategy(
+        total_return_prices,
+        execution_prices,
+        config=config,
+        currencies=currencies,
+        fx_to_cad=fx_to_cad,
+        provenance=provenance,
+    )
+
+
+def run_trend_strategy(
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    *,
+    config: TrendConfig,
+    currencies: dict[str, str] | None = None,
+    fx_to_cad: pd.DataFrame | None = None,
+    provenance: dict[str, MarketDataProvenance] | None = None,
+) -> TacticalResearchResult:
+    """Run a moving-average trend or prior-window breakout configuration."""
+    if not isinstance(config, TrendConfig):
+        raise DataValidationError("run_trend_strategy requires a TrendConfig")
+    return run_tactical_strategy(
+        total_return_prices,
+        execution_prices,
+        config=config,
+        currencies=currencies,
+        fx_to_cad=fx_to_cad,
+        provenance=provenance,
     )
 
 
@@ -554,6 +827,132 @@ def _align_fx(
     return aligned
 
 
+def _data_provenance(
+    *,
+    provenance: dict[str, MarketDataProvenance],
+    assets: list[str],
+    currencies: dict[str, str],
+    total_return_prices: pd.DataFrame,
+    execution_prices: pd.DataFrame,
+    fx_to_cad: pd.DataFrame | None,
+    foreign_currencies: list[str],
+    config: MomentumConfig | TrendConfig,
+) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
+    expected: dict[str, tuple[pd.Series, str, str, int]] = {}
+    for ticker in assets:
+        expected[f"total_return_prices:{ticker}"] = (
+            total_return_prices[ticker],
+            currencies[ticker],
+            "adjusted_total_return_net_of_expenses",
+            config.max_price_staleness_days,
+        )
+        expected[f"execution_prices:{ticker}"] = (
+            execution_prices[ticker],
+            currencies[ticker],
+            "split_adjusted_close",
+            config.max_price_staleness_days,
+        )
+    if fx_to_cad is not None:
+        for currency in foreign_currencies:
+            expected[f"fx_to_cad:{currency}"] = (
+                fx_to_cad[currency],
+                f"CAD/{currency}",
+                "CAD_per_currency_unit",
+                config.max_fx_staleness_days,
+            )
+    unknown = set(provenance) - set(expected)
+    if unknown:
+        raise DataValidationError(
+            f"provenance contains unknown series: {', '.join(sorted(unknown))}"
+        )
+
+    details: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    unverified: list[str] = []
+    for key, (
+        series,
+        expected_currency,
+        expected_basis,
+        configured_age,
+    ) in expected.items():
+        record = provenance.get(key)
+        if record is None:
+            missing.append(key)
+            continue
+        if not isinstance(record, MarketDataProvenance):
+            raise DataValidationError(f"provenance for {key} has an invalid type")
+        if record.currency.upper() != expected_currency.upper():
+            raise DataValidationError(
+                f"provenance currency for {key} must be {expected_currency}"
+            )
+        if record.price_basis != expected_basis:
+            raise DataValidationError(
+                f"provenance price basis for {key} must be {expected_basis}"
+            )
+        observed_at = series.last_valid_index()
+        age_days: int | None = None
+        stale = False
+        allowed_age = min(record.max_staleness_days, configured_age)
+        if observed_at is not None:
+            age_days = _calendar_age_days(
+                record.retrieved_at, cast(pd.Timestamp, observed_at)
+            )
+            if age_days < 0:
+                raise DataValidationError(
+                    f"provenance retrieval time for {key} precedes its latest observation"
+                )
+            stale = age_days > allowed_age
+        else:
+            unverified.append(key)
+        details[key] = {
+            "source": record.source,
+            "retrieved_at": pd.Timestamp(record.retrieved_at),
+            "currency": record.currency.upper(),
+            "price_basis": record.price_basis,
+            "latest_observation": cast(pd.Timestamp, observed_at)
+            if observed_at is not None
+            else None,
+            "age_days_at_retrieval": age_days,
+            "max_staleness_days": allowed_age,
+            "stale": stale,
+            "observation_available": observed_at is not None,
+        }
+    return details, missing, unverified
+
+
+def _calendar_age_days(retrieved_at: pd.Timestamp, observed_at: pd.Timestamp) -> int:
+    retrieved = pd.Timestamp(retrieved_at)
+    observed = pd.Timestamp(observed_at)
+    if (retrieved.tz is None) != (observed.tz is None):
+        raise DataValidationError(
+            "provenance retrieval and market-data timestamps must use compatible timezones"
+        )
+    if retrieved.tz is not None:
+        retrieved = retrieved.tz_convert("UTC")
+        observed = observed.tz_convert("UTC")
+    return int((retrieved.normalize() - observed.normalize()).days)
+
+
+def _cost_assumptions(config: MomentumConfig | TrendConfig) -> dict[str, Any]:
+    return {
+        "commission_model": "fixed_per_order",
+        "fee_per_order": config.fee_per_order,
+        "slippage_bps": config.slippage_bps,
+        "spread_bps_full_quote": config.spread_bps,
+        "fx_fee_bps": config.fx_fee_bps,
+        "fee_source": "caller_configured",
+        "fx_rate_convention": "CAD_per_unit_of_local_currency",
+    }
+
+
+def _strategy_name(config: MomentumConfig | TrendConfig) -> str:
+    return config.rule if isinstance(config, TrendConfig) else "cross_asset_momentum"
+
+
+# Backwards-compatible result name retained for existing momentum clients.
+MomentumResearchResult = TacticalResearchResult
+
+
 def _risk_metrics(values: pd.Series, periods_per_year: int) -> dict[str, float | None]:
     values = values.dropna()
     returns = values.pct_change(fill_method=None).dropna()
@@ -614,4 +1013,26 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-__all__ = ["MomentumConfig", "MomentumResearchResult", "run_cross_asset_momentum"]
+def __getattr__(name: str) -> Any:
+    if name in {
+        "WalkForwardConfig",
+        "WalkForwardResearchResult",
+        "run_walk_forward_momentum",
+        "run_walk_forward_strategy",
+    }:
+        from . import tactical_walk_forward
+
+        return getattr(tactical_walk_forward, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "MarketDataProvenance",
+    "MomentumConfig",
+    "TacticalResearchResult",
+    "TrendConfig",
+    "MomentumResearchResult",
+    "run_cross_asset_momentum",
+    "run_tactical_strategy",
+    "run_trend_strategy",
+]
