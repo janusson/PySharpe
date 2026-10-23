@@ -232,26 +232,39 @@ def sharpe_ratio(
 ) -> float | pd.Series:
     """Calculate the annualised Sharpe ratio.
 
+    Uses ``(mean(returns) * periods_per_year - risk_free_rate) /
+    (std(returns, ddof=1) * sqrt(periods_per_year))``. The numerator is
+    arithmetic excess return, not compounded growth. The scalar risk-free
+    rate represents a constant periodic return of
+    ``risk_free_rate / periods_per_year``; an effective annual yield must
+    first be converted to this arithmetic annual convention by the caller.
+    Non-finite observations are excluded independently per column.
+
+    Square-root annualisation assumes equally spaced, uncorrelated periodic
+    excess returns. It is a descriptive statistic, not a confidence estimate
+    or a forecast; serial correlation requires a separate adjustment.
+
     Args:
-        returns: Periodic returns as decimal fractions.
-        risk_free_rate: Annual risk-free rate expressed as a decimal.
+        returns: Periodic simple returns as decimal fractions.
+        risk_free_rate: Arithmetic annual risk-free rate as a decimal.
         periods_per_year: Observation frequency of the input ``returns``.
 
     Returns:
         Sharpe ratio of the supplied returns.
 
     Raises:
-        ValueError: If volatility is zero for any column.
+        ValueError: If fewer than two finite observations are available or
+            volatility is numerically zero for any column.
 
     Example:
         >>> import pandas as pd
         >>> from pysharpe import metrics
-        >>> rets = pd.Series([0.01, 0.015, -0.005], dtype=float)
-        >>> metrics.sharpe_ratio(rets, risk_free_rate=0.02, periods_per_year=252)  # doctest: +ELLIPSIS
-        -0.1...
+        >>> rets = pd.Series([0.1, -0.1], dtype=float)
+        >>> metrics.sharpe_ratio(rets, periods_per_year=2)
+        0.0
     """
 
-    annualised_return = annualize_return(returns, periods_per_year=periods_per_year)
+    annualised_return = expected_return(returns, periods_per_year=periods_per_year)
     annualised_volatility = annualize_volatility(
         returns,
         periods_per_year=periods_per_year,

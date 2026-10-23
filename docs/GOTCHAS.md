@@ -1,5 +1,29 @@
 # Gotchas
 
+### 2026 — Historical Sharpe used geometric growth instead of mean excess return
+
+- Symptom: a two-period +10%, -10% return stream reported Sharpe -0.05
+  at zero risk-free rate and two periods per year, rather than zero. On short
+  high-return samples, geometric annualisation could inflate Sharpe dramatically.
+- Root cause: `sharpe_ratio` used `annualize_return` (geometric compounding).
+  Its original regression test repeated that same formula.
+- Fix: use arithmetic mean return annualised by the observation frequency,
+  subtract the arithmetic annual risk-free rate, and divide by sample volatility
+  annualised by the square root of that frequency. A scalar risk-free rate
+  implies constant periodic `risk_free_rate / periods_per_year`; effective
+  annual yields require caller conversion. Square-root scaling assumes
+  uncorrelated, equally spaced excess returns and supplies no uncertainty estimate.
+- Regression tests: `test_sharpe_ratio_zero_arithmetic_mean_despite_compounding_loss`,
+  `test_sharpe_ratio_matches_periodic_excess_reference`, and
+  `test_comparison_sharpe_uses_arithmetic_excess_return`. Expectations use
+  hand-checkable arithmetic, not production metric helpers.
+- Related-pattern audit: `sortino_ratio` still uses geometric annual return;
+  it needs a separately scoped numerator/MAR review. Optimizer model-based
+  return/volatility ratios are distinct from historical sample Sharpe and
+  should not be changed by this fix.
+- Grep guard: review `annualize_return` calls in `src/pysharpe/metrics.py`
+  before using them in any arithmetic risk-adjusted ratio.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX
