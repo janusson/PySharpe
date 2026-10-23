@@ -1898,6 +1898,7 @@ dependencies = [
     { name = "seaborn" },
     { name = "statsmodels" },
     { name = "streamlit" },
+    { name = "tzdata" },
     { name = "urllib3" },
     { name = "yfinance" },
 ]
@@ -1963,6 +1964,7 @@ requires-dist = [
     { name = "statsmodels", specifier = ">=0.14" },
     { name = "streamlit", specifier = ">=1.52" },
     { name = "streamlit", marker = "extra == 'gui'", specifier = ">=1.35" },
+    { name = "tzdata", specifier = ">=2026.2" },
     { name = "urllib3", specifier = ">=2.8.0" },
     { name = "yfinance", specifier = ">=0.2" },
 ]

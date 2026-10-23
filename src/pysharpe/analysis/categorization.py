@@ -134,8 +134,13 @@ def apply_category_mapping(
 
     frame = frame.loc[:, column_order]
 
-    # Use bfill to find the first valid observation for each asset to use as baseline
-    baseline = frame.bfill().iloc[0].replace(0, pd.NA)
+    # Find the first valid observation for each asset to use as baseline
+    # without using bfill to prevent lookahead bias
+    baseline = frame.apply(
+        lambda s: (
+            s.loc[s.first_valid_index()] if s.first_valid_index() is not None else pd.NA
+        )
+    ).replace(0, pd.NA)
     normalised = frame.divide(baseline)
     normalised = normalised.ffill()
     # Replace the initial valid observation with 1.0 (to match the behavior when there were no NaNs)

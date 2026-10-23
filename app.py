@@ -369,6 +369,10 @@ def sidebar_controls() -> dict[str, object]:
 
     state = st.session_state.get(_SS_DATA)
 
+    if uploaded_file is None and state is not None and state.get("source") == "upload":
+        st.error("Re-upload the price CSV to select its return basis.")
+        st.stop()
+
     if uploaded_file is not None:
         sig, state = _build_upload_state(uploaded_file)
         st.session_state[_SS_DATA] = state
@@ -397,9 +401,9 @@ def sidebar_controls() -> dict[str, object]:
             "Net of embedded fund expenses": ReturnBasis.NET_OF_EXPENSES,
             "Gross of fund expenses": ReturnBasis.GROSS_OF_EXPENSES,
         }
-        if uploaded_file is None:
-            st.error("Re-upload the price CSV to select its return basis.")
-            st.stop()
+        # The source branch implies a current upload, but pyright cannot infer
+        # that relationship from the separately stored session state.
+        assert uploaded_file is not None
         uploaded_content = uploaded_file.getvalue()
         if isinstance(uploaded_content, str):
             uploaded_content = uploaded_content.encode("utf-8")

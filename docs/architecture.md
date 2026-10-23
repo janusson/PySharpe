@@ -21,7 +21,7 @@ decisions before implementation work begins.
 - `pysharpe.metrics`: Stateless, vectorized performance metrics (Sharpe, Sortino, Calmar, CAGR, max drawdown, tracking error).
 - `pysharpe.optimization`: Estimators (analytical Ledoit-Wolf linear/nonlinear shrinkage), Max-Sharpe optimizer on PyPortfolioOpt, Bayesian (PyMC), Black-Litterman, Hierarchical Risk Parity, tax-location engine, and result dataclasses (`PortfolioWeights`, `OptimisationResult`).
 - `pysharpe.portfolio_optimization`: Orchestrates collate → optimise → export artefact workflows.
-- `pysharpe.analysis`: Time-series modelling (ADF, GARCH, VAR), backtest engine (calendar/drift rebalancing with transaction costs), Canadian ETF benchmarks, categorisation, scoring, and head-to-head fund comparison.
+- `pysharpe.analysis`: Time-series modelling (ADF, GARCH, VAR), backtest engine (calendar/drift rebalancing with transaction costs), Canadian ETF benchmarks, categorisation, scoring, head-to-head fund comparison, and the UI-independent tactical research engine.
 - `pysharpe.execution`: Value-averaging allocator (60/40 scoring blend), rebalance planning, cash-flow rebalancing (`cash_flow_rebalance.py`), brokerage export, and ACB tax tracking.
 - `pysharpe.validation`: Deflated Sharpe Ratio, PBO ledger, purged cross-validation with autocorrelation-aware embargoes, execution-friction stress-testing, and sample-size adequacy.
 - `pysharpe.guardrails`: CRA tax-compliance enforcement (superficial-loss interlock, multi-account validation).
