@@ -1,8 +1,9 @@
 # Benchmark Summary
 
 Timings captured with `python scripts/benchmark.py --repeats 5` on a MacBook Pro
-(M2 Pro, Python 3.12). Baseline refers to commit `v0.1.0` prior to the caching
-and vectorisation improvements landed in this change set.
+(M2 Pro, Python 3.12). The baseline is commit
+[`c2cfb61186505b2d6a695670c23a9862a56afaf5`](https://github.com/janusson/PySharpe/commit/c2cfb61186505b2d6a695670c23a9862a56afaf5),
+which predates the caching and vectorisation improvements compared here.
 
 | Scenario       | Size / Months | Metric                | Baseline (s) | Optimised (s) | Speed-up |
 | -------------- | ------------- | --------------------- | ------------:| -------------:| --------:|
