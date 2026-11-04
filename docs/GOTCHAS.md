@@ -17,8 +17,9 @@
   `test_sharpe_ratio_matches_periodic_excess_reference`, and
   `test_comparison_sharpe_uses_arithmetic_excess_return`. Expectations use
   hand-checkable arithmetic, not production metric helpers.
-- Related-pattern audit: `sortino_ratio` still uses geometric annual return;
-  it needs a separately scoped numerator/MAR review. Optimizer model-based
+- Related-pattern audit: `sortino_ratio` still uses geometric annual return in
+  its numerator; reconciling it with the arithmetic convention and the MAR
+  semantics is tracked separately in issue #102. Optimizer model-based
   return/volatility ratios are distinct from historical sample Sharpe and
   should not be changed by this fix.
 - Grep guard: review `annualize_return` calls in `src/pysharpe/metrics.py`
@@ -224,11 +225,12 @@
   benchmark rows displayed raw historical means and unadjusted Sharpe
   ratios — the same data evaluated with two different estimators, making the
   comparison mathematically invalid.
-- Root cause: ``compute_metrics`` (``src/pysharpe/app/analytics.py``) and
+``compute_metrics`` (``src/pysharpe/app/analytics.py``) and
   ``fetch_benchmark_metrics`` (``src/pysharpe/analysis/benchmarks.py``) used
   ``metrics.expected_return`` (raw arithmetic mean) and
-  ``metrics.sharpe_ratio`` (geometric, 0 % rf), while the optimizer used
-  ``shrinkage_expected_return`` plus MER/tax drags.
+  ``metrics.sharpe_ratio`` (geometric annualisation at the time; arithmetic
+  since the Sharpe fix above, see that entry) at 0 % rf, while the optimizer
+  used ``shrinkage_expected_return`` plus MER/tax drags.
 - **Fix**: all comparison rows share Bayes-Stein shrunk expected returns
   (benchmarks shrink jointly with the asset universe) and use an explicit
   expense basis. Observed ETF market prices are net of embedded MER, so only
