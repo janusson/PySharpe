@@ -128,6 +128,8 @@ your change instead of the full suite every time.
 - `pysharpe.analysis.backtest_engine` (spread/slippage/commission model,
   walk-forward transition costs, no-lookahead)
 - Carried-position self-financing equity, fee-funding orders, fixed-fee discontinuities and insolvency
+- `initial_shares` validation (finite, non-negative, priced) and the
+  infeasibility message that aborts a walk-forward run
 
 ## `test_resampling.py`
 - `pysharpe.validation.resampling` (PurgedKFold leakage guarantees, autocorrelation-decay gap sizing, regime bootstrapping)

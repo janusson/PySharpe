@@ -226,7 +226,12 @@ class HistoricalBacktester:
         if liquidation_fees >= value:
             return 0.0
         raise RuntimeError(
-            "No self-financing exact-target transition exists with these fixed fees."
+            "No self-financing exact-target transition exists with these fixed "
+            f"fees: NAV ${value:,.2f}, "
+            f"{int(np.count_nonzero(nonzero_targets))} target position(s), "
+            f"${self.fee_per_trade:,.2f} per order, "
+            f"{variable_rate:.4%} variable cost on turnover. Reduce the fixed "
+            "fee, add starting capital, or reduce the number of target assets."
         )
 
     def run(self) -> BacktestResult:

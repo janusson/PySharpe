@@ -115,6 +115,55 @@ def test_carried_transition_rejects_inconsistent_fixed_fee_allocation():
         backtester.run()
 
 
+def test_carried_transition_infeasible_message_reports_nav_and_orders():
+    # A $12.99 portfolio cannot reach a two-asset target with $5 per order:
+    # three orders cost $15, so no fully invested exact-target equity exists.
+    # The failure must name the inputs that made it infeasible, because it
+    # aborts an entire walk-forward run.
+    backtester = HistoricalBacktester(
+        pd.DataFrame({"A": [1.0], "B": [1.0], "C": [1.0]}),
+        {"B": 0.5, "C": 0.5},
+        initial_shares={"A": 12.986335},
+        fee_per_trade=5.0,
+    )
+    with pytest.raises(RuntimeError, match=r"NAV \$12\.9") as excinfo:
+        backtester.run()
+    message = str(excinfo.value)
+    assert "2 target position(s)" in message
+    assert "$5.00 per order" in message
+
+
+def test_initial_shares_reject_missing_price_coverage():
+    with pytest.raises(ValueError, match="no price data for: ZZZ"):
+        HistoricalBacktester(
+            pd.DataFrame({"A": [100.0]}),
+            {"A": 1.0},
+            initial_shares={"ZZZ": 1.0},
+        )
+
+
+@pytest.mark.parametrize("bad_shares", [-1.0, float("nan"), float("inf")])
+def test_initial_shares_must_be_finite_and_non_negative(bad_shares):
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        HistoricalBacktester(
+            pd.DataFrame({"A": [100.0]}),
+            {"A": 1.0},
+            initial_shares={"A": bad_shares},
+        )
+
+
+def test_carried_transition_without_holdings_records_zero_equity():
+    # Explicit all-zero holdings mean there is no capital to transition.
+    result = HistoricalBacktester(
+        pd.DataFrame({"A": [100.0], "B": [100.0]}),
+        {"A": 0.5, "B": 0.5},
+        initial_shares={"A": 0.0},
+        fee_per_trade=5.0,
+    ).run()
+    assert result.portfolio_value.iloc[0] == 0.0
+    assert (result.historical_weights.iloc[0] == 0.0).all()
+
+
 def test_carried_transition_extreme_fees_exhaust_capital():
     result = HistoricalBacktester(
         pd.DataFrame({"A": [100.0], "B": [100.0]}),

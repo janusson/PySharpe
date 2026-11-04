@@ -17,10 +17,20 @@
 - Fixed-fee discontinuities can leave no fully invested exact-target solution
   (A=$4,995, B=$5,005, 50/50 targets, $5 per order). Raise `RuntimeError`
   rather than invent a cash balance or report an inconsistent allocation.
+- The same error fires when the commission burden alone exceeds what the book
+  can finance (e.g. NAV $12.99 into two target assets at $5 per order needs
+  three orders = $15). A small account whose fees compound through many folds
+  can therefore abort an entire `WalkForwardBacktester.run()`. The message
+  names NAV, target-position count, per-order fee and the variable rate so the
+  caller can tell an infeasible parameterisation from a numerical failure; it is
+  not a silent fallback to a cash balance. Lower `fee_per_trade`, raise
+  `initial_capital`, or reduce the target asset count.
 - Regressions: `test_carried_transition_counts_fee_financing_trades`,
   `test_carried_transition_variable_costs_use_final_holdings`,
-  `test_carried_transition_rejects_inconsistent_fixed_fee_allocation`, and
-  unchanged-holdings / insolvent-transition cases in `test_analysis_transaction_costs.py`.
+  `test_carried_transition_rejects_inconsistent_fixed_fee_allocation`,
+  `test_carried_transition_infeasible_message_reports_nav_and_orders`,
+  unchanged-holdings / insolvent-transition cases, and the
+  `initial_shares` validation cases in `test_analysis_transaction_costs.py`.
 - Related-pattern audit: the separate initial cash purchase and ordinary
   intra-window rebalance still estimate costs on pre-fee notional. This PR's
   exact solver covers only the new carried-holdings boundary path; it does not
