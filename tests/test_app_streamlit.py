@@ -9,6 +9,7 @@
 
 import datetime as dt
 import io
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -23,6 +24,11 @@ from pysharpe.optimization.models import (
     PortfolioWeights,
 )
 from pysharpe.optimization.tax_location import ReturnBasis
+
+# Streamlit >= 1.66 resolves a relative ``AppTest.from_file`` path against the
+# calling test module, not the working directory. Anchor the real dashboard
+# script to the repository root so the harness works from any CWD.
+APP_SCRIPT = Path(__file__).resolve().parents[1] / "app.py"
 
 
 class ColumnContext:
@@ -725,7 +731,7 @@ def test_streamlit_run_renders_dashboard_not_blank() -> None:
         "download_summary": None,
     }
 
-    at = AppTest.from_file("app.py", default_timeout=60)
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=60)
     at.session_state["data_state"] = seed_state
     at.run()
 
