@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Correct historical Sharpe ratios to use arithmetic mean excess return rather
+  than compounded annual growth. Existing historical Sharpe outputs will change;
+  geometric annualized returns and CAGR remain separate growth measures.
+
 - Add a standalone, long-only cross-asset momentum research slice with explicit
   adjusted total-return and executable-price inputs, backward-only CAD FX,
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,

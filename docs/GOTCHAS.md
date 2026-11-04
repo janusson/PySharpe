@@ -1,5 +1,30 @@
 # Gotchas
 
+### 2026 — Historical Sharpe used geometric growth instead of mean excess return
+
+- Symptom: a two-period +10%, -10% return stream reported Sharpe -0.05
+  at zero risk-free rate and two periods per year, rather than zero. On short
+  high-return samples, geometric annualisation could inflate Sharpe dramatically.
+- Root cause: `sharpe_ratio` used `annualize_return` (geometric compounding).
+  Its original regression test repeated that same formula.
+- Fix: use arithmetic mean return annualised by the observation frequency,
+  subtract the arithmetic annual risk-free rate, and divide by sample volatility
+  annualised by the square root of that frequency. A scalar risk-free rate
+  implies constant periodic `risk_free_rate / periods_per_year`; effective
+  annual yields require caller conversion. Square-root scaling assumes
+  uncorrelated, equally spaced excess returns and supplies no uncertainty estimate.
+- Regression tests: `test_sharpe_ratio_zero_arithmetic_mean_despite_compounding_loss`,
+  `test_sharpe_ratio_matches_periodic_excess_reference`, and
+  `test_comparison_sharpe_uses_arithmetic_excess_return`. Expectations use
+  hand-checkable arithmetic, not production metric helpers.
+- Related-pattern audit: `sortino_ratio` still uses geometric annual return in
+  its numerator; reconciling it with the arithmetic convention and the MAR
+  semantics is tracked separately in issue #102. Optimizer model-based
+  return/volatility ratios are distinct from historical sample Sharpe and
+  should not be changed by this fix.
+- Grep guard: review `annualize_return` calls in `src/pysharpe/metrics.py`
+  before using them in any arithmetic risk-adjusted ratio.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX
@@ -200,11 +225,12 @@
   benchmark rows displayed raw historical means and unadjusted Sharpe
   ratios — the same data evaluated with two different estimators, making the
   comparison mathematically invalid.
-- Root cause: ``compute_metrics`` (``src/pysharpe/app/analytics.py``) and
+``compute_metrics`` (``src/pysharpe/app/analytics.py``) and
   ``fetch_benchmark_metrics`` (``src/pysharpe/analysis/benchmarks.py``) used
   ``metrics.expected_return`` (raw arithmetic mean) and
-  ``metrics.sharpe_ratio`` (geometric, 0 % rf), while the optimizer used
-  ``shrinkage_expected_return`` plus MER/tax drags.
+  ``metrics.sharpe_ratio`` (geometric annualisation at the time; arithmetic
+  since the Sharpe fix above, see that entry) at 0 % rf, while the optimizer
+  used ``shrinkage_expected_return`` plus MER/tax drags.
 - **Fix**: all comparison rows share Bayes-Stein shrunk expected returns
   (benchmarks shrink jointly with the asset universe) and use an explicit
   expense basis. Observed ETF market prices are net of embedded MER, so only
