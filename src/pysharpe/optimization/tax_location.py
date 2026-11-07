@@ -225,12 +225,18 @@ class AssetTaxCharacteristics:
             raise ValueError(
                 f"dividend_yield must be non-negative, got {self.dividend_yield}"
             )
-        total = (
-            self.income_frac_interest
-            + self.income_frac_eligible_dividends
-            + self.income_frac_foreign_income
-            + self.income_frac_capital_gains
-        )
+
+        fractions = [
+            self.income_frac_interest,
+            self.income_frac_eligible_dividends,
+            self.income_frac_foreign_income,
+            self.income_frac_capital_gains
+        ]
+        if any(f < 0.0 for f in fractions):
+            raise ValueError(
+                f"Income fractions for {self.ticker!r} must be non-negative"
+            )
+        total = sum(fractions)
         if not np.isclose(total, 1.0):
             raise ValueError(
                 f"Income fractions for {self.ticker!r} must sum to 1.0; got {total}"
