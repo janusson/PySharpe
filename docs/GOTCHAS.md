@@ -1,5 +1,20 @@
 # Gotchas
 
+### 2026 — Account labels silently default to non-registered in tax drags
+
+- Symptom: a report described a TFSA holding as non-registered, so its
+  withholding drag was reported as zero and its income drag as taxable.
+- Root cause: `pysharpe.optimization.tax_location._normalize_account` maps any
+  unrecognised label to `AccountType.NON_REG`. That is a reasonable internal
+  default for the engine, but a caller passing free-form account names
+  (`"TFSA-A"`, `"RRSP-2"`) silently inherits it.
+- Fix: callers that accept arbitrary account labels resolve them explicitly and
+  raise on unknown values. `pysharpe.analysis.xray._resolve_account_type` does
+  this, and `portfolio_xray` requires an `account_types` entry for every account
+  in the snapshot.
+- Guard: never pass a user-supplied account label straight into
+  `AssetLocationEngine` without resolving it first.
+
 ### 2026 — Sortino mixed a geometric numerator with a periodic MAR
 
 - Symptom: `sortino_ratio(pd.Series([0.1, -0.1]), periods_per_year=2)` returned
