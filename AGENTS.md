@@ -56,3 +56,9 @@ The loop is: an agent implements on a branch, a reviewer inspects that branch, t
 - **Verify with the CI commands.** Run `make lint`, `make typecheck`, `make test`, and `make build_docs`, plus the installed-wheel smoke (`scripts/smoke_wheel.py`) when public exports change — these mirror the jobs in `.github/workflows/ci.yml`. Report the commands actually run and name any check that was not run.
 - **Explain the diff.** Commit messages say what changed and why; `CHANGELOG.md` records caller-visible behaviour changes.
 - **Use the checklist.** `.github/REVIEW_CHECKLIST.md` is the shared acceptance list for the author, the reviewer, and the owner.
+- **Claim the work, and check the claim first.** An issue or pull request is the claim on a piece of work; a second implementation of the same claim is a defect, not parallelism. Before starting, confirm the work is not already done — a merged pull request and an unlanded local branch are indistinguishable from the branch list, so search the content, not the branch name:
+  ```bash
+  git log --oneline --all -S '<symbol or function name>'
+  git log --oneline origin/main..<branch>   # empty means the branch adds nothing
+  ```
+- **Sweep merged branches.** `git branch --merged origin/main` lists branches whose work has landed. Delete them, and say so when they belong to someone else's thread. A checkout full of merged branches is how duplicate implementations start: the feature looks unbuilt because its branch still exists.
