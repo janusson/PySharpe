@@ -1,5 +1,28 @@
 # Gotchas
 
+### 2026 — Sortino mixed a geometric numerator with a periodic MAR
+
+- Symptom: `sortino_ratio(pd.Series([0.1, -0.1]), periods_per_year=2)` returned
+  about `-0.1`; every zero-mean return stream reported a non-zero ratio, and
+  Sortino values in fund comparisons were not comparable across compounding
+  rates.
+- Root cause: the numerator annualised a **geometric** return
+  (`annualize_return`) and subtracted only the annual `risk_free_rate`, while
+  the denominator measured a periodic lower partial moment about
+  `target_return + risk_free_rate / periods_per_year`. Numerator and
+  denominator therefore used different excess-return definitions.
+- Fix: one MAR (`target_return + risk_free_rate / periods_per_year`) drives both
+  legs; the numerator is the arithmetic mean excess return, annualised
+  linearly. Zero downside deviation and fewer than two finite observations
+  raise `ValueError` instead of returning a degenerate ratio.
+- Regression tests: `test_sortino_ratio_zero_mean_symmetric_is_zero`,
+  `test_sortino_ratio_matches_downside_moment_definition`,
+  `test_sortino_ratio_hand_computed_known_answer`.
+- Grep guard: `rg -n "annualize_return\(" src/pysharpe/metrics.py` must not match
+  inside `sortino_ratio`. Geometric compounding belongs to
+  `annualize_return`/`cagr` and must stay out of arithmetic reward-to-risk
+  ratios; `sharpe_ratio`'s geometric numerator is tracked separately.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX

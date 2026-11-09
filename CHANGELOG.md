@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Sortino ratio uses one minimum acceptable return.** `sortino_ratio` now
+  takes `target_return + risk_free_rate / periods_per_year` as the single MAR
+  for both legs and reports its numerator as the arithmetic mean excess return
+  instead of a geometric annualised return. A zero-mean return stream now
+  returns exactly zero (it previously returned roughly `-0.1` for
+  `[0.1, -0.1]` with `periods_per_year=2`). Fewer than two finite observations
+  now raise `ValueError`. `target_return` remains a periodic MAR spread above
+  the risk-free rate, as before. Geometric compounding stays available via
+  `annualize_return` and `cagr`.
+
 - Add a standalone, long-only cross-asset momentum research slice with explicit
   adjusted total-return and executable-price inputs, backward-only CAD FX,
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,

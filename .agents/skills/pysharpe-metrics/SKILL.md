@@ -38,10 +38,21 @@ $$\text{Sharpe} = \frac{\bar{R} - R_f}{\sigma_R}$$
 
 - **`sortino_ratio(returns, risk_free_rate, periods_per_year, target_return)`**
 
-$$\text{Sortino} = \frac{\bar{R} - R_f}{\sigma_{\text{downside}}}$$
+$$\text{Sortino} = \frac{(\bar{R} - MAR)\cdot p}{\sigma_{\text{downside}}\cdot\sqrt{p}}$$
 
-- Downside deviation is computed against `target_return + risk_free_rate / periods_per_year`.
-- Vectorized: `sqrt(mean(min(0, r - target)^2))` with annualization.
+- **One** minimum acceptable return governs both legs:
+  `MAR = target_return + risk_free_rate / periods_per_year`.
+- Numerator is the **arithmetic** mean excess return
+  `(mean(R) - MAR) * periods_per_year`. Never substitute geometric CAGR here:
+  a zero-mean stream must return exactly zero, and a compounding numerator does
+  not match an arithmetic downside deviation.
+- Denominator is the periodic lower partial moment
+  `sqrt(mean(min(0, r - MAR)^2))`, annualised by `sqrt(periods_per_year)`.
+  The annualisation cancels, so the ratio equals `(mean - MAR)/DD * sqrt(p)`.
+- Zero downside deviation (no observation below the MAR) and fewer than two
+  finite observations raise `ValueError`.
+- `sharpe_ratio` still annualises a geometric return; that separate numerator
+  correction is tracked outside this skill.
 
 ### Calmar Ratio
 
@@ -71,7 +82,7 @@ $$\text{TE} = \sigma(R_{\text{a}} - R_{\text{b}})$$
 - **All operations must be vectorized.** No Python `for` loops over time steps
   in metric calculations.
 - **Annualization factor is 252** for daily data (trading days).
-- **Risk-free rate is an annual decimal**; `sharpe_ratio` subtracts it from annualized return, while `sortino_ratio` converts it to a per-period rate for downside deviation.
+- **Risk-free rate is an annual decimal**; `sharpe_ratio` subtracts it from annualized return, while `sortino_ratio` converts it to a per-period rate that forms the single MAR used by both its numerator and its downside deviation.
 - **Returns are simple or log returns** — the calling code decides. All
   metrics accept the pre-computed return series.
 - **NaN handling**: Metrics should use `np.nanmean`, `np.nanstd` or explicitly

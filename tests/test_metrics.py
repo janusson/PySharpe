@@ -303,15 +303,21 @@ def test_sortino_ratio_vs_sharpe_for_symmetric_returns():
 
 
 def test_sortino_ratio_larger_than_sharpe_for_asymmetric_upside():
-    """Sortino > Sharpe when upside volatility dominates."""
+    """Sortino > Sharpe when upside volatility dominates downside.
+
+    The fixture keeps the mean low so the comparison tests the denominators
+    rather than the numerator convention: ``sharpe_ratio`` still annualises a
+    geometric return, so a high-mean series would inflate it independently of
+    the Sortino definition.
+    """
     rng = np.random.default_rng(42)
-    # Positive skew: large upside spikes, small downside moves
-    base = rng.normal(0.0005, 0.01, 252)
-    upside_spikes = np.maximum(0, rng.exponential(0.02, 252))
+    base = rng.normal(0.0002, 0.02, 120)
+    # Rare, large upside moves: positive skew with a small mean.
+    upside_spikes = np.where(rng.random(120) < 0.10, 0.04, 0.0)
     returns = pd.Series(base + upside_spikes)
 
-    shp = sharpe_ratio(returns, risk_free_rate=0.0, periods_per_year=252)
-    srt = sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=252)
+    shp = sharpe_ratio(returns, risk_free_rate=0.0, periods_per_year=12)
+    srt = sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=12)
 
     assert srt > shp, (
         f"Sortino ({srt:.4f}) should exceed Sharpe ({shp:.4f}) with asymmetric upside"
@@ -358,6 +364,129 @@ def test_sortino_ratio_raises_on_zero_vol_specific_column():
     )
     with pytest.raises(ValueError, match="Downside deviation is zero"):
         sortino_ratio(returns, target_return=-1.0, periods_per_year=252)
+
+
+# -- Known-answer tests for the Sortino definition ---------------------------
+
+
+def test_sortino_ratio_zero_mean_symmetric_is_zero():
+    """A zero-mean stream has zero excess return over a zero MAR.
+
+    Regression for the geometric numerator, which returned -0.1 here.
+    """
+    returns = pd.Series([0.1, -0.1])
+    result = sortino_ratio(returns, periods_per_year=2)
+    assert result == pytest.approx(0.0, abs=1e-12)
+
+
+def test_sortino_ratio_matches_downside_moment_definition():
+    """Numerator and denominator use one MAR, independently recomputed."""
+    rng = np.random.default_rng(11)
+    values = rng.normal(0.0004, 0.012, 60)
+    returns = pd.Series(values)
+
+    risk_free_rate = 0.03
+    target_return = 0.0002
+    periods_per_year = 12
+    mar = target_return + risk_free_rate / periods_per_year
+
+    expected_excess = (values.mean() - mar) * periods_per_year
+    expected_downside = np.sqrt(np.mean(np.minimum(values - mar, 0.0) ** 2))
+    expected = expected_excess / (expected_downside * np.sqrt(periods_per_year))
+
+    result = sortino_ratio(
+        returns,
+        risk_free_rate=risk_free_rate,
+        periods_per_year=periods_per_year,
+        target_return=target_return,
+    )
+    assert result == pytest.approx(expected)
+
+
+def test_sortino_ratio_hand_computed_known_answer():
+    """Hand-computed value: (mean - MAR)/DD * sqrt(p) with MAR = 0.
+
+    Returns [0.02, -0.01, 0.03], periods_per_year=1:
+    mean = 0.04/3, DD = sqrt(0.01**2/3) = 0.01/sqrt(3), so the ratio is
+    (0.04/3) / (0.01/sqrt(3)) = 4/sqrt(3) * sqrt(1).
+    """
+    returns = pd.Series([0.02, -0.01, 0.03])
+    result = sortino_ratio(returns, periods_per_year=1)
+    assert result == pytest.approx(4 / np.sqrt(3))
+
+
+def test_sortino_ratio_annualises_by_sqrt_frequency():
+    """The same periodic ratio scales with sqrt(periods_per_year)."""
+    returns = pd.Series([0.02, -0.01, 0.03])
+    monthly = sortino_ratio(returns, periods_per_year=12)
+    daily = sortino_ratio(returns, periods_per_year=252)
+    assert monthly / daily == pytest.approx(np.sqrt(12 / 252))
+    assert monthly == pytest.approx(8.0)
+
+
+def test_sortino_ratio_nonzero_mar_shifts_numerator_and_denominator():
+    """A MAR above every return drives both legs of the ratio.
+
+    Returns [0.01, 0.03], MAR 0.02, periods_per_year=1:
+    mean equals the MAR so the excess return is zero.
+    """
+    returns = pd.Series([0.01, 0.03])
+    assert sortino_ratio(returns, target_return=0.02, periods_per_year=1) == (
+        pytest.approx(0.0)
+    )
+
+    # Returns [0.04, 0.00], MAR 0.01: excess = 0.01, DD = sqrt(0.01**2/2).
+    returns = pd.Series([0.04, 0.00])
+    result = sortino_ratio(returns, target_return=0.01, periods_per_year=1)
+    expected = 0.01 / np.sqrt(0.01**2 / 2)
+    assert result == pytest.approx(expected)
+    assert result == pytest.approx(np.sqrt(2))
+
+
+def test_sortino_ratio_converts_risk_free_rate_to_periodic_mar():
+    """A 2% annual rate over two periods is a 1% periodic MAR.
+
+    Returns [0.10, -0.10] with MAR 0.01: excess = -0.01, downside values
+    [0, -0.11], so DD = 0.11/sqrt(2) and the ratio is -2/11 * sqrt(2)... i.e.
+    (-0.01 / (0.11/sqrt(2))) * sqrt(2) = -2/11.
+    """
+    returns = pd.Series([0.10, -0.10])
+    result = sortino_ratio(returns, risk_free_rate=0.02, periods_per_year=2)
+    assert result == pytest.approx(-2 / 11)
+
+
+def test_sortino_ratio_ignores_missing_observations_consistently():
+    """NaN rows are skipped by both the mean and the downside moment."""
+    with_nan = pd.Series([0.02, np.nan, -0.01, 0.03])
+    without_nan = pd.Series([0.02, -0.01, 0.03])
+    assert sortino_ratio(with_nan, periods_per_year=1) == pytest.approx(
+        sortino_ratio(without_nan, periods_per_year=1)
+    )
+
+
+def test_sortino_ratio_dataframe_matches_series():
+    """Per-column results equal the Series results."""
+    series_a = pd.Series([0.02, -0.01, 0.03, -0.005])
+    series_b = pd.Series([-0.01, 0.005, 0.02, 0.01])
+    frame = pd.DataFrame({"A": series_a, "B": series_b})
+
+    result = sortino_ratio(frame, periods_per_year=252)
+    assert isinstance(result, pd.Series)
+    assert result["A"] == pytest.approx(sortino_ratio(series_a, periods_per_year=252))
+    assert result["B"] == pytest.approx(sortino_ratio(series_b, periods_per_year=252))
+
+
+def test_sortino_ratio_requires_two_observations():
+    """A single observation cannot define a downside deviation."""
+    with pytest.raises(ValueError, match="at least two finite observations"):
+        sortino_ratio(pd.Series([-0.02]), periods_per_year=252)
+
+
+def test_sortino_ratio_insufficient_column_reports_error():
+    """A DataFrame column with one observation fails explicitly."""
+    frame = pd.DataFrame({"A": [0.01, -0.02, 0.03], "B": [-0.01, np.nan, np.nan]})
+    with pytest.raises(ValueError, match="at least two finite observations"):
+        sortino_ratio(frame, periods_per_year=252)
 
 
 # ---------------------------------------------------------------------------
