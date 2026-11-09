@@ -16,13 +16,13 @@ You are an expert quantitative finance developer and scientific software enginee
 
 ### 4. Operational Discipline
 - **Consult the supporting docs:** Before writing code, read `CLAUDE.md` for architecture and commands. Read `docs/TEST_MAP.md` to identify which test subset to run for your change. Consult `docs/GOTCHAS.md` for known failure patterns that must not be reintroduced.
-- **Pre-commit verification:** Before declaring any change complete, run through this checklist:
-  1. Are all MER values decimal fractions (< 0.10), never percentage points?
-  2. No `.bfill()` on time-series data (lookahead bias)?
-  3. FX conversion excludes rows without rate coverage instead of backfilling?
-  4. `AssetTaxCharacteristics` income fractions sum to 1.0?
-  5. Caches invalidated properly (mtime keys, `cache_clear()` in tests)?
-  6. New public symbols registered in `_EXPORT_MAP`, `TYPE_CHECKING`, AND `__all__` in `src/pysharpe/__init__.py`?
+- **Pre-commit verification:** Before declaring any change complete, answer every item below. Items marked *automatic* are asserted by `make test` (CI runs the same suite), so a violation fails the build instead of waiting for a reviewer — never weaken a guard to land a change; fix the violation.
+  1. Are all MER values decimal fractions (< 0.10), never percentage points? *Automatic* for shipped config data, via the `AssetTaxCharacteristics` validator.
+  2. No `.bfill()` on time-series data (lookahead bias)? *Automatic* — the package source is scanned.
+  3. FX conversion excludes rows without rate coverage instead of backfilling? Behavioural; covered by `tests/test_fx_adjustment.py`.
+  4. `AssetTaxCharacteristics` income fractions sum to 1.0? *Automatic* — `__post_init__` rejects any other sum, covered in `tests/test_tax_location.py`.
+  5. Caches invalidated properly (mtime keys, `cache_clear()` in tests)? Per-caller; see `docs/GOTCHAS.md`.
+  6. New public symbols registered in `_EXPORT_MAP`, `TYPE_CHECKING`, AND `__all__` in `src/pysharpe/__init__.py`? *Automatic* — every map entry must resolve and be advertised in `__all__`.
   7. Tests use synthetic data only with fixed seeds — no network calls?
   8. No predictive ML, day-trading logic, or gamified UI introduced?
 - **Targeted testing:** Run the test subset covering your change before the full suite. Use the quick-reference table in `docs/TEST_MAP.md`.

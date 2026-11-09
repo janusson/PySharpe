@@ -383,12 +383,19 @@ _EXPORT_MAP.update(_METRIC_EXPORTS)
 # The installed distribution metadata is the only version declaration.
 __version__: str = _distribution_version("pysharpe")
 
-__all__: tuple[str, ...] = (
-    "__version__",
-    *_CONFIG_EXPORTS,
-    *_DIRECTORY_EXPORTS,
-    *_EXPORT_MAP,
+__all__: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        (
+            "__version__",
+            *_CONFIG_EXPORTS,
+            *_DIRECTORY_EXPORTS,
+            *_EXPORT_MAP,
+        )
+    )
 )  # type: ignore[reportUnknownVariableType]
+# The eagerly imported `_CONFIG_EXPORTS` names are also lazy-mapped in
+# `_EXPORT_MAP`, so listing every source verbatim advertised a few names twice.
+# Deduplicating keeps `__all__` one entry per name in first-occurrence order.
 
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - thin dynamic dispatch

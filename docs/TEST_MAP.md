@@ -5,6 +5,12 @@ your change instead of the full suite every time.
 
 ---
 
+## `test_precommit_guards.py`
+- `AGENTS.md` section 4 — the items that can be settled mechanically:
+  - `pysharpe.__init__` (`_EXPORT_MAP` entries resolve and are advertised in `__all__`; no duplicate or unresolvable public names)
+  - `pysharpe` package sources (no `.bfill()` on a time series)
+  - `portfolio_config.example.json` (shipped MERs pass `AssetTaxCharacteristics`)
+
 ## `test_tax_location.py`
 - `pysharpe.optimization.tax_location`
 - `pysharpe.execution.rebalance` (tax-engine integration: `build_rebalance_plan` with `TaxProfile`/`AssetTaxCharacteristics`)
@@ -188,7 +194,7 @@ your change instead of the full suite every time.
 
 | Changing this module | Run |
 |---------------------|-----|
-| `__init__.py` | `pytest tests/test_package_api.py` |
+| `__init__.py` | `pytest tests/test_package_api.py tests/test_precommit_guards.py` |
 | `analysis/backtest.py`, `analysis/benchmarks.py`, `analysis/scoring.py`, `analysis/visualization.py` | `pytest tests/test_analysis.py` |
 | `analysis/backtest_engine.py` | `pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py` |
 | `analysis/categorization.py` | `pytest tests/test_categorization.py` |
@@ -197,6 +203,7 @@ your change instead of the full suite every time.
 | `analysis/tactical_momentum.py` | `pytest tests/test_tactical_momentum.py` |
 | `analysis/tactical_walk_forward.py` | `pytest tests/test_tactical_momentum.py` |
 | `analysis/tactical_momentum.py` trend rules | `pytest tests/test_tactical_extensions.py tests/test_tactical_momentum.py` |
+| `portfolio_config.example.json` MER data | `pytest tests/test_precommit_guards.py` |
 | `analysis/portfolio_overlap.py` | `pytest tests/test_tactical_extensions.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
 | `cli.py` | `pytest tests/test_cli.py` |

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Move the mechanical half of the agent pre-commit checklist into the test
+  suite (`tests/test_precommit_guards.py`): every `_EXPORT_MAP` entry must
+  resolve and be advertised in `__all__`, no package module may `.bfill()` a
+  time series, and shipped MERs must satisfy `AssetTaxCharacteristics`. Raise
+  the `make test` coverage floor from 75% to 82% so the gate tracks the current
+  level instead of a historical minimum.
+- Deduplicate `pysharpe.__all__`: four names (`AccountType`, `AssetTaxProfile`,
+  `TaxProfile`, `calculate_withholding_tax_rate`) were listed twice because they
+  are both eagerly imported and lazily mapped. No import behaviour changes.
+
 - Add a standalone, long-only cross-asset momentum research slice with explicit
   adjusted total-return and executable-price inputs, backward-only CAD FX,
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,

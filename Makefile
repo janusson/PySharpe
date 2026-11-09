@@ -5,9 +5,11 @@
 
 .DEFAULT_GOAL := help
 
-# Minimum total coverage required by `make test` (currently ~79%).
-# Raise to 80 once visualization/ and workflows.py gain test coverage.
-COVERAGE_FLOOR := 75
+# Minimum total coverage required by `make test`. Ratchet this upward whenever
+# measured coverage rises: a floor far below the current level cannot detect a
+# regression in it. Measured ~83.7% at the time of writing, so the floor sits
+# just below that rather than below a historical minimum.
+COVERAGE_FLOOR := 82
 
 PYTEST_COV := --cov=src/pysharpe \
 	--cov-report=term-missing \
