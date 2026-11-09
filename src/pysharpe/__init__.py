@@ -74,6 +74,10 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "infer_column_mapping": ("pysharpe.data.interop", "infer_column_mapping"),
     "normalise_ticker": ("pysharpe.data.interop", "normalise_ticker"),
     "read_holdings_snapshot": ("pysharpe.data.interop", "read_holdings_snapshot"),
+    # Portfolio X-ray
+    "XrayFlag": ("pysharpe.analysis.xray", "XrayFlag"),
+    "XrayReport": ("pysharpe.analysis.xray", "XrayReport"),
+    "portfolio_xray": ("pysharpe.analysis.xray", "portfolio_xray"),
     # Configuration
     "AccountType": ("pysharpe.config", "AccountType"),
     "AssetTaxProfile": ("pysharpe.config", "AssetTaxProfile"),
@@ -449,6 +453,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         WalkForwardResearchResult,
         run_walk_forward_momentum,
         run_walk_forward_strategy,
+    )
+    from pysharpe.analysis.xray import (  # noqa: F401
+        XrayFlag,
+        XrayReport,
+        portfolio_xray,
     )
     from pysharpe.config import (  # noqa: F401
         AccountType,

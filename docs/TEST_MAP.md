@@ -175,6 +175,13 @@ your change instead of the full suite every time.
 ## `test_sample_size.py`
 - `pysharpe.validation.sample_size`
 
+## `test_analysis_xray.py`
+- `pysharpe.analysis.xray` (identical exposure, concentration, currency
+  exposure, withholding and income drag in bps, explicit account typing,
+  unassessed assets, deterministic rendering)
+- `pysharpe.data.interop` (`HoldingsSnapshot` input)
+- `pysharpe.optimization.tax_location` (drag engine consumed read-only)
+
 ## `test_interop.py`
 - `pysharpe.data.interop` (snapshot import, FX coverage, duplicate and
   non-positive-row rejection, unknown cost basis, allocator/rebalance adapters)
@@ -198,6 +205,7 @@ your change instead of the full suite every time.
 | `analysis/backtest_engine.py` | `pytest tests/test_analysis_backtest_engine.py tests/test_analysis_transaction_costs.py` |
 | `analysis/categorization.py` | `pytest tests/test_categorization.py` |
 | `analysis/comparison.py` | `pytest tests/test_analysis_comparison.py` |
+| `analysis/xray.py` | `pytest tests/test_analysis_xray.py` |
 | `analysis/time_series.py` | `pytest tests/test_analysis_time_series.py` |
 | `analysis/tactical_momentum.py` | `pytest tests/test_tactical_momentum.py` |
 | `analysis/tactical_walk_forward.py` | `pytest tests/test_tactical_momentum.py` |
