@@ -335,41 +335,63 @@ def sortino_ratio(
 ) -> float | pd.Series:
     """Calculate the annualised Sortino ratio.
 
-    The Sortino ratio uses downside deviation (volatility of returns below a
-    target) in the denominator rather than total volatility, penalising only
-    harmful variability.
+    The Sortino ratio replaces total volatility with downside deviation: the
+    periodic lower partial moment of returns below the minimum acceptable
+    return (MAR).  **One** MAR governs both the numerator and the denominator:
+
+    ``MAR = target_return + risk_free_rate / periods_per_year``
+
+    ``Sortino = (mean(R) - MAR) * periods_per_year / (DD * sqrt(periods_per_year))``
+
+    where ``DD = sqrt(mean(min(R - MAR, 0)**2))``.  The numerator is therefore
+    the **arithmetic** mean excess return, annualised linearly: it is zero for
+    a zero-mean stream, whereas a geometric numerator would not be.  Geometric
+    compounding remains available from :func:`annualize_return` and
+    :func:`cagr` and is deliberately not mixed into an arithmetic ratio.
 
     Args:
         returns: Periodic returns expressed as decimal fractions.
-        risk_free_rate: Annual risk-free rate expressed as a decimal.
+        risk_free_rate: Annual risk-free rate expressed as a decimal. It is
+            converted to a per-period rate and added to ``target_return`` to
+            form the MAR.
         periods_per_year: Observation frequency of the input ``returns``.
-        target_return: Minimum acceptable return (MAR) expressed as a daily
-            decimal fraction. Defaults to zero.
+        target_return: Periodic MAR spread above the risk-free rate. Defaults
+            to zero, i.e. a hurdle equal to the periodic risk-free rate.
 
     Returns:
-        Sortino ratio of the supplied returns.
+        Annualised Sortino ratio as a float for Series input or a Series for
+        DataFrame input.
 
     Raises:
-        ValueError: If downside deviation is zero for any column.
+        ValueError: If ``periods_per_year`` is not positive, a column has
+            fewer than two finite observations, or downside deviation is zero
+            because no observation falls below the MAR.
 
     Example:
         >>> import pandas as pd
         >>> from pysharpe import metrics
         >>> rets = pd.Series([0.01, -0.02, 0.015], dtype=float)
         >>> metrics.sortino_ratio(rets, risk_free_rate=0.02, periods_per_year=252)  # doctest: +ELLIPSIS
-        ...
+        2.17...
     """
+    if periods_per_year <= 0:
+        raise ValueError("periods_per_year must be positive")
+
     frame, was_series = _coerce_to_dataframe(returns)
     numeric = _prep_numeric(frame)
 
-    annualised_return = annualize_return(returns, periods_per_year=periods_per_year)
+    counts = numeric.count()
+    if (counts < 2).any():
+        raise ValueError(
+            "Sortino ratio requires at least two finite observations per column."
+        )
 
-    # Daily risk-free rate for excess return in downside calculation.
-    daily_rf = risk_free_rate / periods_per_year
-    downside = numeric - (target_return + daily_rf)
-    downside = downside.clip(upper=0.0)
-    downside_sq = downside.pow(2)
-    downside_dev = np.sqrt(downside_sq.mean(skipna=True))
+    # One MAR for both the numerator and the downside deviation.
+    mar = target_return + risk_free_rate / periods_per_year
+
+    annualised_excess = (numeric.mean() - mar) * periods_per_year
+    downside = (numeric - mar).clip(upper=0.0)
+    downside_dev = np.sqrt(downside.pow(2).mean(skipna=True))
     annualised_downside = downside_dev * np.sqrt(periods_per_year)
 
     if isinstance(annualised_downside, pd.Series):
@@ -381,8 +403,7 @@ def sortino_ratio(
             raise ValueError(
                 f"Downside deviation is zero; Sortino ratio undefined for: {problematic}"
             )
-        excess = annualised_return - risk_free_rate
-        result = excess / annualised_downside
+        result = annualised_excess / annualised_downside
         if was_series:
             return float(result.iloc[0])
         return result
@@ -390,8 +411,7 @@ def sortino_ratio(
     if np.isclose(annualised_downside, 0.0):
         raise ValueError("Downside deviation is zero; Sortino ratio undefined.")
 
-    excess_return = annualised_return - risk_free_rate
-    return float(excess_return / annualised_downside)
+    return float(annualised_excess / annualised_downside)
 
 
 def calmar_ratio(value_series: pd.Series) -> float:
