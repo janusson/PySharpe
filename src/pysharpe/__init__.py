@@ -68,6 +68,12 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "DataIngestionError": ("pysharpe.exceptions", "DataIngestionError"),
     "DataValidationError": ("pysharpe.exceptions", "DataValidationError"),
     "ExecutionConfigError": ("pysharpe.exceptions", "ExecutionConfigError"),
+    # Holdings interop (vendor-neutral snapshot import)
+    "HoldingsSnapshot": ("pysharpe.data.interop", "HoldingsSnapshot"),
+    "Position": ("pysharpe.data.interop", "Position"),
+    "infer_column_mapping": ("pysharpe.data.interop", "infer_column_mapping"),
+    "normalise_ticker": ("pysharpe.data.interop", "normalise_ticker"),
+    "read_holdings_snapshot": ("pysharpe.data.interop", "read_holdings_snapshot"),
     # Configuration
     "AccountType": ("pysharpe.config", "AccountType"),
     "AssetTaxProfile": ("pysharpe.config", "AssetTaxProfile"),
@@ -452,6 +458,13 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         calculate_withholding_tax_rate,
         get_ticker_metadata,
         load_execution_config,
+    )
+    from pysharpe.data.interop import (  # noqa: F401
+        HoldingsSnapshot,
+        Position,
+        infer_column_mapping,
+        normalise_ticker,
+        read_holdings_snapshot,
     )
     from pysharpe.data_collector import (  # noqa: F401
         PortfolioTickerReader,
