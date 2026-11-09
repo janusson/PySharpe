@@ -163,4 +163,6 @@ Not in this slice: transaction histories, dividends, corporate actions,
 per-year realized gains, persisted portfolios, and vendor-specific adapters.
 Persistence is tracked as #43/#79. Account book cost and pooled tax ACB remain
 in `pysharpe.execution.tax_tracker` and
-`pysharpe.guardrails.tax_compliance`.
+`pysharpe.guardrails.tax_compliance`; see
+[Canadian Portfolio Reference](canadian_portfolio_reference.md) for how those
+ledgers fit together.
