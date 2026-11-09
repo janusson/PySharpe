@@ -128,6 +128,17 @@ class TestAssetTaxCharacteristics:
         with pytest.raises(ValueError, match="MER"):
             AssetTaxCharacteristics("X", dividend_yield=0.02, mer=-0.001)
 
+    def test_rejects_negative_income_fractions(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            AssetTaxCharacteristics(
+                "X",
+                dividend_yield=0.02,
+                income_frac_interest=1.5,
+                income_frac_eligible_dividends=-0.5,
+                income_frac_foreign_income=0.0,
+                income_frac_capital_gains=0.0,  # sums to 1.0 but contains negatives
+            )
+
     def test_rejects_income_fractions_not_sum_to_one(self):
         with pytest.raises(ValueError, match="sum to 1.0"):
             AssetTaxCharacteristics(
