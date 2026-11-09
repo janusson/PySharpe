@@ -43,3 +43,16 @@ You are an expert quantitative finance developer and scientific software enginee
 - **Asset Universe:** The tool is explicitly tuned for broad-market, CAD-denominated index ETFs (e.g., VFV, VDY, QQC). Do not introduce single-stock idiosyncratic volatility models, sentiment analysis, or options-pricing logic.
 - **Tax-Advantaged Constraints (TFSA):** Assume all portfolios operate within the constraints of a Canadian Tax-Free Savings Account (TFSA). Because capital gains are tax-exempt and losses cannot be claimed, **tax-loss harvesting (TLH) logic is strictly prohibited.** You must account for foreign withholding tax drag on US dividends (e.g., within VFV/QQC) as a strict yield reduction, but do not build capital gains optimization or tax-bracket routing layers.
 - **Scoring Stability:** Preserve the `allocator.py` heuristic blend. The opportunity score must remain a strictly defined weighted sum of path drift (default 60%) and fundamental valuation/mean-reversion (default 40%). Do not alter these baseline weights unless explicitly instructed.
+
+### 7. Handoff Workflow (Delta → Zed → Owner)
+
+The loop is: an agent implements on a branch, a reviewer inspects that branch, the owner accepts or rejects it. Keep each handoff legible on its own.
+
+- **One concern per branch.** A branch carries a single reviewable change — implementation, its tests, and the documentation that describes it. Leave unrelated working-tree changes behind even when they are convenient to carry along.
+- **Branch from the current `main`.** Name it `feat/…`, `fix/…`, or `chore/…`. Do not branch off an unmerged feature branch.
+- **Local commits only.** Do not push, merge, or open a pull request unless explicitly instructed. A branch prepared for handoff ends at a local commit on the local base revision.
+- **Record the base revision.** A handoff states the `origin/main` SHA the branch was cut from, so review diffs against a known revision rather than against whatever `main` has become.
+- **Prove isolation before handing off.** Verify the branch touches only the intended files (`git diff --stat <base>`) and that the extracted files are byte-identical to their source when work is transferred between checkouts. Do not clean or rewrite the source checkout.
+- **Verify with the CI commands.** Run `make lint`, `make typecheck`, `make test`, and `make build_docs`, plus the installed-wheel smoke (`scripts/smoke_wheel.py`) when public exports change — these mirror the jobs in `.github/workflows/ci.yml`. Report the commands actually run and name any check that was not run.
+- **Explain the diff.** Commit messages say what changed and why; `CHANGELOG.md` records caller-visible behaviour changes.
+- **Use the checklist.** `.github/REVIEW_CHECKLIST.md` is the shared acceptance list for the author, the reviewer, and the owner.
