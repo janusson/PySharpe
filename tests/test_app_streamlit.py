@@ -609,6 +609,41 @@ def test_sidebar_controls_upload_flow(
     assert gross_controls["return_basis"] is ReturnBasis.GROSS_OF_EXPENSES
 
 
+def test_sidebar_controls_removed_upload_stops_before_download_and_recovers(
+    monkeypatch: pytest.MonkeyPatch, streamlit_stub: StreamlitStub
+) -> None:
+    """A missing upload must never silently change the source to live prices."""
+    streamlit_stub.sidebar.uploaded_file = io.StringIO(
+        "Date,VFV.TO\n2024-01-01,100\n2024-01-02,101\n"
+    )
+
+    def reject_download(*args, **kwargs):
+        raise AssertionError("A removed upload must not download replacement data")
+
+    monkeypatch.setattr(app, "load_prices", reject_download)
+    monkeypatch.setattr(app, "load_preview_data", reject_download)
+    monkeypatch.setattr(app, "gather_metadata", reject_download)
+
+    first = app.sidebar_controls()
+    assert first["source"] == "upload"
+    streamlit_stub.sidebar.uploaded_file = None
+
+    # Repeat the missing-upload rerun: neither run may replace session state.
+    for _ in range(2):
+        with pytest.raises(StreamlitStop):
+            app.sidebar_controls()
+        assert streamlit_stub.session_state[app._SS_DATA]["source"] == "upload"
+        assert "re-upload" in streamlit_stub.warning_calls[-1].lower()
+
+    streamlit_stub.sidebar.uploaded_file = io.StringIO(
+        "Date,VCN.TO\n2024-01-01,200\n2024-01-02,201\n"
+    )
+    recovered = app.sidebar_controls()
+    assert recovered["source"] == "upload"
+    assert recovered["tickers"] == ("VCN.TO",)
+    assert recovered["return_basis"] is None
+
+
 def test_sidebar_controls_weights_reset_on_ticker_change(
     monkeypatch: pytest.MonkeyPatch,
     streamlit_stub: StreamlitStub,

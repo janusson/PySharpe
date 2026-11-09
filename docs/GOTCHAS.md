@@ -1,5 +1,20 @@
 # Gotchas
 
+### 2026 — Removed uploads silently switched the dashboard to downloaded data
+
+- Symptom: removing a previously uploaded CSV downloaded the default ticker
+  history instead of displaying the intended re-upload message.
+- Root cause: the download fallback replaced the session's upload source before
+  the missing-upload guard checked it, making that guard unreachable.
+- Fix: check the previous source immediately after reading session state, before
+  selecting or building any replacement data. Stop until a CSV is re-uploaded.
+- Regression: `test_sidebar_controls_removed_upload_stops_before_download_and_recovers`
+  uploads a synthetic CSV, removes it for two reruns with downloads forbidden,
+  and verifies that a replacement upload resumes with an unknown return basis.
+- Related-pattern search: `source`, `_build_download_state`, and
+  `uploaded_file is None` in `app.py` and `src/pysharpe/app` identified this one
+  source replacement path.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX
