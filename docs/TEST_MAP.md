@@ -193,6 +193,11 @@ your change instead of the full suite every time.
 ## `test_sample_size.py`
 - `pysharpe.validation.sample_size`
 
+## `test_interop.py`
+- `pysharpe.data.interop` (snapshot import, FX coverage, duplicate and
+  non-positive-row rejection, unknown cost basis, allocator/rebalance adapters)
+- `pysharpe.execution.cash_flow_rebalance` (`current_balances` contract)
+
 ## Installed-wheel smoke check
 - `scripts/smoke_wheel.py` runs in CI from outside the checkout using a fresh
   wheel-only virtual environment. It imports all public package modules, resolves
@@ -221,6 +226,7 @@ your change instead of the full suite every time.
 | `config.py` | `pytest tests/test_config.py tests/test_2d_allocation.py` |
 | `data/collation.py` | `pytest tests/test_collation.py` |
 | `data/fetcher.py` | `pytest tests/test_fetcher.py tests/test_fx_adjustment.py tests/test_data_fetcher_cache.py tests/test_collation.py` |
+| `data/interop.py` | `pytest tests/test_interop.py` |
 | `data/linkage.py` | `pytest tests/test_data_linkage.py` |
 | `data/portfolio.py` | `pytest tests/test_portfolio_repository.py` |
 | `data_collector.py` | `pytest tests/test_data_collector.py` |
