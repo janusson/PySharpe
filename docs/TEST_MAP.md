@@ -187,6 +187,11 @@ your change instead of the full suite every time.
   non-positive-row rejection, unknown cost basis, allocator/rebalance adapters)
 - `pysharpe.execution.cash_flow_rebalance` (`current_balances` contract)
 
+## `test_reference_example.py`
+- `examples/canadian_portfolio_reference.py` (end-to-end account, CAD/USD cash,
+  book-cost, and pooled tax-ACB reference example)
+- `pysharpe.guardrails.tax_compliance.ACBTracker` as consumed by the example
+
 ## Installed-wheel smoke check
 - `scripts/smoke_wheel.py` runs in CI from outside the checkout using a fresh
   wheel-only virtual environment. It imports all public package modules, resolves
@@ -225,6 +230,7 @@ your change instead of the full suite every time.
 | `execution/cash_flow_rebalance.py` | `pytest tests/test_cash_flow_rebalance.py` |
 | `execution/rebalance.py` | `pytest tests/test_brokerage.py tests/test_tax_location.py` |
 | `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
+| `examples/canadian_portfolio_reference.py` | `pytest tests/test_reference_example.py` |
 | `guardrails/tax_compliance.py` | `pytest tests/test_tax_compliance.py` |
 | `logging_utils.py` | `pytest tests/test_config.py` |
 | `metrics.py` | `pytest tests/test_metrics.py tests/test_analysis_comparison.py` |

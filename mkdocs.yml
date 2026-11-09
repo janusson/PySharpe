@@ -60,4 +60,5 @@ nav:
   - Proxy Mapping: proxies.md
   - Holdings Import: interop.md
   - Portfolio X-ray: xray.md
+  - Canadian Reference Example: canadian_portfolio_reference.md
   - API Reference: api.md
