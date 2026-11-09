@@ -58,4 +58,5 @@ nav:
   - Benchmarks: benchmarks.md
   - Tactical Research: tactical_research.md
   - Proxy Mapping: proxies.md
+  - Holdings Import: interop.md
   - API Reference: api.md
