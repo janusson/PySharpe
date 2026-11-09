@@ -27,6 +27,18 @@ from pysharpe.metrics import (
     tracking_error,
 )
 
+
+def test_comparison_sharpe_uses_arithmetic_excess_return():
+    dates = pd.date_range("2024-01-01", periods=3)
+    prices_a = pd.DataFrame({"AAA": [100.0, 110.0, 99.0]}, index=dates)
+    prices_b = pd.DataFrame({"BBB": [100.0, 120.0, 108.0]}, index=dates)
+    result = _compute_comparison(prices_a, prices_b, "AAA", "BBB")
+    # AAA has returns +10%, -10% and hence zero arithmetic mean.
+    # BBB has returns +20%, -10%: annualized mean 12.6, variance 0.045.
+    assert result.loc["Sharpe Ratio", "AAA"] == pytest.approx(0.0, abs=1e-12)
+    assert result.loc["Sharpe Ratio", "BBB"] == pytest.approx(np.sqrt(14))
+
+
 # ---------------------------------------------------------------------------
 # Helper: build synthetic aligned price DataFrames
 # ---------------------------------------------------------------------------
