@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Portfolio X-ray.** `portfolio_xray` reports what a holdings snapshot implies
+  rather than what happened: identical exposure across accounts (using the same
+  map that drives superficial-loss compliance), concentration and effective
+  holdings, CAD/foreign currency exposure, and withholding/income tax drag in
+  basis points. Account types must be declared explicitly; tickers without
+  characteristics are reported as unassessed rather than assumed tax-free. See
+  `docs/xray.md`.
+
 - **Ticker normalisation for exports.** `normalise_ticker` converts market-code
   labels (`VFV.TSE` → `VFV.TO`, `VOO.NYSE` → `VOO`, `VFV | TSE` → `VFV.TO`),
   and `read_holdings_snapshot(..., ticker_transform=normalise_ticker)` applies
