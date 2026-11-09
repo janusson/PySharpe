@@ -18,6 +18,7 @@ from pysharpe.execution.tax_tracker import (
     ACBPosition,
     ACBTracker,
     TradeRecord,
+    apply_return_of_capital,
 )
 
 # ---------------------------------------------------------------------------
@@ -305,6 +306,41 @@ class TestACBTrackerROC:
         assert trade.price_per_share == 0.0
         assert trade.total_amount == 200.0
         assert trade.realized_gain_loss == 150.0
+
+
+# ---------------------------------------------------------------------------
+# apply_return_of_capital — the shared ROC rule
+# ---------------------------------------------------------------------------
+
+
+class TestApplyReturnOfCapital:
+    """The single ROC rule both ACB ledgers share."""
+
+    def test_reduces_cost_in_place(self):
+        position = ACBPosition(ticker="VCN.TO", total_shares=100.0, total_cost=3500.0)
+
+        gain = apply_return_of_capital(position, 500.0)
+
+        assert gain == 0.0
+        assert position.total_cost == 3500.0 - 500.0
+        assert position.total_shares == 100.0  # ROC never moves shares
+
+    def test_returns_the_excess_as_a_capital_gain(self):
+        position = ACBPosition(ticker="VCN.TO", total_shares=100.0, total_cost=250.0)
+
+        gain = apply_return_of_capital(position, 400.0)
+
+        assert gain == 150.0
+        assert position.total_cost == 0.0
+
+    @pytest.mark.parametrize("amount", [0.0, -1.0])
+    def test_rejects_non_positive_amounts(self, amount: float):
+        position = ACBPosition(ticker="VCN.TO", total_shares=1.0, total_cost=10.0)
+
+        with pytest.raises(ValueError, match="ROC amount must be positive"):
+            apply_return_of_capital(position, amount)
+
+        assert position.total_cost == 10.0
 
 
 # ---------------------------------------------------------------------------

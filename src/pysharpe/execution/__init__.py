@@ -19,6 +19,7 @@ from .tax_tracker import (
     ACBPosition,
     ACBTracker,
     TradeRecord,
+    apply_return_of_capital,
 )
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "TradeRecord",
     "allocate_contribution",
     "allocate_contribution_cash_flow",
+    "apply_return_of_capital",
     "build_rebalance_plan",
     "evaluate_taxable_rebalance",
     "export_buy_orders",

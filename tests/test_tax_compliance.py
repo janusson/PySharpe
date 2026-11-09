@@ -280,6 +280,68 @@ class TestACBTrackerCommission:
 
 
 # ===========================================================================
+# Non-Registered ACB tracker — return of capital
+# ===========================================================================
+
+
+class TestACBTrackerReturnOfCapital:
+    """ROC parity with the registered-account ledger.
+
+    Both ledgers call ``apply_return_of_capital`` so the ACB reduction and the
+    excess-as-gain rule cannot diverge between them.
+    """
+
+    def test_roc_reduces_cost_without_changing_shares(self):
+        tracker = ACBTracker({"VFV.TO": (100.0, 5000.0)})  # ACB/sh = 50
+
+        pos, gain = tracker.record_roc("VFV.TO", 500.0, _d(0))
+
+        assert gain == 0.0
+        assert pos.total_shares == 100.0
+        assert pos.total_cost == pytest.approx(4500.0)
+        assert pos.acb_per_share == pytest.approx(45.0)
+
+    def test_roc_excess_is_realized_and_zeroes_the_pool(self):
+        tracker = ACBTracker({"VFV.TO": (10.0, 200.0)})
+
+        pos, gain = tracker.record_roc("VFV.TO", 500.0, _d(0))
+
+        assert gain == pytest.approx(300.0)
+        assert pos.total_cost == 0.0
+        assert pos.total_shares == 10.0
+
+    def test_roc_trade_record_carries_the_realized_gain(self):
+        tracker = ACBTracker({"VFV.TO": (10.0, 200.0)})
+        tracker.record_roc("VFV.TO", 250.0, _d(0), account_type="NON_REG")
+
+        record = tracker.trades[-1]
+        assert record.action == "ROC"
+        assert record.account_type == "NON_REG"
+        assert record.shares == 0.0
+        assert record.commission == 0.0
+        assert record.total_amount == 250.0
+        assert record.realized_gain_loss == pytest.approx(50.0)
+
+    def test_roc_without_shares_is_ignored(self, caplog):
+        tracker = ACBTracker()
+
+        with caplog.at_level("WARNING"):
+            pos, gain = tracker.record_roc("VFV.TO", 100.0, _d(0))
+
+        assert gain == 0.0
+        assert pos.total_cost == 0.0
+        assert tracker.trades == []
+        assert "no shares are held" in caplog.text
+
+    @pytest.mark.parametrize("amount", [0.0, -1.0])
+    def test_roc_requires_a_positive_amount(self, amount: float):
+        tracker = ACBTracker({"VFV.TO": (10.0, 200.0)})
+
+        with pytest.raises(ValueError, match="ROC amount must be positive"):
+            tracker.record_roc("VFV.TO", amount, _d(0))
+
+
+# ===========================================================================
 # Superficial Loss Guardrail — detection
 # ===========================================================================
 

@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from pysharpe.execution.tax_tracker import ACBPosition
+from pysharpe.execution.tax_tracker import ACBPosition, apply_return_of_capital
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,10 @@ class ACBTracker:
     tracks commissions and account wrappers and stores the realized gain/loss
     on each :class:`TransactionRecord` for the superficial-loss interlock.  The
     two deliberately share only the ``ACBPosition`` value type — merging them
-    would change both public APIs and the tax treatment of commissions.
+    would change both public APIs and the tax treatment of commissions.  The
+    return-of-capital rule is the exception: both ledgers call
+    :func:`pysharpe.execution.tax_tracker.apply_return_of_capital`, so neither
+    can drift to a different ACB treatment.
 
     Parameters
     ----------
@@ -451,6 +454,81 @@ class ACBTracker:
             gain_loss,
         )
         return gain_loss
+
+    def record_roc(
+        self,
+        ticker: str,
+        amount: float,
+        distribution_date: date,
+        account_type: str = "NON_REG",
+    ) -> tuple[ACBPosition, float]:
+        """Record a return-of-capital distribution that reduces the ACB.
+
+        ROC does not change the share count; it lowers the pool's total cost and
+        therefore its per-share ACB.  An amount exceeding the remaining ACB is
+        realized immediately as a capital gain and the ACB is reset to zero —
+        the rule lives in :func:`pysharpe.execution.tax_tracker.apply_return_of_capital`,
+        which this ledger shares with the registered-account ledger.
+
+        Parameters
+        ----------
+        ticker : str
+            Ticker symbol.
+        amount : float
+            Distribution amount. Must be positive.
+        distribution_date : date
+            Record date of the distribution.
+        account_type : str
+            Account wrapper label. Default ``"NON_REG"``.
+
+        Returns
+        -------
+        tuple[ACBPosition, float]
+            The updated position and any excess realized as a capital gain.
+
+        Raises
+        ------
+        ValueError
+            If *amount* is not positive.
+        """
+        if amount <= 0:
+            raise ValueError(f"ROC amount must be positive; got {amount}.")
+
+        pos = self.get_position(ticker)
+        if pos.total_shares <= 0:
+            logger.warning(
+                "ROC recorded for '%s' [%s] but no shares are held; ignoring.",
+                ticker,
+                account_type,
+            )
+            return pos, 0.0
+
+        realized_gain = apply_return_of_capital(pos, amount)
+
+        self._trades.append(
+            TransactionRecord(
+                ticker=ticker,
+                date=distribution_date,
+                account_type=account_type,
+                action="ROC",
+                shares=0.0,
+                price_per_share=0.0,
+                total_amount=amount,
+                commission=0.0,
+                realized_gain_loss=realized_gain,
+            )
+        )
+
+        logger.debug(
+            "ROC  %s [%s]: -$%.4f → ACB $%.4f, ACB/sh $%.4f, realized $%.4f",
+            ticker,
+            account_type,
+            amount,
+            pos.total_cost,
+            pos.acb_per_share,
+            realized_gain,
+        )
+        return pos, realized_gain
 
     def get_unrealized_gain_loss(self, ticker: str, current_price: float) -> float:
         """Compute unrealized capital gain or loss for *ticker*.

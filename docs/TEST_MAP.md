@@ -9,8 +9,36 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.tax_location`
 - `pysharpe.execution.rebalance` (tax-engine integration: `build_rebalance_plan` with `TaxProfile`/`AssetTaxCharacteristics`)
 
+## `test_bookkeeping_accounts.py`
+- `pysharpe.bookkeeping.accounts` (`Account` identity, registration, owner)
+- `pysharpe.bookkeeping.ledger` (per-account holdings/book cost, taxpayer-level
+  taxable ACB pooling, per-account sale enforcement, owner scoping, legacy
+  registration-only journals)
+
+## `test_bookkeeping_ledger.py`
+- `pysharpe.bookkeeping.transactions` (currency, kinds, field validation,
+  explicit FX conventions)
+- `pysharpe.bookkeeping.ledger` (chronological replay, per-account holdings,
+  cash, CAD book cost and realized gains, oversell/negative-cash invariants,
+  rejected-batch rollback)
+- Public lazy API registration for the bookkeeping symbols
+
+## `test_bookkeeping_fx.py`
+- `pysharpe.bookkeeping.transactions` (`FX_CONVERSION` validation, source and
+  destination amounts, effective rate, conversion fee, `cash_balance_delta`)
+- `pysharpe.bookkeeping.ledger` (per-`(account, currency)` cash, no automatic
+  conversion, external-flow totals, foreign-cash valuation rates, atomic
+  failure across currencies)
+
+## `test_bookkeeping_valuation.py`
+- `pysharpe.bookkeeping.valuation` (CAD mark-to-market, unrealized gain/loss,
+  unknown-price reporting, allocation weights, pure `value_portfolio`)
+- `pysharpe.bookkeeping.ledger.valuation` (ledger integration)
+- Public lazy API registration for the valuation symbols
+
 ## `test_tax_tracker.py`
 - `pysharpe.execution.tax_tracker`
+- `apply_return_of_capital` (the ROC rule shared with the compliance ledger)
 
 ## `test_2d_allocation.py`
 - `pysharpe.config`
@@ -141,7 +169,8 @@ your change instead of the full suite every time.
 - `pysharpe.execution.cash_flow_rebalance` (multi-account contribution routing, taxable-sale guardrails)
 
 ## `test_tax_compliance.py`
-- `pysharpe.guardrails.tax_compliance` (ACB tracking, superficial-loss interlock, multi-account validation)
+- `pysharpe.guardrails.tax_compliance` (ACB tracking, return-of-capital parity,
+  superficial-loss interlock, multi-account validation)
 
 ## `test_friction.py`
 - `pysharpe.validation.friction` (stress-testing execution friction)
@@ -199,6 +228,10 @@ your change instead of the full suite every time.
 | `analysis/tactical_momentum.py` trend rules | `pytest tests/test_tactical_extensions.py tests/test_tactical_momentum.py` |
 | `analysis/portfolio_overlap.py` | `pytest tests/test_tactical_extensions.py` |
 | `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
+| `bookkeeping/accounts.py` | `pytest tests/test_bookkeeping_accounts.py` |
+| `bookkeeping/transactions.py` | `pytest tests/test_bookkeeping_ledger.py tests/test_bookkeeping_fx.py` |
+| `bookkeeping/ledger.py` | `pytest tests/test_bookkeeping_ledger.py tests/test_bookkeeping_accounts.py tests/test_bookkeeping_fx.py tests/test_bookkeeping_valuation.py` |
+| `bookkeeping/valuation.py` | `pytest tests/test_bookkeeping_valuation.py tests/test_bookkeeping_fx.py` |
 | `cli.py` | `pytest tests/test_cli.py` |
 | `config.py` | `pytest tests/test_config.py tests/test_2d_allocation.py` |
 | `data/collation.py` | `pytest tests/test_collation.py` |
@@ -210,8 +243,8 @@ your change instead of the full suite every time.
 | `execution/brokerage.py` | `pytest tests/test_brokerage.py` |
 | `execution/cash_flow_rebalance.py` | `pytest tests/test_cash_flow_rebalance.py` |
 | `execution/rebalance.py` | `pytest tests/test_brokerage.py tests/test_tax_location.py` |
-| `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
-| `guardrails/tax_compliance.py` | `pytest tests/test_tax_compliance.py` |
+| `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py tests/test_bookkeeping_ledger.py` |
+| `guardrails/tax_compliance.py` | `pytest tests/test_tax_compliance.py tests/test_bookkeeping_ledger.py` |
 | `logging_utils.py` | `pytest tests/test_config.py` |
 | `metrics.py` | `pytest tests/test_metrics.py tests/test_analysis_comparison.py` |
 | `optimization/base.py` | `pytest tests/test_optimization_base.py tests/test_analysis_backtest_engine.py` |

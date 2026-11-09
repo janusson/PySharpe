@@ -21,6 +21,16 @@ Auto-generated from module docstrings with
 
 ::: pysharpe.metrics
 
+## Bookkeeping
+
+::: pysharpe.bookkeeping.accounts
+
+::: pysharpe.bookkeeping.transactions
+
+::: pysharpe.bookkeeping.ledger
+
+::: pysharpe.bookkeeping.valuation
+
 ## Data Pipeline
 
 ::: pysharpe.data.fetcher

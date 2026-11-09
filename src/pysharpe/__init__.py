@@ -376,6 +376,18 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.validation.sample_size",
         "calculate_min_btl",
     ),
+    # Bookkeeping / transaction journal
+    "BASE_CURRENCY": ("pysharpe.bookkeeping", "BASE_CURRENCY"),
+    "SELF_OWNER": ("pysharpe.bookkeeping", "SELF_OWNER"),
+    "Account": ("pysharpe.bookkeeping", "Account"),
+    "Currency": ("pysharpe.bookkeeping", "Currency"),
+    "TransactionKind": ("pysharpe.bookkeeping", "TransactionKind"),
+    "Transaction": ("pysharpe.bookkeeping", "Transaction"),
+    "Position": ("pysharpe.bookkeeping", "Position"),
+    "PortfolioLedger": ("pysharpe.bookkeeping", "PortfolioLedger"),
+    "PositionValuation": ("pysharpe.bookkeeping", "PositionValuation"),
+    "Valuation": ("pysharpe.bookkeeping", "Valuation"),
+    "value_portfolio": ("pysharpe.bookkeeping", "value_portfolio"),
 }
 
 _EXPORT_MAP.update(_METRIC_EXPORTS)
@@ -443,6 +455,19 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         WalkForwardResearchResult,
         run_walk_forward_momentum,
         run_walk_forward_strategy,
+    )
+    from pysharpe.bookkeeping import (  # noqa: F401
+        BASE_CURRENCY,
+        SELF_OWNER,
+        Account,
+        Currency,
+        PortfolioLedger,
+        Position,
+        PositionValuation,
+        Transaction,
+        TransactionKind,
+        Valuation,
+        value_portfolio,
     )
     from pysharpe.config import (  # noqa: F401
         AccountType,

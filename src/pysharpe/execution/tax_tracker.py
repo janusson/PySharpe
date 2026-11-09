@@ -81,6 +81,44 @@ class ACBPosition:
         return self.total_cost / self.total_shares
 
 
+def apply_return_of_capital(position: ACBPosition, amount: float) -> float:
+    """Reduce *position*'s cost base by a return-of-capital distribution.
+
+    Per CRA rules a return of capital reduces the ACB of identical property, and
+    any amount exceeding the remaining ACB is realized immediately as a capital
+    gain (the ACB is reset to zero).  Share counts are unaffected.
+
+    This is the single implementation of that rule.  Both ACB ledgers —
+    :class:`pysharpe.execution.tax_tracker.ACBTracker` (registered accounts) and
+    :class:`pysharpe.guardrails.tax_compliance.ACBTracker` (non-registered) —
+    call it, so their pools cannot drift apart.
+
+    Parameters
+    ----------
+    position : ACBPosition
+        Position whose pool is reduced in place.
+    amount : float
+        Distribution amount in the pool's currency. Must be positive.
+
+    Returns
+    -------
+    float
+        Realized capital gain from the excess, otherwise ``0.0``.
+
+    Raises
+    ------
+    ValueError
+        If *amount* is not positive.
+    """
+
+    if amount <= 0:
+        raise ValueError(f"ROC amount must be positive; got {amount}.")
+
+    realized_gain = max(0.0, amount - position.total_cost)
+    position.total_cost = max(0.0, position.total_cost - amount)
+    return realized_gain
+
+
 # ---------------------------------------------------------------------------
 # ACB Tracker
 # ---------------------------------------------------------------------------
@@ -495,8 +533,7 @@ class ACBTracker:
             return pos, 0.0
 
         # CRA: ROC in excess of ACB is realized as a capital gain
-        realized_gain = max(0.0, amount - pos.total_cost)
-        pos.total_cost = max(0.0, pos.total_cost - amount)
+        realized_gain = apply_return_of_capital(pos, amount)
 
         self._trades.append(
             TradeRecord(

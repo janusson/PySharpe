@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+- Track **cash per `(account, currency)`** in `pysharpe.bookkeeping` instead of
+  one CAD balance per account. A foreign-currency trade now debits and credits
+  the balance of the currency it actually settles in, so a USD purchase can
+  never be funded by unconverted CAD — the negative-balance invariant applies
+  per currency. Action required for callers: `PortfolioLedger.cash_balances` is
+  keyed by `(Account, Currency)`, and `PortfolioLedger.cash(account, currency)`
+  reads a single balance (CAD by default). CAD-only journals keep their previous
+  numbers.
+- Add `TransactionKind.FX_CONVERSION`: an explicit, internal currency transfer
+  recording the source `amount`, `destination_currency`,
+  `destination_amount`, the derived `effective_rate`/`destination_rate_to_base`,
+  and an optional conversion fee in `commission`. Fees are charged once on the
+  source side, so a conversion's `cash_flow_base` reports exactly the fee and
+  never double counts it. Rates are never fetched, inferred, or defaulted; a
+  later conversion never rewrites an earlier acquisition's `fx_rate`.
+- Separate **external** cash flow from internal transfers: new
+  `PortfolioLedger.contributed()`/`withdrawn()` and
+  `total_contributions`/`total_withdrawals` count only
+  `CONTRIBUTION`/`WITHDRAWAL`, so conversions and reversals cannot inflate
+  contribution totals. `PortfolioLedger.valuation` takes an optional
+  `fx_rates` mapping to mark foreign cash to CAD and raises when a non-zero
+  balance has no current rate.
+- Separate **account identity from registration type** in `pysharpe.bookkeeping`.
+  New `Account(id, registration, owner)` type: holdings, cash and book cost are
+  per account (two TFSAs or two non-registered accounts no longer collapse), a
+  sale must be covered by *that* account, and a ledger is scoped to one owner so
+  different taxpayers are never pooled. Taxable cost basis is now pooled per
+  ticker across all non-registered accounts of the taxpayer (ITA s. 47(1)),
+  while registered accounts keep account-level book cost only. Action required
+  for callers: `positions`/`cash_balances` are keyed by `Account`;
+  `total_acb`/`acb_per_share` became `book_cost`/`book_cost_per_share` and
+  `Valuation.total_acb` became `total_book_cost` (`acb` now refers only to the
+  pooled taxable figure, `tax_acb`); `cost_basis_frame` and `valuation.to_frame`
+  gain an `account` id / `registration` column pair. Registration-only journals
+  keep their previous numbers, and a bare `AccountType` lookup fails loudly once
+  two accounts share the registration.
+- Add `bookkeeping/valuation.py`: CAD mark-to-market of ledger holdings
+  (`Valuation`, `PositionValuation`, `value_portfolio`) with unrealized
+  gain/loss against cost basis, portfolio value including cash, per-account and
+  per-ticker allocation weights, and a reporting frame. Market prices are
+  supplied in CAD and never derived from a transaction's historical `fx_rate`.
+  A held security without a usable price is reported as unpriced and excluded
+  from totals rather than valued at zero. Historical (point-in-time) valuation
+  and performance remain unimplemented.
+- Add `pysharpe.bookkeeping`: a validated, currency-aware transaction journal
+  (`Transaction`, `TransactionKind`, `Currency`) and `PortfolioLedger`, which
+  replays a journal into per-account share counts, cash balances, CAD cost
+  basis and realized capital gains. Every account owns one
+  `guardrails.tax_compliance.ACBTracker` pool (commission-loaded weighted
+  average ACB) fed with amounts converted at each transaction's own rate, so the
+  currency effect lands in the realized gain rather than in the book cost. The
+  return-of-capital rule is extracted into
+  `execution.tax_tracker.apply_return_of_capital` and shared by both ACB
+  ledgers, which adds `ACBTracker.record_roc` to the compliance ledger. Journal
+  order is `(date, insertion order)`; oversells and negative cash are rejected
+  without mutating ledger state. Performance and statement imports remain
+  unimplemented. Cash was initially held per account in CAD only; the entry
+  above replaces that with per-currency balances.
 - Add a standalone, long-only cross-asset momentum research slice with explicit
   adjusted total-return and executable-price inputs, backward-only CAD FX,
   monthly signals, trading-cost simulation, VFV/cash comparisons, risk metrics,

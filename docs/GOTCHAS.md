@@ -1,5 +1,116 @@
 # Gotchas
 
+### 2026 — Cash must not be netted across currencies
+
+- Symptom: before per-currency balances, a USD purchase drew on the account's
+  CAD cash and converted at the trade's `fx_rate`, so the account appeared to
+  hold one pool of money and a USD trade silently moved CAD. Contribution and
+  withdrawal totals also absorbed those implicit conversions.
+- Root cause: a single scalar cash balance per account. Once an account can hold
+  CAD and USD at once, any scalar either picks one currency (hiding the other)
+  or converts at an invented rate, and a purchase can then be funded by money
+  that was never converted.
+- Fix: `PortfolioLedger` keeps cash per ``(account, currency)`` in native units,
+  the negative-balance invariant is enforced per currency, and every
+  transaction states its own `cash_balance_delta`. Moving money between
+  currencies requires an explicit `FX_CONVERSION` that records both amounts and
+  the rate achieved; `contributed()`/`withdrawn()` count only
+  `CONTRIBUTION`/`WITHDRAWAL`, so an internal transfer can never look like new
+  money.
+- Regression tests: `test_a_cad_balance_never_covers_a_usd_deficit`,
+  `test_reversing_a_conversion_does_not_create_an_external_flow`, and
+  `test_accounts_keep_independent_balances_in_each_currency` in
+  `tests/test_bookkeeping_fx.py`.
+
+### 2026 — A conversion fee must not be charged twice
+
+- Symptom: an FX conversion could report the fee both as money missing from the
+  source amount *and* as a separately recorded costs entry, overstating cost.
+- Root cause: no stated convention for which side the fee leaves. Documenting a
+  net destination amount invites re-deriving a rate that disagrees with the two
+  recorded amounts.
+- Fix: the conversion record's `amount` is the gross source amount debited and
+  its `commission` is the fee, charged once in the **source** currency on top of
+  it; `destination_amount` is the money actually received. `cash_flow_base` for
+  a consistent conversion therefore reports exactly the fee. A broker that
+  deducts from proceeds is booked as a separate `FEE` in the destination
+  currency instead.
+- Regression tests: `test_an_explicit_fee_is_charged_once_on_the_source_side`
+  and `test_a_conversion_fee_is_not_loaded_into_a_security_cost` in
+  `tests/test_bookkeeping_fx.py`.
+
+### 2026 — Giving accounts an identity must not split the tax ACB pool
+
+- Symptom: after adding per-account bookkeeping, two non-registered accounts
+  holding the same ETF started reporting their own ACB, so a sale in one account
+  booked a gain against that account's cost instead of the taxpayer's blended
+  cost. The 100 @ 100 + 100 @ 200 example (sell 100 @ 150) reported a 5,000 gain
+  where CRA allows 0.00.
+- Root cause: ACB is pooled per **taxpayer** (ITA s. 47(1) averages "the
+  identical properties owned by the taxpayer"), while holdings live per
+  **account**. Keying cost basis by account identity loses the pooling that a
+  registration-keyed model got right by accident.
+- Fix: `PortfolioLedger` keeps book cost per account and, separately, one tax
+  ACB pool per ticker across all non-registered accounts. `book_cost` and
+  `tax_acb` are distinct accessors; taxable sales realize against the pool, and
+  registered accounts never enter it.
+- Regression tests: `test_taxable_sale_uses_the_pooled_acb`,
+  `test_two_non_registered_accounts_keep_positions_but_share_one_tax_pool`, and
+  `test_registered_holdings_are_excluded_from_the_taxable_pool` in
+  `tests/test_bookkeeping_accounts.py`.
+
+### 2026 — Market value must not reuse a trade's FX rate
+
+- Symptom: a USD holding was priced with the exchange rate recorded on the
+  purchase, so its CAD market value moved only when a new trade was booked and
+  ignored today's rate entirely.
+- Root cause: conflating two different rates — the historical book-cost rate on
+  `Transaction.fx_rate` and the current translation rate needed to value the
+  security.
+- Fix: `bookkeeping/valuation.py` takes prices already expressed in CAD and
+  never reads `Transaction.fx_rate`; translation happens upstream in the data
+  pipeline. Unrealized gain/loss is then market value (today's rate) minus book
+  cost (acquisition rate), which is the correct economic split. Foreign
+  **cash** is marked at a rate the caller supplies to
+  `PortfolioLedger.valuation`; a non-zero balance in an unrated currency raises
+  rather than disappearing.
+- Regression tests: `test_market_price_is_not_derived_from_the_trade_rate` in
+  `tests/test_bookkeeping_valuation.py`, and
+  `test_foreign_cash_needs_a_supplied_current_rate` in
+  `tests/test_bookkeeping_fx.py`.
+
+### 2026 — Book cost must be translated at the acquisition rate
+
+- Symptom: a portfolio held US-listed securities and reported an ACB that moved
+  whenever the CAD/USD rate moved, rewriting gains that were already fixed.
+- Root cause: converting book cost at a single (current) rate instead of the
+  rate recorded on each acquisition.
+- Fix: `PortfolioLedger` accumulates cost basis in CAD at each transaction's own
+  `fx_rate` and converts sale proceeds at the disposition's rate. The currency
+  effect therefore lands in the realized gain, which is the CRA convention. A
+  later conversion never rewrites an earlier acquisition's rate.
+- Regression tests:
+  `test_foreign_sale_converts_proceeds_at_the_disposition_rate` in
+  `tests/test_bookkeeping_ledger.py` and
+  `test_a_later_conversion_does_not_rewrite_an_acquisition_rate` in
+  `tests/test_bookkeeping_fx.py`.
+
+### 2026 — Account labels must not silently fall back to non-registered
+
+- Symptom: a mistyped or unexpected account label (`"TFSA-2024"`, `"RRSP "`, an
+  empty string) could be booked as non-registered, silently changing the tax
+  treatment of the trade in any consumer of that value.
+- Root cause: `_normalize_account` in `optimization/tax_location.py` maps every
+  unrecognised string to `AccountType.NON_REG` as a documented convenience for
+  the optimisation layer.
+- Fix: `pysharpe.bookkeeping` validates labels strictly (declared
+  `AccountType` member names only, case-insensitive) and rejects alias strings
+  such as `"Non-Reg"` with `DataValidationError` instead of inheriting the
+  default. Do not reuse `_normalize_account` where the account decides tax or
+  reporting treatment; validate the label instead.
+- Regression test: `test_account_labels_accept_member_names_and_reject_aliases`
+  in `tests/test_bookkeeping_ledger.py`.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX

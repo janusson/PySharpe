@@ -61,6 +61,7 @@ execution and presentation.
 ```
 Config Layer   →  config.py (LRU-cached singleton), portfolio_config.example.json (opt-in, never auto-loaded), proxy_map.json
 Data Pipeline  →  YFinance → DuckDB cache → FX (CAD, no .bfill()) → CSV collation → DuckDB linkage
+Bookkeeping    →  bookkeeping/ (transaction journal → per-account holdings and per-currency cash, explicit FX rates)
 Computation    →  metrics.py (stateless) + optimization/ (pypfopt + PyMC) + analysis/ (backtests, tactical research, GARCH, VAR)
 Execution      →  allocator.py (60/40 VA) + rebalance.py + tax_tracker.py + cash_flow_rebalance.py
 Presentation   →  cli.py (5 subcommands) + app.py (Streamlit, 4 tabs: Metrics & Comparison, Efficient Frontier, DCA, Raw Data & Logs) + visualization/
@@ -78,6 +79,11 @@ src/pysharpe/
 ├── portfolio_optimization.py # Top-level: collate → optimize → export
 ├── workflows.py             # download_portfolios(), optimise_portfolios()
 ├── cli.py                   # 5 subcommands: optimise, rebalance, allocate, simulate-dca, plot
+├── bookkeeping/
+│   ├── accounts.py          # Account: stable id + registration + owner
+│   ├── transactions.py      # Currency, TransactionKind, validated Transaction (explicit FX)
+│   ├── ledger.py            # PortfolioLedger: journal replay → per-account holdings, per-currency cash, book cost + pooled taxable ACB
+│   └── valuation.py         # Mark-to-market value, unrealized gain/loss, allocation
 ├── data/
 │   ├── fetcher.py           # YFinancePriceFetcher + DuckDBCachedPriceFetcher
 │   ├── collation.py         # CSV collation into unified DataFrames
@@ -131,6 +137,54 @@ src/pysharpe/
 
 ## Key Conventions
 
+- **Bookkeeping ledger** (`bookkeeping/`): transactions store non-negative
+  quantities, prices, amounts and commissions; direction comes from
+  `TransactionKind`, never from a sign. The base currency is CAD, so every
+  `*_base` value is Canadian dollars. A foreign-currency transaction must
+  supply an explicit `fx_rate` (CAD per unit of its currency) and a CAD
+  transaction may not carry a rate other than `1.0`; rates are never fetched
+  or defaulted. Journal replay orders by `(date, insertion order)`, every
+  mutation re-validates, and a rejected batch leaves the ledger unchanged.
+  Account labels are validated strictly — alias strings such as `"Non-Reg"`
+  are rejected instead of silently becoming non-registered.
+- **Cash is per currency** (`bookkeeping/ledger.py`): balances are held per
+  `(account, currency)` in native units, never netted or auto-converted, and
+  the no-negative-cash invariant applies to each balance separately — CAD cash
+  never funds a USD trade. Every transaction declares its own
+  `cash_balance_delta`, which is the single cash rule replay applies. Moving
+  money between currencies requires an explicit `FX_CONVERSION` recording the
+  source `amount`, `destination_currency`, `destination_amount` and an optional
+  fee in `commission` (charged once, on the source side); effective rates are
+  derived from the amounts and never invented. Each transaction keeps its own
+  `fx_rate`, so a later conversion cannot rewrite an earlier acquisition's book
+  cost. Only `CONTRIBUTION`/`WITHDRAWAL` are external flows —
+  `contributed()`/`withdrawn()` ignore conversions, so internal transfers and
+  their reversals never inflate contribution totals.
+- **Account identity vs registration** (`bookkeeping/accounts.py`): an
+  `Account` is `(id, registration, owner)`. Holdings, cash and book cost are per
+  account, so two TFSAs never share shares or cash; a sale must be covered by
+  *that* account. A bare `AccountType` in a transaction resolves to the single
+  default account of that registration, and a bare-registration *lookup* is
+  rejected as ambiguous once two accounts share the registration. A ledger is
+  scoped to one `owner` and rejects accounts belonging to anyone else.
+- **Two layers of cost** (`bookkeeping/ledger.py`): `book_cost` is per account
+  (statement value, the only figure registered accounts have). `tax_acb` is one
+  pool per ticker across **all non-registered accounts of the taxpayer**, because
+  ITA s. 47(1) averages identical properties per taxpayer, not per account; a
+  taxable sale realizes against that pool. Registered accounts never join it.
+  Book cost and the pooled ACB legitimately diverge — report both, never
+  reconcile them silently. The return-of-capital rule lives once, in
+  `execution/tax_tracker.apply_return_of_capital`, and both ACB ledgers call it.
+- **Valuation** (`bookkeeping/valuation.py`): market prices are supplied per
+  share **in CAD** and are never derived from a transaction's historical
+  `fx_rate` — that rate is book cost, not today's market. Foreign cash is
+  translated at a `fx_rates` mapping the caller supplies to
+  `PortfolioLedger.valuation`, and a non-zero balance in an unrated currency
+  raises rather than being dropped. Portfolio value includes cash. A held
+  security without a usable price is listed in `Valuation.unpriced_tickers` and
+  excluded from totals rather than counted as zero (`is_complete` turns false);
+  a `NaN` price means unknown. A holding with no cost-basis entry raises
+  instead of reporting its full value as a gain.
 - **ruff** is the sole formatter and linter (88-char line length, double quotes).
 - **Tests** use synthetic data only with fixed seeds — no network calls.
 - **Covariance estimators** (`optimization/estimators.py`) guarantee strictly
