@@ -54,7 +54,8 @@ test-cov: test  ## Alias for `test`
 build:  ## Build sdist and wheel distributions
 	uv build
 
-build_docs:  ## Build the MkDocs site (strict mode: warnings are fatal)
+build_docs:  ## Generate the API reference and build MkDocs (strict mode)
+	uv run python scripts/generate_api_docs.py
 	uv run mkdocs build --strict
 
 docs-serve:  ## Serve the docs locally with live reload
