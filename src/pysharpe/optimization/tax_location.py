@@ -225,6 +225,17 @@ class AssetTaxCharacteristics:
             raise ValueError(
                 f"dividend_yield must be non-negative, got {self.dividend_yield}"
             )
+
+        if (
+            self.has_us_equity_exposure
+            and self.income_frac_interest == 0.0
+            and self.income_frac_eligible_dividends == 1.0
+            and self.income_frac_foreign_income == 0.0
+            and self.income_frac_capital_gains == 0.0
+        ):
+            object.__setattr__(self, "income_frac_eligible_dividends", 0.0)
+            object.__setattr__(self, "income_frac_foreign_income", 1.0)
+
         total = (
             self.income_frac_interest
             + self.income_frac_eligible_dividends
