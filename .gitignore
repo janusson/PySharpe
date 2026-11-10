@@ -30,10 +30,13 @@ __pycache__/
 *.egg-info/
 
 # ---------------------------------------------------------------------------
-# Virtual environments
+# Virtual environments and local environment files
 # ---------------------------------------------------------------------------
 .venv/
-.env/
+.env
+.env.*
+!.env.example
+!.env.template
 
 # ---------------------------------------------------------------------------
 # Jupyter Notebook checkpoints
@@ -94,10 +97,9 @@ coverage.xml
 .mcp.json
 
 # ---------------------------------------------------------------------------
-# Local agent-tool configuration. These files hold live credentials
-# (e.g. .codex/config.toml carries a service token) and must never be
-# tracked; ship a redacted *.example instead.
+# Local agent and app configuration can hold live credentials. Keep these
+# files out of Git; ship redacted examples when contributors need a template.
 # ---------------------------------------------------------------------------
 .codex/
-.claude/settings.local.json
-.claude/settings.json
+.claude/settings*.json
+.streamlit/secrets.toml
