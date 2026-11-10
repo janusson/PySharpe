@@ -1,5 +1,58 @@
 # Gotchas
 
+### 2026 — `PySharpeError` escaped the rebalance script entry point
+
+- Symptom: running `uv run scripts/rebalance.py --portfolio nope` printed a raw
+  traceback instead of a one-line `Error: ...` message with exit code 1.
+- Root cause: `execution/rebalance.py::main()` caught only
+  `(FileNotFoundError, OSError, ValueError)`, but every PySharpe domain error
+  (`DataValidationError`, `ExecutionConfigError`, `DataIngestionError`)
+  subclasses `PySharpeError(Exception)` — **not** `ValueError`.  `cli.py` already
+  caught `PySharpeError`; the script path did not.
+- Fix: add `PySharpeError` to both `except` tuples in `main()`.
+- Guardrail: any new CLI/script entry point must catch `PySharpeError`
+  alongside `OSError`/`ValueError`;
+  `grep -rn "except (" scripts src/pysharpe/cli.py` should show no
+  `ValueError`-only handler around pipeline calls.
+- Regression tests: `tests/test_execution_rebalance.py`
+  (`test_main_returns_error_when_artifacts_are_missing`,
+  `test_main_returns_error_for_domain_validation_failure`).
+
+### 2026 — Blank account labels divided the multi-account cash split by zero
+
+- Symptom: `ZeroDivisionError: division by zero` from `build_rebalance_plan`
+  when the holdings CSV carried an `account` column whose values were blank
+  (for example trailing-comma rows).
+- Root cause: `pandas.Series.unique()` on `["", "", ""]` yields one entry (the
+  empty string), so the label set looked non-empty and the empty label was
+  treated as a real account before the split arithmetic ran.  Blank labels are
+  not accounts.
+- Fix: `_load_holdings_frame` strips and validates account labels right after
+  detecting the `account` column, raising `DataValidationError` that names the
+  offending tickers instead of silently dropping them.
+- Guardrail: never rely on `unique()` to prove that a label column is
+  populated — validate for blank/NaN labels before grouping or dividing by
+  `len(unique)`.
+- Regression tests: `tests/test_execution_rebalance.py`
+  (`test_load_holdings_frame_rejects_blank_account_labels`,
+  `test_build_rebalance_plan_rejects_blank_accounts_end_to_end`).
+
+### 2026 — Single-column portfolio CSV headers became phantom tickers
+
+- Symptom: a portfolio file containing only `ticker` on the first line and
+  symbols below produced a portfolio whose first symbol was literally
+  `"ticker"`, which then failed price download and skewed weights.
+- Root cause: `data/portfolio.py::read_tickers` only looked for a known
+  `ticker`/`symbol`/`name` header inside the comma-delimited branch.  A
+  one-column file has no comma, so it fell through to the newline-delimited
+  branch where every line — header included — is a ticker.
+- Fix: strip a leading `ticker`/`symbol`/`name` token (case-insensitive) from
+  the newline-delimited branch as well; the header list is now the shared
+  `_TICKER_HEADERS` constant.
+- Regression tests: `tests/test_portfolio_repository.py`
+  (`test_read_tickers_bare_column_header_is_not_a_ticker`,
+  `test_read_tickers_bare_column_header_only_returns_empty`).
+
 ### 2026 — Sortino mixed a geometric numerator with a periodic MAR
 
 - Symptom: `sortino_ratio(pd.Series([0.1, -0.1]), periods_per_year=2)` returned

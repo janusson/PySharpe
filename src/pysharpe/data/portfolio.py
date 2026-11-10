@@ -12,6 +12,8 @@ from pysharpe.config import PySharpeSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
+_TICKER_HEADERS = ("ticker", "symbol", "name")
+
 
 @dataclass(frozen=True)
 class PortfolioDefinition:
@@ -97,7 +99,7 @@ def read_tickers(path: Path) -> list[str]:
         ticker_idx = -1
         for i, col in enumerate(header):
             cleaned_col = col.strip().lower()
-            if cleaned_col in ("ticker", "symbol", "name"):
+            if cleaned_col in _TICKER_HEADERS:
                 ticker_idx = i
                 break
 
@@ -118,7 +120,10 @@ def read_tickers(path: Path) -> list[str]:
                 tickers.append(cleaned)
                 seen.add(cleaned)
     else:
-        # Simple newline-delimited file
+        # Simple newline-delimited file. A lone column header (e.g. "ticker")
+        # must not be mistaken for a symbol.
+        if lines[0].strip().lower() in _TICKER_HEADERS:
+            lines = lines[1:]
         for line in lines:
             if line not in seen:
                 tickers.append(line)

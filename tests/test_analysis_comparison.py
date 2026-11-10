@@ -12,8 +12,10 @@ import pytest
 
 from pysharpe.analysis.comparison import (
     _compute_comparison,
+    _fetch_and_align,
     _rolling_correlation,
     _rolling_tracking_error,
+    compare_two_funds,
 )
 from pysharpe.metrics import (
     annualize_volatility,
@@ -337,3 +339,212 @@ class TestComputeComparison:
         flat = pd.DataFrame({"AAA": 100.0}, index=dates)
         with pytest.raises(ValueError):
             _compute_comparison(flat, flat, "AAA", "BBB")
+
+
+# ---------------------------------------------------------------------------
+# _fetch_and_align: download/collate orchestration with an injected fetcher
+# ---------------------------------------------------------------------------
+
+
+class _FakeCollationService:
+    """Stand-in for ``CollationService`` that records calls and returns a frame."""
+
+    def __init__(self, frame: pd.DataFrame) -> None:
+        self.frame = frame
+        self.downloads: list[tuple[tuple[str, ...], dict[str, object]]] = []
+        self.collate_calls: list[tuple[str, tuple[str, ...]]] = []
+        self.fetchers: list[object] = []
+
+    def download_portfolio_prices(self, tickers, **kwargs):
+        self.downloads.append((tuple(tickers), kwargs))
+        return {}
+
+    def collate_portfolio(self, name, tickers):
+        self.collate_calls.append((name, tuple(tickers)))
+        return self.frame
+
+
+def _install_fake_collation(monkeypatch, frame: pd.DataFrame) -> _FakeCollationService:
+    """Patch ``CollationService`` where ``_fetch_and_align`` imports it."""
+
+    service = _FakeCollationService(frame)
+
+    def _factory(fetcher):
+        service.fetchers.append(fetcher)
+        return service
+
+    monkeypatch.setattr("pysharpe.data.collation.CollationService", _factory)
+    return service
+
+
+def _two_column_frame(periods: int = 30, offset_b: float = 0.0) -> pd.DataFrame:
+    dates = pd.bdate_range("2023-01-02", periods=periods)
+    return pd.DataFrame(
+        {
+            "AAA": np.linspace(100.0, 110.0, periods),
+            "BBB": np.linspace(50.0, 55.0, periods) + offset_b,
+        },
+        index=dates,
+    )
+
+
+class TestFetchAndAlign:
+    def test_downloads_and_collates_each_ticker(self, monkeypatch):
+        service = _install_fake_collation(monkeypatch, _two_column_frame())
+        fetcher = object()
+
+        prices_a, prices_b = _fetch_and_align(
+            "AAA",
+            "BBB",
+            "2020-01-01",
+            "2024-01-01",
+            "CAD",
+            fetcher=fetcher,
+        )
+
+        assert list(prices_a.columns) == ["AAA"]
+        assert list(prices_b.columns) == ["BBB"]
+        assert prices_a.index.equals(prices_b.index)
+        assert len(prices_a) == 30
+
+        assert [call[0] for call in service.downloads] == [("AAA",), ("BBB",)]
+        for _, kwargs in service.downloads:
+            assert kwargs["period"] == "max"
+            assert kwargs["interval"] == "1d"
+            assert kwargs["start"] == "2020-01-01"
+            assert kwargs["end"] == "2024-01-01"
+
+        assert service.collate_calls == [("_head_to_head_AAA_BBB", ("AAA", "BBB"))]
+        assert service.fetchers == [fetcher]
+
+    def test_default_fetcher_is_auto_adjusted_yfinance(self, monkeypatch):
+        from pysharpe.data.fetcher import YFinancePriceFetcher
+
+        service = _install_fake_collation(monkeypatch, _two_column_frame())
+
+        _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+        assert len(service.fetchers) == 1
+        assert isinstance(service.fetchers[0], YFinancePriceFetcher)
+        assert service.fetchers[0]._history_overrides == {"auto_adjust": True}
+        # Absent dates are forwarded as None untouched.
+        assert service.downloads[0][1]["start"] is None
+        assert service.downloads[0][1]["end"] is None
+
+    def test_aligns_on_intersection_of_non_null_dates(self, monkeypatch):
+        frame = _two_column_frame(periods=10)
+        # AAA has prices only on the first 6 dates, BBB only on the last 6.
+        frame.loc[frame.index[6:], "AAA"] = np.nan
+        frame.loc[frame.index[:4], "BBB"] = np.nan
+        _install_fake_collation(monkeypatch, frame)
+
+        prices_a, prices_b = _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+        expected_index = frame.index[4:6]
+        assert prices_a.index.equals(expected_index)
+        assert prices_b.index.equals(expected_index)
+        assert prices_a["AAA"].notna().all()
+        assert prices_b["BBB"].notna().all()
+
+    def test_empty_collated_raises(self, monkeypatch):
+        _install_fake_collation(monkeypatch, pd.DataFrame())
+
+        with pytest.raises(
+            ValueError, match="Could not retrieve overlapping price data"
+        ):
+            _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+    def test_missing_ticker_column_raises(self, monkeypatch):
+        frame = _two_column_frame().drop(columns=["BBB"])
+        _install_fake_collation(monkeypatch, frame)
+
+        with pytest.raises(
+            ValueError, match="Could not retrieve overlapping price data"
+        ):
+            _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+    def test_single_common_date_raises(self, monkeypatch):
+        frame = _two_column_frame(periods=6)
+        frame.loc[frame.index[1:], "AAA"] = np.nan
+        frame.loc[frame.index[:-1], "BBB"] = np.nan
+        _install_fake_collation(monkeypatch, frame)
+
+        with pytest.raises(ValueError, match="Insufficient overlapping data"):
+            _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+    def test_no_common_dates_raises(self, monkeypatch):
+        frame = _two_column_frame(periods=4)
+        frame.loc[frame.index[:2], "AAA"] = np.nan
+        frame.loc[frame.index[2:], "BBB"] = np.nan
+        _install_fake_collation(monkeypatch, frame)
+
+        with pytest.raises(ValueError, match="only 0 common dates"):
+            _fetch_and_align("AAA", "BBB", None, None, "CAD")
+
+
+# ---------------------------------------------------------------------------
+# compare_two_funds: fetch → compute delegation
+# ---------------------------------------------------------------------------
+
+
+class TestCompareTwoFunds:
+    def test_delegates_to_fetch_and_compute(self, monkeypatch):
+        prices_a = _make_price_df(seed=11, periods=300, name="AAA")
+        prices_b = _make_price_df(seed=12, periods=300, name="BBB")
+        captured: dict[str, object] = {}
+
+        def _fake_fetch(
+            ticker_a, ticker_b, start_date, end_date, base_currency, fetcher
+        ):
+            captured.update(
+                ticker_a=ticker_a,
+                ticker_b=ticker_b,
+                start_date=start_date,
+                end_date=end_date,
+                base_currency=base_currency,
+                fetcher=fetcher,
+            )
+            return prices_a, prices_b
+
+        monkeypatch.setattr(
+            "pysharpe.analysis.comparison._fetch_and_align", _fake_fetch
+        )
+
+        sentinel = object()
+        result = compare_two_funds(
+            "AAA",
+            "BBB",
+            "2021-01-01",
+            "2024-01-01",
+            "USD",
+            risk_free_rate=0.03,
+            fetcher=sentinel,
+        )
+
+        assert captured == {
+            "ticker_a": "AAA",
+            "ticker_b": "BBB",
+            "start_date": "2021-01-01",
+            "end_date": "2024-01-01",
+            "base_currency": "USD",
+            "fetcher": sentinel,
+        }
+
+        expected = _compute_comparison(
+            prices_a, prices_b, "AAA", "BBB", risk_free_rate=0.03
+        )
+        pd.testing.assert_frame_equal(result, expected)
+
+    def test_end_to_end_with_fake_collation(self, monkeypatch):
+        dates = pd.bdate_range("2022-01-03", periods=600)
+        rng = np.random.default_rng(4242)
+        a = 100.0 * np.cumprod(1 + rng.normal(0.0004, 0.010, dates.size))
+        b = 50.0 * np.cumprod(1 + rng.normal(0.0003, 0.011, dates.size))
+        frame = pd.DataFrame({"AAA": a, "BBB": b}, index=dates)
+        _install_fake_collation(monkeypatch, frame)
+
+        result = compare_two_funds("AAA", "BBB")
+
+        assert list(result.columns) == ["AAA", "BBB"]
+        assert "CAGR" in result.index
+        assert result.notna().all().all()
