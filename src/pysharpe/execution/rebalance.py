@@ -21,6 +21,7 @@ from pysharpe.config import (
 from pysharpe.exceptions import (
     DataIngestionError,
     DataValidationError,
+    PySharpeError,
 )
 from pysharpe.optimization.tax_location import (
     AssetLocationEngine,
@@ -552,6 +553,18 @@ def _load_holdings_frame(
 
     # Preserve account column if present in the raw input
     has_account = "account" in frame.columns
+    if has_account:
+        account_labels = frame["account"].astype(str).str.strip()
+        missing_account = frame["account"].isna() | (account_labels == "")
+        if missing_account.any():
+            tickers = frame.loc[missing_account, "ticker"].drop_duplicates().tolist()
+            raise DataValidationError(
+                "Holdings rows are missing an account label for: "
+                + ", ".join(tickers)
+                + ". Populate the account column or omit it entirely for "
+                "single-account mode."
+            )
+        frame["account"] = account_labels
 
     if holdings_kind is None:
         if "current_value" in frame.columns:
@@ -1328,7 +1341,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.holdings_json:
         try:
             holdings_mapping = _load_holdings_mapping(args.holdings_json)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
+        except (OSError, json.JSONDecodeError, ValueError, PySharpeError) as exc:
             print(f"Error: {exc}")
             return 1
 
@@ -1342,7 +1355,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             export_dir=args.export_dir,
             config_path=args.config,
         )
-    except (FileNotFoundError, OSError, ValueError) as exc:
+    except (FileNotFoundError, OSError, ValueError, PySharpeError) as exc:
         print(f"Error: {exc}")
         return 1
 

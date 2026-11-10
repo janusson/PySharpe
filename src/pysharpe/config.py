@@ -56,7 +56,7 @@ class ExecutionConfig:
     @property
     def tax_drag_applies(self) -> bool:
         """Return True when the account type triggers US withholding-tax drag."""
-        return self.account_type.upper() in {"TFSA", "FHSA"}
+        return self.account_type.upper().strip() in {"TFSA", "FHSA"}
 
     @property
     def fx_fee_decimal(self) -> float:
@@ -204,7 +204,9 @@ def get_ticker_metadata(
     defaults based on ticker suffix heuristics:
 
     - ``.TO`` suffix → Canadian-domiciled, CAD-denominated.
-    - ``-USD`` suffix or no ``.TO`` → US-domiciled, non-CAD.
+    - ``-USD`` suffix → US-domiciled, non-CAD-denominated.
+    - any other suffix → non-CAD-denominated with unknown domicile
+      (``is_us_domiciled`` is reported as ``False``).
 
     Parameters
     ----------
