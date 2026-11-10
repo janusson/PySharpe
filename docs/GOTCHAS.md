@@ -655,6 +655,20 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
   `test_uniform_account_scales_to_60_40`, `test_mixed_accounts_uses_three_pillar_blend`
 - **Grep guard**: `grep -rn '_CORE_UNDERWEIGHT_WEIGHT\|_CORE_VALUATION_WEIGHT\|_is_tax_location_differentiable' src/pysharpe/execution/allocator.py`
 
+### 2026 — US equities defaulting to Canadian eligible dividends
+- **Symptom**: US-domiciled and CAD-wrapped US equities were incorrectly receiving
+  the Canadian eligible dividend tax credit during portfolio optimization, significantly
+  understating their tax drag in non-registered accounts.
+- **Root cause**: The `AssetTaxCharacteristics` dataclass defaulted to
+  `income_frac_eligible_dividends=1.0` and `income_frac_foreign_income=0.0`.
+  When users created it using `is_us_domiciled=True` but didn't manually
+  override the income fractions, it silently retained the Canadian eligible dividend fraction.
+- **Fix**: Added an auto-correction in `AssetTaxCharacteristics.__post_init__` that
+  flips the `income_frac_eligible_dividends` to `0.0` and `income_frac_foreign_income` to `1.0`
+  if the asset has US equity exposure and all income fractions are exactly at their default values.
+- **Regression test**: `test_us_equity_defaults_to_foreign_income`
+- **Grep guard**: `grep -rn 'AssetTaxCharacteristics' src/pysharpe/ --include='*.py'`
+
 ### 2024 — pandas 2.2+ groupby(axis=1) deprecation
 - **Symptom**: Warning/crash in the collation layer on pandas ≥ 2.2.
 - **Root cause**: `groupby(axis=1)` was deprecated in newer pandas versions.

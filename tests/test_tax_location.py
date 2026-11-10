@@ -697,6 +697,28 @@ class TestBuildAssetCharacteristics:
             proxy_meta={"is_us_domiciled": True},
         )
         assert a.is_us_domiciled is True
+        assert a.income_frac_foreign_income == 1.0
+        assert a.income_frac_eligible_dividends == 0.0
+
+    def test_us_equity_defaults_to_foreign_income(self):
+        # Even without using build_asset_characteristics, the dataclass should auto-correct
+        # if the user left the fractions at their default values for a US equity.
+        a = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        assert a.income_frac_foreign_income == 1.0
+        assert a.income_frac_eligible_dividends == 0.0
+
+        # If the user explicitly sets something else, it is respected.
+        b = AssetTaxCharacteristics(
+            "VOO",
+            dividend_yield=0.013,
+            is_us_domiciled=True,
+            income_frac_foreign_income=0.1,
+            income_frac_eligible_dividends=0.9,
+            income_frac_interest=0.0,
+            income_frac_capital_gains=0.0,
+        )
+        assert b.income_frac_foreign_income == 0.1
+        assert b.income_frac_eligible_dividends == 0.9
 
     def test_from_proxy_meta_cad_wrapped(self):
         a = build_asset_characteristics(
