@@ -109,7 +109,7 @@ net of taxes, fees, and behavioral friction.
 ## Developer Workflow
 
 ```bash
-make install      # uv sync (project + dev group from uv.lock)
+make install      # uv sync --extra dev (project + dev extra from uv.lock)
 make lint         # ruff check + format check
 make typecheck    # pyright with warnings-as-errors
 make test         # pytest with coverage (fails below 75%)

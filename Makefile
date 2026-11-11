@@ -25,8 +25,8 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install:  ## Install the package with development dependencies (uv syncs the dev group from uv.lock)
-	uv sync
+install:  ## Install the package with development dependencies (the `dev` extra from uv.lock)
+	uv sync --extra dev
 
 dev-install: install  ## Alias for `install`
 

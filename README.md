@@ -262,15 +262,15 @@ uv pip install -e .
 # Everything: CLI + dashboard + development tooling
 uv pip install -e ".[all]"
 
-# Development (ruff, pyright, pytest, mkdocs) — from a git checkout, syncs the dev group
-uv sync
+# Development (ruff, pyright, pytest, mkdocs) — from a git checkout, adds the dev extra
+uv sync --extra dev
 ```
 
 `make` wraps the full developer workflow:
 
 | Target | Action |
 | ------ | ------ |
-| `make install` | `uv sync` |
+| `make install` | `uv sync --extra dev` |
 | `make lint` | ruff check + format check |
 | `make typecheck` | pyright with warnings-as-errors |
 | `make test` | pytest with coverage (fails below 75%) |
@@ -461,7 +461,7 @@ fwt_rrsp = engine.compute_fwt_drag(voo, "RRSP")  # 0.0 (treaty-protected)
 
 ## Contributing
 
-1. Create an isolated environment: `uv sync`
+1. Create an isolated environment: `uv sync --extra dev`
 2. Lint, format, and type-check: `make check`
 3. Write or update tests for any behavioral change (synthetic data, fixed seeds).
 4. Document public APIs in docstrings — the strict docs build parses every one.

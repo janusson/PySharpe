@@ -3,8 +3,10 @@
 ## Quick-Start Commands
 
 ```bash
-# Install (recommended: uv — syncs project + dev group from uv.lock)
-uv sync
+# Install for development. Dev tools are the optional `dev` extra in
+# pyproject.toml (there is no [dependency-groups] table), so plain `uv sync`
+# installs runtime packages only and pytest/pyright/ruff will be missing.
+uv sync --extra dev
 
 # Run all tests
 uv run pytest
@@ -30,7 +32,7 @@ All developer workflows are available via `make` (see `make help`):
 
 | Target | Action |
 | ------ | ------ |
-| `install` | `uv sync` (project + dev group from uv.lock) |
+| `install` | `uv sync --extra dev` (project + `dev` extra from uv.lock) |
 | `lint` | ruff check + ruff format --check |
 | `lint-fix` | ruff check --fix |
 | `format` | ruff format (in place) |
