@@ -114,6 +114,9 @@ The same figures are pinned by `tests/test_rebalance_demo_example.py`.
 - Gaps are measured against the portfolio **before** the contribution, which is
   PySharpe's documented allocation heuristic rather than an exact
   "distance to target after the deposit" solve.
+- `check_example.py` re-implements PySharpe's documented allocation rule
+  independently of the package code. Agreement shows the CLI follows that
+  rule; it does not show the rule is the best possible whole-share plan.
 - The target weights are supplied directly. Producing them with
   `pysharpe optimise` needs downloaded price history, so it is out of scope for
   an offline example.
