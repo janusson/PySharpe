@@ -268,6 +268,11 @@
 - Guardrail: never declare dev tooling as a `dev` extra. After a fresh
   `uv sync`, verify the tool is present (`ls .venv/bin/`); a bare runtime-only
   venv is the tell-tale sign.
+- Current state (2026-11): the `[dependency-groups]` table was removed in
+  `a3f25a9`, so dev tooling is again only the `dev` extra. Until the group is
+  restored, install with `uv sync --extra dev` (what `make install`,
+  `CLAUDE.md`, `README.md` and `CONTRIBUTING.md` now say); CI uses
+  `uv sync --locked --all-extras`.
 
 ### 2026 — Apples-to-oranges dashboard comparison: raw benchmark/custom-mix returns
 

@@ -12,7 +12,7 @@ get started.
    ```
 2. Install PySharpe in editable mode with the development toolchain.
    ```bash
-   uv sync
+   uv sync --extra dev
    ```
 
 ## Running tests and lint checks
