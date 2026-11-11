@@ -158,7 +158,7 @@ def _find_pysharpe(explicit: str | None) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--pysharpe", help="Path to the pysharpe console script.")
     args = parser.parse_args()
 

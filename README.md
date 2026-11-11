@@ -365,6 +365,11 @@ uv run pysharpe simulate-dca --months 240 --initial 10000 --monthly 500 --rate 0
 uv run pysharpe allocate --portfolio current_state.csv --amount 2000
 ```
 
+**Offline worked example.** [`examples/rebalance_demo/`](examples/rebalance_demo/README.md)
+runs `pysharpe rebalance` on four fictional funds with no network access, works
+the buy plan out by hand, and includes a checker that compares the installed
+CLI's output against that arithmetic. All of its data is synthetic.
+
 ### Streamlit Dashboard
 
 The dashboard provides four tabs:

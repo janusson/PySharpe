@@ -26,6 +26,10 @@ your change instead of the full suite every time.
 - `pysharpe.execution.rebalance` (artefact loaders, holdings parsing, account tax adjustment, single/multi-account plan building, rendering, `main()` exit codes)
 - `pysharpe.execution.allocator` (via end-to-end contribution allocation)
 
+## `test_rebalance_demo_example.py`
+- `examples/rebalance_demo/` inputs pinned to the hand-derived buy plan in its README
+- `pysharpe.execution.rebalance` single-account whole-share path and `cli.main(["rebalance", ...])` output
+
 ## `test_portfolio_repository.py`
 - `pysharpe.data.portfolio` (ticker file parsing, repository refresh, by-name/by-path lookup)
 
@@ -214,10 +218,11 @@ your change instead of the full suite every time.
 | `data/portfolio.py` | `pytest tests/test_portfolio_repository.py` |
 | `data_collector.py` | `pytest tests/test_data_collector.py` |
 | `exceptions.py` | `pytest tests/test_optimization_base.py tests/test_covariance_shrinkage.py tests/test_black_litterman.py tests/test_optimization_hrp.py` |
-| `execution/allocator.py` | `pytest tests/test_2d_allocation.py` |
+| `execution/allocator.py` | `pytest tests/test_2d_allocation.py tests/test_rebalance_demo_example.py` |
 | `execution/brokerage.py` | `pytest tests/test_brokerage.py` |
 | `execution/cash_flow_rebalance.py` | `pytest tests/test_cash_flow_rebalance.py` |
-| `execution/rebalance.py` | `pytest tests/test_execution_rebalance.py tests/test_brokerage.py tests/test_tax_location.py` |
+| `execution/rebalance.py` | `pytest tests/test_execution_rebalance.py tests/test_brokerage.py tests/test_tax_location.py tests/test_rebalance_demo_example.py` |
+| `examples/rebalance_demo/*` | `pytest tests/test_rebalance_demo_example.py` and `python examples/rebalance_demo/check_example.py` |
 | `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
 | `guardrails/tax_compliance.py` | `pytest tests/test_tax_compliance.py` |
 | `logging_utils.py` | `pytest tests/test_config.py` |
