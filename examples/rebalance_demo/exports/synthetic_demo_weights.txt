@@ -1,0 +1,5 @@
+ticker,weight
+SYNA.TO,0.40
+SYNB.TO,0.30
+SYNC.TO,0.20
+SYND.TO,0.10
