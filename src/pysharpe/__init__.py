@@ -199,6 +199,21 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
         "pysharpe.execution.cash_flow_rebalance",
         "evaluate_taxable_rebalance",
     ),
+    # Execution / multi-currency ledger & reconciliation
+    "Account": ("pysharpe.execution.ledger", "Account"),
+    "AccountValuationSummary": (
+        "pysharpe.execution.ledger",
+        "AccountValuationSummary",
+    ),
+    "CashBalanceSummary": ("pysharpe.execution.ledger", "CashBalanceSummary"),
+    "Currency": ("pysharpe.execution.ledger", "Currency"),
+    "HoldingValuation": ("pysharpe.execution.ledger", "HoldingValuation"),
+    "MarketSnapshot": ("pysharpe.execution.ledger", "MarketSnapshot"),
+    "PortfolioLedger": ("pysharpe.execution.ledger", "PortfolioLedger"),
+    "PositionState": ("pysharpe.execution.ledger", "PositionState"),
+    "ReconciliationReport": ("pysharpe.execution.ledger", "ReconciliationReport"),
+    "Transaction": ("pysharpe.execution.ledger", "Transaction"),
+    "TransactionKind": ("pysharpe.execution.ledger", "TransactionKind"),
     # Tax tracker / ACB
     "ACBPosition": ("pysharpe.execution.tax_tracker", "ACBPosition"),
     "ACBTracker": ("pysharpe.execution.tax_tracker", "ACBTracker"),
@@ -485,6 +500,19 @@ if TYPE_CHECKING:  # pragma: no cover - import for static analysis only
         RebalanceConfig,
         allocate_contribution_cash_flow,
         evaluate_taxable_rebalance,
+    )
+    from pysharpe.execution.ledger import (  # noqa: F401
+        Account,
+        AccountValuationSummary,
+        CashBalanceSummary,
+        Currency,
+        HoldingValuation,
+        MarketSnapshot,
+        PortfolioLedger,
+        PositionState,
+        ReconciliationReport,
+        Transaction,
+        TransactionKind,
     )
     from pysharpe.execution.rebalance import (  # noqa: F401
         RebalancePlan,
