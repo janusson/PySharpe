@@ -786,6 +786,78 @@ def _determine_account_tax_adjustment(
     return 1.0
 
 
+def _apply_fx_and_share_rounding(
+    allocations: pd.DataFrame,
+    *,
+    execution_config: ExecutionConfig | None,
+    proxy_map: dict[str, dict[str, object]] | None,
+) -> None:
+    """Apply optional FX fees, compute recommended shares, and floor whole shares."""
+    pre_fee_allocations = allocations["recommended_allocation"].astype(float).copy()
+
+    if execution_config is not None and execution_config.fx_fee_bps > 0:
+        fee = execution_config.fx_fee_decimal
+        for idx, row in allocations.iterrows():
+            ticker = row["ticker"]
+            meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
+            if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
+                original = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
+                allocations.at[idx, "recommended_allocation"] = original * (1.0 - fee)
+                logger.debug(
+                    "Applied %.2f%% FX fee to %s: $%.2f -> $%.2f",
+                    fee * 100,
+                    ticker,
+                    original,
+                    allocations.at[idx, "recommended_allocation"],
+                )
+
+    valid_prices = allocations["latest_price"].where(allocations["latest_price"] > 0)
+    allocations["recommended_shares"] = (
+        allocations["recommended_allocation"] / valid_prices
+    )
+
+    if execution_config is not None and not execution_config.allow_fractional:
+        leftover_cash = 0.0
+        for idx in allocations.index:
+            raw_shares = float(allocations.at[idx, "recommended_shares"])  # pyright: ignore[reportArgumentType]
+            pre_fee = float(pre_fee_allocations.at[idx])  # pyright: ignore[reportArgumentType]
+            post_fee = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
+            if pd.notna(raw_shares) and np.isfinite(raw_shares) and raw_shares > 0:
+                floored = float(np.floor(raw_shares))
+                price = float(allocations.at[idx, "latest_price"])  # pyright: ignore[reportArgumentType]
+                allocations.at[idx, "recommended_shares"] = floored
+                if floored == 0:
+                    # No whole share purchased means no FX conversion or buy executes;
+                    # preserve full pre-fee cash instead of consuming an FX fee.
+                    allocations.at[idx, "recommended_allocation"] = 0.0
+                    unspent = pre_fee
+                else:
+                    actual_cost = floored * price
+                    allocations.at[idx, "recommended_allocation"] = actual_cost
+                    unspent = post_fee - actual_cost
+                leftover_cash += max(unspent, 0.0)
+            elif pre_fee > 0:
+                allocations.at[idx, "recommended_shares"] = 0.0
+                allocations.at[idx, "recommended_allocation"] = 0.0
+                leftover_cash += pre_fee
+        allocations["leftover_cash"] = leftover_cash
+
+
+def _zero_allocation_frame(scored: pd.DataFrame) -> pd.DataFrame:
+    """Return an allocation frame with zero recommended buys for zero-cash accounts."""
+    allocations = scored.copy()
+    allocations["raw_allocation"] = 0.0
+    allocations["recommended_allocation"] = 0.0
+    allocations["spillover_allocation"] = 0.0
+    allocations["spillover_account"] = None
+    allocations["recalculated_score"] = np.nan
+    allocations["recommended_weight_increase"] = 0.0
+    allocations["allocation_rank"] = allocations["recommended_allocation"].rank(
+        ascending=False, method="min"
+    )
+    return allocations
+
+
 def build_rebalance_plan(
     portfolio_name: str,
     *,
@@ -902,48 +974,12 @@ def build_rebalance_plan(
             config=allocation_config,
         )
 
-        # --- FX fee application ---
-        if execution_config is not None and execution_config.fx_fee_bps > 0:
-            for idx, row in allocations.iterrows():
-                ticker = row["ticker"]
-                meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
-                if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
-                    original = row["recommended_allocation"]
-                    fee = execution_config.fx_fee_decimal
-                    current = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
-                    allocations.at[idx, "recommended_allocation"] = current * (
-                        1.0 - fee
-                    )
-                    logger.debug(
-                        "Applied %.2f%% FX fee to %s: $%.2f -> $%.2f",
-                        fee * 100,
-                        ticker,
-                        original,
-                        allocations.at[idx, "recommended_allocation"],
-                    )
-
-        valid_prices = allocations["latest_price"].where(
-            allocations["latest_price"] > 0
+        # --- FX fee application & whole-share rounding ---
+        _apply_fx_and_share_rounding(
+            allocations,
+            execution_config=execution_config,
+            proxy_map=proxy_map,
         )
-        allocations["recommended_shares"] = (
-            allocations["recommended_allocation"] / valid_prices
-        )
-
-        leftover_cash = 0.0
-        if execution_config is not None and not execution_config.allow_fractional:
-            for idx in allocations.index:
-                raw_shares = float(allocations.at[idx, "recommended_shares"])  # pyright: ignore[reportArgumentType]
-                if pd.notna(raw_shares) and raw_shares > 0:
-                    floored = np.floor(raw_shares)
-                    price = allocations.at[idx, "latest_price"]
-                    allocations.at[idx, "recommended_shares"] = floored
-                    actual_cost = floored * price
-                    unspent = (
-                        allocations.at[idx, "recommended_allocation"] - actual_cost
-                    )
-                    allocations.at[idx, "recommended_allocation"] = actual_cost
-                    leftover_cash += max(unspent, 0.0)
-            allocations["leftover_cash"] = leftover_cash
 
         total_after = allocations["current_value"].sum() + new_cash
         if total_after > 0:
@@ -974,13 +1010,16 @@ def build_rebalance_plan(
             for acct in accounts
         }
         # Distribute rounding remainder to the largest account
-        remainder = new_cash - sum(account_cash.values())
+        remainder = round(new_cash - sum(account_cash.values()), 2)
         if remainder != 0 and accounts:
             largest = max(accounts, key=lambda a: account_values.get(a, 0.0))
             account_cash[largest] = round(account_cash[largest] + remainder, 2)
     else:
-        split = new_cash / len(accounts)
+        split = round(new_cash / len(accounts), 2)
         account_cash = {acct: split for acct in accounts}
+        remainder = round(new_cash - sum(account_cash.values()), 2)
+        if remainder != 0 and accounts:
+            account_cash[accounts[0]] = round(account_cash[accounts[0]] + remainder, 2)
 
     all_scored: list[pd.DataFrame] = []
     account_allocations: dict[str, pd.DataFrame] = {}
@@ -1046,46 +1085,21 @@ def build_rebalance_plan(
                         account,
                     )
 
-        allocations = allocate_contribution(
-            scored,
-            contribution_dollars=account_cash[account],
-            config=allocation_config,
-        )
+        if account_cash[account] > 0:
+            allocations = allocate_contribution(
+                scored,
+                contribution_dollars=account_cash[account],
+                config=allocation_config,
+            )
+        else:
+            allocations = _zero_allocation_frame(scored)
 
-        # --- FX fee application ---
-        if execution_config is not None and execution_config.fx_fee_bps > 0:
-            for idx, row in allocations.iterrows():
-                ticker = row["ticker"]
-                meta = get_ticker_metadata(ticker, proxy_map=proxy_map)
-                if not meta["is_cad_denominated"] and row["recommended_allocation"] > 0:
-                    fee = execution_config.fx_fee_decimal
-                    current = float(allocations.at[idx, "recommended_allocation"])  # pyright: ignore[reportArgumentType]
-                    allocations.at[idx, "recommended_allocation"] = current * (
-                        1.0 - fee
-                    )
-
-        valid_prices = allocations["latest_price"].where(
-            allocations["latest_price"] > 0
+        # --- FX fee application & whole-share rounding ---
+        _apply_fx_and_share_rounding(
+            allocations,
+            execution_config=execution_config,
+            proxy_map=proxy_map,
         )
-        allocations["recommended_shares"] = (
-            allocations["recommended_allocation"] / valid_prices
-        )
-
-        leftover_cash = 0.0
-        if execution_config is not None and not execution_config.allow_fractional:
-            for idx in allocations.index:
-                raw_shares = float(allocations.at[idx, "recommended_shares"])  # pyright: ignore[reportArgumentType]
-                if pd.notna(raw_shares) and raw_shares > 0:
-                    floored = np.floor(raw_shares)
-                    price = allocations.at[idx, "latest_price"]
-                    allocations.at[idx, "recommended_shares"] = floored
-                    actual_cost = floored * price
-                    unspent = (
-                        allocations.at[idx, "recommended_allocation"] - actual_cost
-                    )
-                    allocations.at[idx, "recommended_allocation"] = actual_cost
-                    leftover_cash += max(unspent, 0.0)
-            allocations["leftover_cash"] = leftover_cash
 
         total_after = allocations["current_value"].sum() + account_cash[account]
         if total_after > 0:
