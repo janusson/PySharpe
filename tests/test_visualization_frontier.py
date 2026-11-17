@@ -150,18 +150,64 @@ def test_simulate_dca_returns_expected_series():
     )
 
     assert isinstance(projection, DCAProjection)
-    assert len(projection.months) == 3
+    np.testing.assert_array_equal(projection.months, np.array([0, 1, 2, 3]))
     np.testing.assert_array_equal(
-        projection.contributions, np.array([1000.0, 1100.0, 1200.0])
+        projection.contributions, np.array([1000.0, 1100.0, 1200.0, 1300.0])
     )
 
     monthly_rate = (1 + 0.12) ** (1 / 12) - 1
-    expected_balance_month_1 = (1000.0 + 100.0) * (1 + monthly_rate)
-    expected_balance_month_2 = (expected_balance_month_1 + 100.0) * (1 + monthly_rate)
+    expected_m1 = 1000.0 * (1 + monthly_rate) + 100.0
+    expected_m2 = expected_m1 * (1 + monthly_rate) + 100.0
+    expected_m3 = expected_m2 * (1 + monthly_rate) + 100.0
     np.testing.assert_allclose(
         projection.balances,
-        np.array([1000.0, expected_balance_month_1, expected_balance_month_2]),
+        np.array([1000.0, expected_m1, expected_m2, expected_m3]),
     )
+
+
+def test_simulate_dca_deposit_timing_end_vs_start():
+    """Verify worked month-1 example: $111.00 end-of-month vs $111.10 start-of-month."""
+    annual_rate = (1.01**12) - 1.0  # effective monthly rate == 1%
+    end_proj = simulate_dca(
+        months=2,
+        initial_investment=100.0,
+        monthly_contribution=10.0,
+        annual_return_rate=annual_rate,
+        deposit_timing="end",
+    )
+    start_proj = simulate_dca(
+        months=2,
+        initial_investment=100.0,
+        monthly_contribution=10.0,
+        annual_return_rate=annual_rate,
+        deposit_timing="start",
+    )
+
+    np.testing.assert_array_equal(end_proj.months, np.array([0, 1, 2]))
+    assert end_proj.balances[1] == pytest.approx(111.00, rel=1e-9)
+    assert start_proj.balances[1] == pytest.approx(111.10, rel=1e-9)
+    assert end_proj.balances[2] == pytest.approx(111.00 * 1.01 + 10.0, rel=1e-9)
+    assert start_proj.balances[2] == pytest.approx((111.10 + 10.0) * 1.01, rel=1e-9)
+
+
+def test_simulate_dca_zero_rate_and_invalid_timing():
+    zero_proj = simulate_dca(
+        months=2,
+        initial_investment=100.0,
+        monthly_contribution=25.0,
+        annual_return_rate=0.0,
+    )
+    np.testing.assert_allclose(zero_proj.balances, np.array([100.0, 125.0, 150.0]))
+    np.testing.assert_allclose(zero_proj.contributions, np.array([100.0, 125.0, 150.0]))
+
+    with pytest.raises(ValueError, match="Unsupported deposit_timing"):
+        simulate_dca(
+            months=2,
+            initial_investment=100.0,
+            monthly_contribution=25.0,
+            annual_return_rate=0.05,
+            deposit_timing="mid",  # type: ignore[arg-type]
+        )
 
 
 def test_plot_dca_projection_returns_axes(monkeypatch):
@@ -248,5 +294,5 @@ def test_dca_projection_final_balance():
         annual_return_rate=0.06,
     )
 
-    assert projection.final_contribution() == pytest.approx(1000 + 200 * 5)
+    assert projection.final_contribution() == pytest.approx(1000 + 200 * 6)
     assert projection.final_balance() > projection.final_contribution()

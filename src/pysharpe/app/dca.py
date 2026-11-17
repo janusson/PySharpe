@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pandas as pd
 import streamlit as st
 
@@ -13,6 +15,7 @@ def render_dca_projection(
     initial: float,
     monthly: float,
     rate: float,
+    deposit_timing: Literal["end", "start"] = "end",
 ) -> pd.DataFrame:
     """Simulate and plot a dollar-cost averaging projection."""
 
@@ -21,6 +24,7 @@ def render_dca_projection(
         initial_investment=initial,
         monthly_contribution=monthly,
         annual_return_rate=rate,
+        deposit_timing=deposit_timing,
     )
     df = pd.DataFrame(
         {

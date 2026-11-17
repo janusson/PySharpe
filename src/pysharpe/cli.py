@@ -323,6 +323,7 @@ def _handle_simulate_dca(args: argparse.Namespace) -> int:
         initial_investment=args.initial,
         monthly_contribution=args.monthly,
         annual_return_rate=args.rate,
+        deposit_timing=getattr(args, "deposit_timing", "end"),
     )
 
     total_contribution = projection.final_contribution()
@@ -717,6 +718,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.08,
         help="Annual return rate as a decimal (default: 0.08).",
+    )
+    simulate.add_argument(
+        "--deposit-timing",
+        choices=["end", "start"],
+        default="end",
+        help="Deposit timing within each month: 'end' (default) or 'start'.",
     )
     simulate.add_argument("--output", help="Optional path to save the generated plot.")
     simulate.add_argument(
