@@ -1,91 +1,124 @@
 # API Reference
 
-Auto-generated from module docstrings with
-[mkdocstrings](https://mkdocstrings.github.io/). Regenerate with
-`make build_docs`.
-
-## Configuration
-
-::: pysharpe.config
-    options:
-      members:
-        - PySharpeSettings
-        - build_settings
-        - get_settings
-
-## Exceptions
-
-::: pysharpe.exceptions
-
-## Metrics
-
-::: pysharpe.metrics
-
-## Data Pipeline
-
-::: pysharpe.data.fetcher
-
-::: pysharpe.data.collation
-
-::: pysharpe.data.portfolio
-
-::: pysharpe.data.linkage
-
-## Optimization
-
-::: pysharpe.optimization.base
-
-::: pysharpe.optimization.estimators
-
-::: pysharpe.optimization.sharpe_optimizer
-
-::: pysharpe.optimization.bayesian
-
-::: pysharpe.optimization.black_litterman
-
-::: pysharpe.optimization.expected_returns
-
-::: pysharpe.optimization.tax_location
-
-::: pysharpe.optimization.models
-
-::: pysharpe.optimization.weights
-
-## Hierarchical Risk Parity
-
-::: pysharpe.optimization.hrp
-
-## Execution
-
-::: pysharpe.execution.allocator
-
-::: pysharpe.execution.rebalance
-
-::: pysharpe.execution.cash_flow_rebalance
-
-::: pysharpe.execution.tax_tracker
-
-::: pysharpe.execution.brokerage
+This reference is generated from the Python modules under `src/pysharpe`.
+Each section is rendered from the module's source docstrings by mkdocstrings.
+Regenerate with `make build_docs`.
 
 ## Analysis
 
-::: pysharpe.analysis.backtest_engine
+::: pysharpe.analysis.backtest
 
-::: pysharpe.analysis.time_series
+::: pysharpe.analysis.backtest_engine
 
 ::: pysharpe.analysis.benchmarks
 
+::: pysharpe.analysis.categorization
+
 ::: pysharpe.analysis.comparison
 
-::: pysharpe.analysis.scoring
+::: pysharpe.analysis.portfolio_overlap
 
-::: pysharpe.analysis.categorization
+::: pysharpe.analysis.scoring
 
 ::: pysharpe.analysis.tactical_momentum
 
 ::: pysharpe.analysis.tactical_walk_forward
 
-::: pysharpe.analysis.portfolio_overlap
+::: pysharpe.analysis.time_series
+
+::: pysharpe.analysis.visualization
+
+## App
+
+::: pysharpe.app.analytics
+
+::: pysharpe.app.backtest
+
+::: pysharpe.app.charts
+
+::: pysharpe.app.data
+
+::: pysharpe.app.dca
+
+::: pysharpe.app.rebalance_ui
+
+## Cli
+
+::: pysharpe.cli
+
+## Config
+
+::: pysharpe.config
+
+## Data
+
+::: pysharpe.data.collation
+
+::: pysharpe.data.fetcher
+
+::: pysharpe.data.linkage
+
+::: pysharpe.data.portfolio
+
+::: pysharpe.data.workflows
+
+## Data Collector
+
+::: pysharpe.data_collector
+
+## Exceptions
+
+::: pysharpe.exceptions
+
+## Execution
+
+::: pysharpe.execution.allocator
+
+::: pysharpe.execution.brokerage
+
+::: pysharpe.execution.cash_flow_rebalance
+
+::: pysharpe.execution.rebalance
+
+::: pysharpe.execution.tax_tracker
+
+## Guardrails
+
+::: pysharpe.guardrails.tax_compliance
+
+## Logging Utils
+
+::: pysharpe.logging_utils
+
+## Metrics
+
+::: pysharpe.metrics
+
+## Optimization
+
+::: pysharpe.optimization.base
+
+::: pysharpe.optimization.bayesian
+
+::: pysharpe.optimization.black_litterman
+
+::: pysharpe.optimization.estimators
+
+::: pysharpe.optimization.expected_returns
+
+::: pysharpe.optimization.hrp
+
+::: pysharpe.optimization.models
+
+::: pysharpe.optimization.sharpe_optimizer
+
+::: pysharpe.optimization.tax_location
+
+::: pysharpe.optimization.weights
+
+## Portfolio Optimization
+
+::: pysharpe.portfolio_optimization
 
 ## Validation
 
@@ -93,22 +126,24 @@ Auto-generated from module docstrings with
 
 ::: pysharpe.validation.ledger
 
-::: pysharpe.validation.resampling
-
 ::: pysharpe.validation.metrics
+
+::: pysharpe.validation.resampling
 
 ::: pysharpe.validation.sample_size
 
-## Guardrails
-
-::: pysharpe.guardrails.tax_compliance
-
 ## Visualization
 
-::: pysharpe.visualization.frontier
+::: pysharpe.visualization.correlation
 
 ::: pysharpe.visualization.dca
 
 ::: pysharpe.visualization.equity_curve
 
-::: pysharpe.visualization.correlation
+::: pysharpe.visualization.frontier
+
+::: pysharpe.visualization.utils
+
+## Workflows
+
+::: pysharpe.workflows
