@@ -224,7 +224,7 @@ def stress_test_execution_friction(
     if portfolio_value.empty:
         raise ValueError("Portfolio value series is empty; cannot stress-test.")
 
-    gross_returns = portfolio_value.pct_change().dropna()
+    gross_returns = portfolio_value.pct_change(fill_method=None).dropna()
     if len(gross_returns) < 2:
         raise ValueError(
             "Insufficient return observations for annualised metric calculation."

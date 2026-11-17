@@ -114,7 +114,8 @@ def optimise_portfolios(
             exposures before optimisation.
         include_unmapped_categories: When ``True`` keep tickers that are not
             present in ``category_map`` as standalone categories.
-        return_model: Expected return calculation method. 'ema' or 'mean'. Defaults to 'ema'.
+        return_model: Expected return calculation method: ``'shrinkage'``
+            (default), ``'ema'``, ``'constant'``, or ``'mean'``.
         base_currency: The target currency for all assets (default "CAD").
         max_weight: Maximum allowable weight for any single asset (default 1.0).
         shrinkage_floor: Minimum shrinkage intensity for 'shrinkage' return model
@@ -282,12 +283,12 @@ def plot_holdings_history(
                 logger.warning("Skipping %s: no tickers match supplied weights", name)
                 continue
             sub = prices[common]
-            daily_ret = sub.pct_change().dropna()
+            daily_ret = sub.pct_change(fill_method=None).dropna()
             w = alloc_series[common] / alloc_series[common].sum()
             weighted_ret = daily_ret.dot(w)
         else:
             # Equal-weighted basket.
-            daily_ret = prices.pct_change().dropna()
+            daily_ret = prices.pct_change(fill_method=None).dropna()
             weighted_ret = daily_ret.mean(axis=1)
 
         cumulative = (1 + weighted_ret).cumprod()  # type: ignore[assignment]

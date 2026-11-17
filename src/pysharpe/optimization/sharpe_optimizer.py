@@ -130,7 +130,7 @@ class SharpeOptimizer:
         if not self.assets:
             raise ValueError("No assets found in the prices DataFrame.")
 
-        self.returns = self.prices.pct_change().dropna()
+        self.returns = self.prices.pct_change(fill_method=None).dropna()
         if self.returns.empty:
             raise ValueError(
                 "Insufficient data to calculate returns after dropping NaNs."

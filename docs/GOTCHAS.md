@@ -76,6 +76,21 @@
   `annualize_return`/`cagr` and must stay out of arithmetic reward-to-risk
   ratios; `sharpe_ratio`'s geometric numerator is tracked separately.
 
+### 2026 — Implicit `pct_change()` forward-fill fabricated zero returns across missing prices
+
+- **Symptom:** `compute_returns(..., method="simple")`, `plot_correlation_heatmap`,
+  and optimizer/app return loaders called `.pct_change()` without
+  `fill_method=None`. Pandas' default `fill_method="pad"` silently forward-filled
+  missing price observations before dividing, manufacturing `0.0` returns on
+  missing dates (inconsistent with `method="log"`, distorting correlation and
+  volatility).
+- **Fix:** Passed `fill_method=None` at all `.pct_change()` call sites so
+  missing endpoints produce `NaN` rather than fabricated `0.0` returns.
+- **Regression tests:** `test_compute_returns_missing_endpoint_does_not_fabricate_zero`
+  in `tests/test_metrics.py` and
+  `test_plot_correlation_heatmap_internal_gap_does_not_fabricate_zero_returns` in
+  `tests/test_visualization_charts.py`.
+
 ### 2026 — HistoryLinker divided USD proxies by USDCAD=X instead of multiplying
 
 - **Symptom:** `HistoryLinker.get_stitched_series` with `fx_adjust=True`

@@ -321,7 +321,7 @@ def _harmonized_benchmark_metrics(
 
     mu = shrinkage_expected_return(combined, shrinkage_floor=shrinkage_floor)
 
-    returns = combined.pct_change().dropna()
+    returns = combined.pct_change(fill_method=None).dropna()
     if returns.empty:
         raise ValueError("Insufficient benchmark price history to compute metrics.")
 

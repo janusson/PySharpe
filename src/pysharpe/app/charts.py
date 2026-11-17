@@ -146,7 +146,7 @@ def plot_cumulative_returns(price_frame: pd.DataFrame) -> None:
         st.info("No price data available to plot cumulative returns.")
         return
 
-    returns = price_frame.pct_change().dropna(how="all")
+    returns = price_frame.pct_change(fill_method=None).dropna(how="all")
     if returns.empty:
         st.info("Not enough price history to compute cumulative returns.")
         return

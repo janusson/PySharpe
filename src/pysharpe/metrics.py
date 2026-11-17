@@ -28,14 +28,20 @@ def _coerce_to_dataframe(data: PandasLike) -> tuple[pd.DataFrame, bool]:
     return data.copy(), False
 
 
-def _prep_numeric(frame: pd.DataFrame) -> pd.DataFrame:
+def _prep_numeric(
+    frame: pd.DataFrame, *, drop_all_na_rows: bool = True
+) -> pd.DataFrame:
     cleaned = frame.apply(pd.to_numeric, errors="coerce")
     if isinstance(cleaned, pd.Series):
         cleaned = cleaned.to_frame()
     cleaned = cast(pd.DataFrame, cleaned)
     cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
-    cleaned.dropna(how="all", inplace=True)
-    if cleaned.empty:
+    if drop_all_na_rows:
+        cleaned.dropna(how="all", inplace=True)
+        has_data = not cleaned.empty
+    else:
+        has_data = not cleaned.dropna(how="all").empty
+    if not has_data:
         raise ValueError(
             "Input must contain at least one finite observation per column."
         )
@@ -72,7 +78,9 @@ def compute_returns(
     """
 
     frame, was_series = _coerce_to_dataframe(prices)
-    numeric = _prep_numeric(frame)
+    # Preserve missing rows before differencing so NaN gaps are never bridged
+    # into synthetic multi-period returns.
+    numeric = _prep_numeric(frame, drop_all_na_rows=False)
 
     if method not in {"simple", "log"}:
         raise ValueError("method must be 'simple' or 'log'")
@@ -85,7 +93,7 @@ def compute_returns(
             pd.DataFrame(raw, index=numeric.index, columns=numeric.columns),
         )
     else:
-        returns = cast(pd.DataFrame, numeric.pct_change())
+        returns = cast(pd.DataFrame, numeric.pct_change(fill_method=None))
 
     returns.replace([np.inf, -np.inf], np.nan, inplace=True)
     if dropna:
@@ -232,6 +240,12 @@ def sharpe_ratio(
 ) -> float | pd.Series:
     """Calculate the annualised Sharpe ratio.
 
+    Uses the geometric compound annualised return from
+    :func:`annualize_return` minus ``risk_free_rate`` in the numerator, divided
+    by the annualised volatility from :func:`annualize_volatility`.  (Unlike
+    :func:`sortino_ratio` and :func:`expected_return`, which use arithmetic mean
+    annualisation, geometric compounding is retained here for API compatibility.)
+
     Args:
         returns: Periodic returns as decimal fractions.
         risk_free_rate: Annual risk-free rate expressed as a decimal.
@@ -262,7 +276,7 @@ def sharpe_ratio(
             lambda value: np.isclose(value, 0.0)
         )
         if zero_mask.any():
-            problematic = ", ".join(annualised_volatility[zero_mask].index)  # type: ignore[union-attr]
+            problematic = ", ".join(map(str, annualised_volatility[zero_mask].index))  # type: ignore[union-attr]
             raise ValueError(
                 f"Volatility is zero; Sharpe ratio undefined for: {problematic}"
             )

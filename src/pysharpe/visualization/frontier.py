@@ -175,7 +175,7 @@ def plot_portfolio_comparison(
             from pypfopt.expected_returns import mean_historical_return
 
             mu = mean_historical_return(prices, frequency=frequency)
-            returns = prices.pct_change().dropna()
+            returns = prices.pct_change(fill_method=None).dropna()
             vols = returns.std() * np.sqrt(frequency)
 
             ax.scatter(

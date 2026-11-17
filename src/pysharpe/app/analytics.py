@@ -51,7 +51,7 @@ def compute_metrics(price_frame: pd.DataFrame) -> MetricResults:
             "dataset."
         )
 
-    returns = price_frame.pct_change().dropna(how="all")
+    returns = price_frame.pct_change(fill_method=None).dropna(how="all")
     if returns.empty:
         raise ValueError("Insufficient price history to compute portfolio metrics.")
 
@@ -221,7 +221,7 @@ def compute_adjusted_metrics(
     else:
         mu = mu_joint
 
-    returns = joint.pct_change().dropna()
+    returns = joint.pct_change(fill_method=None).dropna()
     if returns.empty:
         raise ValueError("Insufficient price history to compute portfolio metrics.")
 
