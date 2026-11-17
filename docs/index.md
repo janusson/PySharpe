@@ -79,7 +79,7 @@ and commissions using only execution-date prices.
 - **Ruff** sole linter + formatter; **uv** lockfile reproducibility.
 - **CI**: lint + typecheck, tests with a 75% coverage floor, strict docs build.
 - **990+ tests**, all synthetic with fixed seeds — no network calls.
-- **DuckDB write-through cache** with mtime invalidation — stale data is impossible.
+- **DuckDB write-through cache**; freshness and historical data vintages require separate verification.
 
 ## Documentation
 
@@ -89,6 +89,7 @@ and commissions using only execution-date prices.
 | [Data Flow](flowchart.md) | Mermaid diagram of the data pipeline |
 | [Test Map](TEST_MAP.md) | Test-file to source-module mapping |
 | [Gotchas](GOTCHAS.md) | Known failure patterns and guardrails |
+| [Temporal Leakage Audit](temporal_leakage.md) | Point-in-time contract, evidence, and unresolved limitations |
 | [Benchmarks](benchmarks.md) | Canadian ETF baselines |
 | [Proxy Mapping](proxies.md) | Ticker proxy resolution and FX adjustment |
 | [API Reference](api.md) | Auto-generated API documentation |

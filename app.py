@@ -190,6 +190,14 @@ def _get_cached_analysis(controls: dict[str, object]) -> dict | None:
     entry = st.session_state.get(_SS_ANALYSIS)
     if entry is None or entry.get("sig") != _analysis_signature(controls):
         return None
+    prices = controls.get("price_data")
+    cached_prices = entry.get("price_data")
+    if not isinstance(prices, pd.DataFrame) or not isinstance(
+        cached_prices, pd.DataFrame
+    ):
+        return None
+    if not cached_prices.equals(prices):
+        return None
     return cast(dict, entry["results"])
 
 
@@ -205,6 +213,7 @@ def _ensure_analysis(controls: dict[str, object]) -> dict | None:
     if cached is not None:
         return cached
 
+    price_snapshot = price_data.copy(deep=True)
     try:
         metrics_result = compute_metrics(price_data)
     except ValueError as exc:
@@ -232,6 +241,7 @@ def _ensure_analysis(controls: dict[str, object]) -> dict | None:
     cached["metrics_result"] = metrics_result
     st.session_state[_SS_ANALYSIS] = {
         "sig": _analysis_signature(controls),
+        "price_data": price_snapshot,
         "results": cached,
     }
     return cached

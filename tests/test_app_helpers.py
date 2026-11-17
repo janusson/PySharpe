@@ -130,6 +130,25 @@ def test_clean_numeric_frame_preserves_leading_nan():
     assert cleaned.iloc[1, 1] == 101.0
 
 
+@pytest.mark.parametrize("future_price", [200.0, 900.0])
+def test_clean_numeric_frame_unsorted_future_does_not_change_prefix(future_price):
+    dates = pd.date_range("2023-01-01", periods=4, freq="D")
+    frame = pd.DataFrame(
+        {"VFV.TO": [future_price, np.nan, 100.0, np.nan]},
+        index=dates[[3, 2, 0, 1]],
+    )
+    prefix = frame.loc[frame.index <= dates[2]]
+
+    cleaned = _clean_numeric_frame(frame)
+    cleaned_prefix = _clean_numeric_frame(prefix)
+
+    actual_prefix = cleaned.loc[cleaned.index <= dates[2]].sort_index()
+    pd.testing.assert_frame_equal(actual_prefix, cleaned_prefix.sort_index())
+    assert cleaned.index.is_monotonic_increasing
+    assert cleaned.loc[dates[2], "VFV.TO"] == 100.0
+    assert cleaned.loc[dates[3], "VFV.TO"] == future_price
+
+
 def test_clean_numeric_frame_returns_empty_input():
     frame = pd.DataFrame()
 

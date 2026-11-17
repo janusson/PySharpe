@@ -13,12 +13,10 @@
 
 ---
 
-PySharpe is a portfolio research platform that **does not predict the market**. It
-mathematically manages risk, minimizes uncompensated drag, and optimizes for
-after-tax real wealth. Every model, constraint, and default parameter is grounded
-in published research and calibrated to the structural realities of Canadian
-retail investing — registered account types, foreign withholding tax treaties,
-CAD/USD conversion frictions, and CRA tax rules.
+PySharpe is a portfolio research workspace for Canadian investors exploring
+broad-market ETFs. It provides data inspection, portfolio analytics, and
+experimental research tools. Results depend on their data and assumptions;
+they are not investment advice or predictions of future returns.
 
 ## Quickstart
 
@@ -26,23 +24,30 @@ CAD/USD conversion frictions, and CRA tax rules.
 # 1. Clone and install with uv (Python ≥ 3.12; exact versions locked in uv.lock)
 git clone https://github.com/janusson/PySharpe.git
 cd PySharpe
-uv pip install -e ".[all]"
+uv sync --locked --extra all
 
-# 2. Launch the Streamlit dashboard — a 4-tab quantitative workspace
-uv run streamlit run app.py
+# 2. Launch the offline example
+uv run streamlit run demo.py
 
 # 3. Or drive everything from the CLI
 uv run pysharpe --help
 ```
 
-The dashboard opens a stepwise workflow: **portfolio metrics & comparison vs. the
+After dependencies are installed (which may require network access), choose
+**Load example dataset** to inspect two fictional ETF price series without
+market-data requests or personal holdings. The example is
+not historical market data, investment advice, or a prediction. To open the
+existing dashboard separately, run `uv run streamlit run app.py`; that workspace
+can request market data immediately, and the example is not automatically
+applied to it.
+
+The research dashboard offers **portfolio metrics & comparison vs. the
 1/N equal-weight baseline**, the **efficient frontier** with the optimizer's
-optimal weights, a **fully decoupled DCA simulator**, and **raw data & logs** —
-with date boundaries derived automatically from the maximum overlapping price
-history of your tickers. A complete walkthrough — portfolio definition →
-optimization → buy plan — is in [Quick Start](#quick-start) below. Everything
-from data download to rebalancing is reproducible with a locked dependency set
-(`uv.lock`) and synthetic-data test suites.
+weights, a **DCA simulator**, and **raw data & logs** —
+with date boundaries derived from available price histories. The research
+workspace has unresolved data and backtest limitations documented in the
+[temporal audit](docs/temporal_leakage.md); its results require independent
+review. A CLI walkthrough is in [Quick Start](#quick-start) below.
 
 ---
 
@@ -59,9 +64,8 @@ non-negotiable pillars guard every commit:
   formatter and linter (88-char, double-quote, import-sorted); CI fails on any drift.
 - **uv dependency management** — [uv](https://docs.astral.sh/uv/) owns the
   environment; `uv sync --locked` in CI makes every build bit-reproducible from `uv.lock`.
-- **DuckDB write-through caching** — every price download is cached behind
-  DuckDB and invalidated by file `mtime`; stale data is impossible and repeat
-  queries are SQL-fast.
+- **DuckDB write-through caching** — cached downloads can reduce repeat requests;
+  cache freshness and historical data vintages still require separate verification.
 
 The same discipline that guards the math guards the code:
 
@@ -70,10 +74,10 @@ The same discipline that guards the math guards the code:
 | **Strict typing** | [Pyright](https://microsoft.github.io/pyright/) runs on every PR in `standard` mode with **warnings promoted to fatal** (`pyright --warnings src/`) — the suite holds **0 errors, 0 warnings**. |
 | **Lint & format** | [Ruff](https://docs.astral.sh/ruff/) is the sole linter *and* formatter (88-char, double-quote, import-sorted). CI fails on any drift. |
 | **Dependency lock** | [uv](https://docs.astral.sh/uv/) manages the environment; `uv sync --locked` in CI means a build is bit-reproducible from `uv.lock`. |
-| **DuckDB write-through cache** | Price downloads are cached behind DuckDB and invalidated by file `mtime` — stale data is impossible, and queries are SQL-fast. |
+| **DuckDB write-through cache** | Price downloads are cached behind DuckDB; cache freshness and historical data vintages require separate verification. |
 | **CI gate** | Three parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, and a **strict MkDocs build** (`--strict`: warnings are fatal). |
 | **Test suite** | **990+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
-| **Lookahead guardrails** | FX conversion *excludes* rows without rate coverage (never `.bfill()`), covariance estimators harden to strict positive-definiteness, and purged/embargoed CV enforces fold separation from the asset's own autocorrelation decay. |
+| **Lookahead guardrails** | Synthetic prefix tests cover selected FX, dashboard and rebalance paths. FX excludes uncovered rows; fold separation alone does not prove causal evaluation. See the [temporal audit](docs/temporal_leakage.md) for remaining limitations. |
 | **Domain error contracts** | A dedicated exception hierarchy (`DataValidationError`, `DataIngestionError`, `ExecutionConfigError`) replaces raw stack traces with actionable messages. |
 | **Self-documenting** | MkDocs Material site built from docstrings (griffe-parsed, `--strict`-clean), plus `docs/TEST_MAP.md` and `docs/GOTCHAS.md` that accumulate every failure pattern. |
 
@@ -130,7 +134,7 @@ each domain owns a skill package (`pysharpe-allocation`, `pysharpe-optimization`
 that domain's architecture, guardrails, test maps, and *prohibitions*. Agents
 load only the skills a task touches — so an allocation change cannot silently
 violate the 60/40 VA scoring blend, and a data-pipeline change cannot reintroduce
-`.bfill()` lookahead. The repo is engineered to be developed *by* AI agents as
+future-dependent fills. The repo is engineered to be developed *by* AI agents as
 rigorously as it is developed *for* investors.
 
 ### 🧮 The Quant Core
@@ -307,7 +311,7 @@ uv run pysharpe optimise \
 ```
 
 This downloads 10 years of daily prices (cached through DuckDB), converts USD
-assets to CAD (no lookahead bias), estimates expected returns with Bayes-Stein
+assets to CAD (subject to the temporal and FX limitations in the audit), estimates expected returns with Bayes-Stein
 shrinkage, and runs efficient-frontier optimization. To apply custom MER caps,
 geographic bounds, or account settings, pass `--config portfolio_config.json`.
 
