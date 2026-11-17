@@ -1,5 +1,9 @@
 # PySharpe
 
+<p align="center">
+  <img src="pysharpe_logo.png" alt="PySharpe — Portfolio Optimization" width="420">
+</p>
+
 > **Evidence-based portfolio optimization for Canadian investors.** Construct, compare, and validate long-term investment portfolios using modern financial research — with every recommendation traceable to published literature, transparent assumptions, and reproducible quantitative analysis.
 
 <p align="center">
