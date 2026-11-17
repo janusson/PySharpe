@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Ticker normalisation for exports.** `normalise_ticker` converts market-code
+  labels (`VFV.TSE` → `VFV.TO`, `VOO.NYSE` → `VOO`, `VFV | TSE` → `VFV.TO`),
+  and `read_holdings_snapshot(..., ticker_transform=normalise_ticker)` applies
+  it during import. Unrecognised codes and share classes are left untouched;
+  renames are logged and duplicate detection runs on the normalised
+  identifiers. See `docs/interop.md`.
+
+- **Vendor-neutral holdings import.** `pysharpe.data.interop` reads a
+  point-in-time holdings snapshot from any CSV export, either through a
+  canonical column mapping or by header inference (`infer_column_mapping`),
+  enforces explicit FX coverage and duplicate/non-positive-row rejection,
+  skips report group/subtotal rows instead of importing them, keeps a blank
+  cost basis unknown instead of zero, and adapts the snapshot to the allocator
+  (`current_balances`) and rebalance (`holdings_frame`) schemas. PySharpe
+  remains an analytics layer, not a book of record: no transaction histories,
+  dividends, or corporate actions are reconstructed. See `docs/interop.md`.
+
 - **Sortino ratio uses one minimum acceptable return.** `sortino_ratio` now
   takes `target_return + risk_free_rate / periods_per_year` as the single MAR
   for both legs and reports its numerator as the arithmetic mean excess return
