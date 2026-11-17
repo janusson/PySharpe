@@ -253,3 +253,96 @@ def test_apply_fx_conversion_requests_inclusive_end_date(
 
     assert captured == {"start": "2023-01-01", "end": "2023-01-03"}
     assert adjusted.loc[dates[1], "USD_ASSET"] == pytest.approx(136.0)
+
+
+def test_apply_fx_conversion_excludes_stale_fx_beyond_limit(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Rows whose carried FX quote exceeds max_fx_staleness_days are excluded."""
+    mock_ticker = MagicMock()
+    mock_ticker.info = {"currency": "USD"}
+    monkeypatch.setattr("pysharpe.data.fetcher.yf.Ticker", lambda _: mock_ticker)
+
+    dates = pd.to_datetime(
+        ["2023-01-01", "2023-01-05", "2023-01-08", "2023-01-09", "2023-01-12"]
+    )
+    # Last FX quote is 2023-01-01 until 2023-01-12:
+    # - 2023-01-05 (+4d) and 2023-01-08 (+7d) are within the 7-day guardrail.
+    # - 2023-01-09 (+8d) exceeds the 7-day guardrail and must be excluded.
+    # - 2023-01-12 has a fresh quote (0d) and resumes conversion cleanly.
+    fx_df = pd.DataFrame(
+        {"Close": [1.30, 1.40]},
+        index=pd.to_datetime(["2023-01-01", "2023-01-12"]),
+    )
+    fetcher = MagicMock()
+    fetcher.fetch_history.return_value = fx_df
+
+    prices = pd.DataFrame({"USD_ASSET": [100.0] * len(dates)}, index=dates)
+    adjusted = apply_fx_conversion(prices, base_currency="CAD", fetcher=fetcher)
+
+    assert list(adjusted.index) == list(
+        pd.to_datetime(["2023-01-01", "2023-01-05", "2023-01-08", "2023-01-12"])
+    )
+    assert adjusted.loc[pd.Timestamp("2023-01-08"), "USD_ASSET"] == pytest.approx(130.0)
+    assert adjusted.loc[pd.Timestamp("2023-01-12"), "USD_ASSET"] == pytest.approx(140.0)
+
+
+def test_apply_fx_conversion_staleness_opt_out_and_validation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Passing max_fx_staleness_days=None allows unbounded carry; negative fails."""
+    with pytest.raises(ValueError, match="non-negative"):
+        apply_fx_conversion(
+            pd.DataFrame({"USD_ASSET": [100.0]}, index=pd.to_datetime(["2023-01-01"])),
+            max_fx_staleness_days=-1,
+        )
+
+    mock_ticker = MagicMock()
+    mock_ticker.info = {"currency": "USD"}
+    monkeypatch.setattr("pysharpe.data.fetcher.yf.Ticker", lambda _: mock_ticker)
+
+    dates = pd.to_datetime(["2023-01-01", "2023-01-15"])
+    fx_df = pd.DataFrame({"Close": [1.30]}, index=pd.to_datetime(["2023-01-01"]))
+    fetcher = MagicMock()
+    fetcher.fetch_history.return_value = fx_df
+
+    prices = pd.DataFrame({"USD_ASSET": [100.0, 100.0]}, index=dates)
+    adjusted = apply_fx_conversion(
+        prices, base_currency="CAD", fetcher=fetcher, max_fx_staleness_days=None
+    )
+
+    assert len(adjusted) == 2
+    assert adjusted.loc[pd.Timestamp("2023-01-15"), "USD_ASSET"] == pytest.approx(130.0)
+
+
+def test_apply_fx_conversion_stale_fx_unsorted_preserves_prefix_invariance(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Unsorted rows must compute FX staleness chronologically without lookahead."""
+    mock_ticker = MagicMock()
+    mock_ticker.info = {"currency": "USD"}
+    monkeypatch.setattr("pysharpe.data.fetcher.yf.Ticker", lambda _: mock_ticker)
+
+    dates = pd.to_datetime(["2023-01-01", "2023-01-09", "2023-01-12"])
+    rates = pd.DataFrame(
+        {"Close": [1.30, 1.40]},
+        index=pd.to_datetime(["2023-01-01", "2023-01-12"]),
+    )
+    fetcher = MagicMock()
+    fetcher.fetch_history.side_effect = lambda ticker, **kwargs: rates.loc[
+        : kwargs["end"]
+    ]
+
+    prefix = pd.DataFrame({"USD_ASSET": [100.0, 100.0]}, index=dates[:2])
+    full_unsorted = pd.DataFrame(
+        {"USD_ASSET": [100.0, 100.0, 100.0]}, index=dates
+    ).iloc[[2, 0, 1]]
+
+    prefix_result = apply_fx_conversion(prefix, fetcher=fetcher)
+    full_result = apply_fx_conversion(full_unsorted, fetcher=fetcher)
+
+    assert pd.Timestamp("2023-01-09") not in prefix_result.index
+    assert pd.Timestamp("2023-01-09") not in full_result.index
+    pd.testing.assert_frame_equal(
+        full_result.loc[full_result.index <= dates[1]].sort_index(), prefix_result
+    )

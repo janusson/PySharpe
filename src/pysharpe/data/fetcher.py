@@ -21,10 +21,48 @@ def _default_duckdb_cache_path() -> str:
     return str(settings.cache_dir / "pysharpe_cache.db")
 
 
+def align_fx_rates(
+    fx_series: pd.Series,
+    target_index: pd.Index,
+    *,
+    max_staleness_days: int | None = 7,
+) -> pd.Series:
+    """Causally align FX observations to ``target_index`` without lookahead or stale carry.
+
+    Missing FX dates are forward-filled strictly in chronological order (never
+    backfilled). When ``max_staleness_days`` is provided, carried observations
+    whose age exceeds ``max_staleness_days`` calendar days from the latest
+    observed non-NaN FX quote are cleared to ``NaN``.
+    """
+
+    if max_staleness_days is not None and max_staleness_days < 0:
+        raise ValueError("max_staleness_days must be non-negative or None.")
+
+    aligned = fx_series.reindex(target_index)
+    order = target_index.argsort(kind="stable")
+    ordered_fx = aligned.iloc[order]
+    filled_fx = ordered_fx.ffill()
+
+    if max_staleness_days is not None and len(ordered_fx) > 0:
+        ordered_dates = pd.Series(
+            pd.to_datetime(target_index[order]),
+            index=ordered_fx.index,
+        )
+        last_obs_dates = ordered_dates.where(ordered_fx.notna()).ffill()
+        stale_mask = (ordered_dates - last_obs_dates) > pd.Timedelta(
+            days=max_staleness_days
+        )
+        filled_fx = filled_fx.where(~stale_mask)
+
+    return filled_fx.iloc[order.argsort()]
+
+
 def apply_fx_conversion(
     prices: pd.DataFrame,
     base_currency: str = "CAD",
     fetcher: PriceFetcher | None = None,
+    *,
+    max_fx_staleness_days: int | None = 7,
 ) -> pd.DataFrame:
     """Adjust price data for foreign exchange rates.
 
@@ -32,13 +70,23 @@ def apply_fx_conversion(
         prices: Historical price data with tickers as columns.
         base_currency: The target currency for all assets (default "CAD").
         fetcher: Optional PriceFetcher to use for downloading FX data.
+        max_fx_staleness_days: Maximum calendar age allowed when carrying
+            forward the most recent observed FX quote (default ``7`` days,
+            bridging weekends and extended exchange holidays). Rows whose most
+            recent FX quote is older than this limit are excluded alongside
+            uncovered leading rows. Pass ``None`` to allow unbounded causal
+            forward-fill.
 
     Returns:
         DataFrame with all prices converted to the base currency.
 
     Raises:
-        ValueError: If FX data cannot be downloaded or is empty.
+        ValueError: If ``max_fx_staleness_days`` is negative, FX data cannot
+            be downloaded or is empty, or all rows are excluded.
     """
+
+    if max_fx_staleness_days is not None and max_fx_staleness_days < 0:
+        raise ValueError("max_fx_staleness_days must be non-negative or None.")
 
     if fetcher is None:
         fetcher = YFinancePriceFetcher()
@@ -111,26 +159,29 @@ def apply_fx_conversion(
         if isinstance(prices_index, pd.DatetimeIndex) and prices_index.tz is not None:
             prices_index = prices_index.tz_localize(None)
 
-        aligned_fx = fx_series.reindex(prices_index)
-        # Fill in chronological order, then restore the original price row order.
-        order = prices_index.argsort(kind="stable")
-        aligned_fx = aligned_fx.iloc[order].ffill().iloc[order.argsort()]
+        aligned_fx = align_fx_rates(
+            fx_series,
+            prices_index,
+            max_staleness_days=max_fx_staleness_days,
+        )
 
-        leading_nan = aligned_fx.isna()
-        if leading_nan.any():
+        uncovered = aligned_fx.isna()
+        if uncovered.any():
             first_valid = aligned_fx.first_valid_index()
-            n = int(leading_nan.sum())
+            n = int(uncovered.sum())
             logger.warning(
-                "FX data for %s not available before %s; excluding %d row(s) "
-                "from price history to prevent lookahead bias.",
+                "FX data for %s unavailable or older than %s day(s) (first valid %s); "
+                "excluding %d row(s) from price history to prevent lookahead or "
+                "staleness bias.",
                 fx_ticker,
+                max_fx_staleness_days,
                 first_valid,
                 n,
             )
             # Use .values for positional alignment: prices_index may be tz-stripped
             # but has the same length and row order as prices.index.
             rows_to_exclude |= pd.Series(
-                leading_nan.values, index=prices.index, dtype=bool
+                uncovered.values, index=prices.index, dtype=bool
             )
 
         adjusted_prices[ticker] = adjusted_prices[ticker] * aligned_fx

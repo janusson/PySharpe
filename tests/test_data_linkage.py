@@ -576,6 +576,61 @@ class TestHistoryLinkerStitched:
             10.0 * (100.0 / 40.0)
         )
 
+    def test_stitched_series_excludes_stale_fx_rows_beyond_limit(self):
+        """HistoryLinker excludes proxy dates whose carried FX exceeds max_fx_staleness_days."""
+        with pytest.raises(ValueError, match="non-negative"):
+            HistoryLinker(proxy_map={"TARGET": "PROXY"}, max_fx_staleness_days=-1)
+
+        class _StaleFxFetcher(_HistoryFetcher):
+            def fetch_history(
+                self,
+                ticker: str,
+                *,
+                period: str = "max",
+                interval: str = "1d",
+                start: str | None = None,
+                end: str | None = None,
+            ) -> pd.DataFrame:
+                # Extend proxy/FX dates across a >7-day FX blackout before handover.
+                all_dates = pd.date_range("2020-01-01", periods=15, freq="D", tz="UTC")
+                if ticker == "PROXY":
+                    return pd.DataFrame(
+                        {"Close": [float(10 + i) for i in range(15)]}, index=all_dates
+                    )
+                if ticker == "TARGET":
+                    return pd.DataFrame(
+                        {"Close": [100.0, 101.0, 102.0]}, index=all_dates[12:]
+                    )
+                if ticker == "USDCAD=X":
+                    # Quoted on Jan 1 and Jan 12: Jan 9..11 (+8d..+10d) exceed 7d limit.
+                    return pd.DataFrame(
+                        {"Close": [1.5, 2.0]},
+                        index=all_dates[[0, 11]],
+                    )
+                return super().fetch_history(
+                    ticker, period=period, interval=interval, start=start, end=end
+                )
+
+        bounded = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=True,
+            fetcher=_StaleFxFetcher(),
+        ).get_stitched_series("TARGET", start_date="2020-01-01")
+
+        # Jan 9..11 (indices 8, 9, 10) must be excluded; Jan 8 (+7d) and Jan 12 (+0d) kept.
+        for stale_day in ["2020-01-09", "2020-01-10", "2020-01-11"]:
+            assert pd.Timestamp(stale_day, tz="UTC") not in bounded.index
+        assert pd.Timestamp("2020-01-08", tz="UTC") in bounded.index
+        assert pd.Timestamp("2020-01-12", tz="UTC") in bounded.index
+
+        unbounded = HistoryLinker(
+            proxy_map={"TARGET": "PROXY"},
+            fx_adjust=True,
+            fetcher=_StaleFxFetcher(),
+            max_fx_staleness_days=None,
+        ).get_stitched_series("TARGET", start_date="2020-01-01")
+        assert pd.Timestamp("2020-01-09", tz="UTC") in unbounded.index
+
 
 # ---------------------------------------------------------------------------
 # Window parameter propagation

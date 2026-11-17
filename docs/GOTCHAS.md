@@ -124,6 +124,22 @@
 - **Regression test:** `test_stitched_series_fx_direction_with_varying_usdcad`
   in `tests/test_data_linkage.py`.
 
+### 2026 — Unbounded chronological `.ffill()` carried arbitrarily stale FX quotes
+
+- **Symptom:** Chronological forward-fill in `apply_fx_conversion` and
+  `HistoryLinker` carried an old `USDCAD=X` observation indefinitely across
+  multi-week FX feed outages or holidays.
+- **Fix:** Extracted shared `align_fx_rates` helper (`src/pysharpe/data/fetcher.py`)
+  enforcing a configurable `max_fx_staleness_days: int | None = 7` calendar-day
+  age limit chronologically before un-sorting, excluding stale rows cleanly across
+  both `apply_fx_conversion` and `HistoryLinker`.
+- **Regression tests:** `test_apply_fx_conversion_excludes_stale_fx_beyond_limit`,
+  `test_apply_fx_conversion_staleness_opt_out_and_validation`, and
+  `test_apply_fx_conversion_stale_fx_unsorted_preserves_prefix_invariance` in
+  `tests/test_fx_adjustment.py`;
+  `test_stitched_series_excludes_stale_fx_rows_beyond_limit` in
+  `tests/test_data_linkage.py`.
+
 ### 2026 — `simulate_dca` truncated month `N` and compounded end-of-month deposits immediately
 
 - **Symptom:** `simulate_dca(months=N, ...)` previously emitted `months=0..N-1` (`N` points stopping short of month `N`) and grew each deposit by `(1 + monthly_rate)` even though its docstring promised end-of-month contributions (`$111.10` at month 1 instead of `$111.00` for `$100` initial, `$10` monthly, 1% effective monthly rate).
