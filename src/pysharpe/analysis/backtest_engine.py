@@ -126,16 +126,20 @@ class HistoricalBacktester:
         # Identify valid assets
         available_assets = set(self.prices.columns)
         target_assets = set(self.target_weights.keys())
-        held_assets = (
-            {a for a, qty in initial_shares.items() if abs(qty) > 1e-12}
-            if initial_shares is not None
-            else set()
-        )
-        missing_held = sorted(held_assets - available_assets)
-        if missing_held:
-            raise ValueError(
-                f"Initial held assets missing from prices data: {', '.join(missing_held)}"
-            )
+        if initial_shares is not None:
+            for asset, qty in initial_shares.items():
+                if not np.isfinite(qty) or qty < 0.0:
+                    raise ValueError(
+                        f"Initial shares for {asset!r} must be finite and non-negative."
+                    )
+            missing_held = sorted(set(initial_shares.keys()) - available_assets)
+            if missing_held:
+                raise ValueError(
+                    f"Initial held assets missing from prices data: {', '.join(missing_held)}"
+                )
+            held_assets = {a for a, qty in initial_shares.items() if abs(qty) > 1e-12}
+        else:
+            held_assets = set()
         self.assets = sorted(available_assets.intersection(target_assets | held_assets))
 
         if not self.assets:
@@ -166,6 +170,64 @@ class HistoricalBacktester:
         variable = turnover_dollars * (self.slippage_pct + self.spread_pct / 2.0)
         fixed = n_orders * self.fee_per_trade
         return float(variable + fixed)
+
+    def _carried_starting_capital(self, asset_values: np.ndarray) -> float:
+        """Solve equity plus executed transition costs equals starting value.
+
+        Final equity determines every target position and hence the turnover
+        and number of orders, including sales needed to pay fees. The equation
+        is linear between position sign changes and the existing $0.0001
+        commission threshold. Enumerate those intervals rather than iterating
+        a potentially discontinuous fixed-fee equation to apparent convergence.
+        """
+        value = float(asset_values.sum())
+        order_threshold = 1e-4
+        variable_rate = self.slippage_pct + self.spread_pct / 2.0
+        nonzero_targets = self.targets != 0.0
+        position_breaks = (
+            asset_values[nonzero_targets, None]
+            + np.array([-order_threshold, 0.0, order_threshold])
+        ) / self.targets[nonzero_targets, None]
+        breaks = np.unique(np.concatenate(([0.0, value], position_breaks.ravel())))
+        breaks = breaks[(breaks >= 0.0) & (breaks <= value)]
+        midpoints = (breaks[:-1] + breaks[1:]) / 2.0
+        deltas = midpoints[:, None] * self.targets - asset_values
+        signs = np.sign(deltas)
+        orders = (np.abs(deltas) > order_threshold).sum(axis=1)
+        denominator = 1.0 + variable_rate * (signs @ self.targets)
+        numerator = (
+            value - self.fee_per_trade * orders + variable_rate * (signs @ asset_values)
+        )
+        roots = np.divide(
+            numerator,
+            denominator,
+            out=np.full_like(numerator, np.nan),
+            where=denominator != 0.0,
+        )
+        inside_interval = (roots >= breaks[:-1]) & (roots <= breaks[1:])
+        candidates = np.concatenate((breaks, roots[inside_interval], midpoints))
+        final_trades = np.abs(candidates[:, None] * self.targets - asset_values)
+        fees = variable_rate * final_trades.sum(axis=1) + self.fee_per_trade * (
+            final_trades > order_threshold
+        ).sum(axis=1)
+        feasible = np.isclose(candidates + fees, value, rtol=1e-12, atol=1e-9)
+        if feasible.any():
+            return float(candidates[feasible].max())
+
+        liquidation_fees = self._transaction_costs(
+            float(np.abs(asset_values).sum()),
+            int((np.abs(asset_values) > order_threshold).sum()),
+        )
+        if liquidation_fees >= value:
+            return 0.0
+        raise RuntimeError(
+            "No self-financing exact-target transition exists with these fixed "
+            f"fees: NAV ${value:,.2f}, "
+            f"{int(np.count_nonzero(nonzero_targets))} target position(s), "
+            f"${self.fee_per_trade:,.2f} per order, "
+            f"{variable_rate:.4%} variable cost on turnover. Reduce the fixed "
+            "fee, add starting capital, or reduce the number of target assets."
+        )
 
     def run(self) -> BacktestResult:
         """Execute the chronological backtest simulation.
@@ -240,28 +302,18 @@ class HistoricalBacktester:
             total_initial_fees = self._transaction_costs(
                 float(np.sum(initial_target_dollars)), int(initial_num_trades)
             )
+            actual_starting_capital = max(0.0, pre_trade_value - total_initial_fees)
         else:
             held_shares = np.array(
                 [float(self.initial_shares.get(a, 0.0)) for a in self.assets],
                 dtype=float,
             )
-            pre_trade_value = float(np.sum(held_shares * initial_prices))
+            asset_values = held_shares * initial_prices
+            pre_trade_value = float(np.sum(asset_values))
             if pre_trade_value <= 0.0:
-                portfolio_values[0] = 0.0
-                self.ending_shares_ = dict.fromkeys(self.assets, 0.0)
-                return BacktestResult(
-                    pd.Series(portfolio_values, index=dates, name="Portfolio Value"),
-                    pd.DataFrame(daily_weights, index=dates, columns=self.assets),
-                    pd.DatetimeIndex([]),
-                )
-            ideal_target_shares = (pre_trade_value * self.targets) / initial_prices
-            dollars_traded = np.abs(ideal_target_shares - held_shares) * initial_prices
-            initial_num_trades = np.sum(dollars_traded > 1e-4)
-            total_initial_fees = self._transaction_costs(
-                float(np.sum(dollars_traded)), int(initial_num_trades)
-            )
-
-        actual_starting_capital = max(0.0, pre_trade_value - total_initial_fees)
+                actual_starting_capital = 0.0
+            else:
+                actual_starting_capital = self._carried_starting_capital(asset_values)
         if actual_starting_capital <= 0.0:
             # Initial costs consume the whole stake: no positions are opened
             # and the simulation records a flat zero equity curve.

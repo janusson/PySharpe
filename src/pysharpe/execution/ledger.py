@@ -40,14 +40,25 @@ from decimal import (
     InvalidOperation,
 )
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
 from pysharpe.exceptions import DataValidationError
 from pysharpe.execution.tax_tracker import ACBPosition
-from pysharpe.guardrails.tax_compliance import ACBTracker as NonRegACBTracker
 from pysharpe.optimization.tax_location import AccountType
+
+if TYPE_CHECKING:
+    from pysharpe.guardrails.tax_compliance import ACBTracker as NonRegACBTracker
+
+
+def _new_non_reg_acb_tracker() -> NonRegACBTracker:
+    # Deferred import avoids a package-init cycle when guardrails.tax_compliance
+    # (which imports pysharpe.execution.tax_tracker) is imported before execution.
+    from pysharpe.guardrails.tax_compliance import ACBTracker
+
+    return ACBTracker()
+
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0")
@@ -708,7 +719,7 @@ class PortfolioLedger:
         self._accounts: dict[str, Account] = {}
         self._cash: dict[tuple[str, Currency], _MutableCashBucket] = {}
         self._positions: dict[tuple[str, str], _MutablePosition] = {}
-        self._tax_acb: NonRegACBTracker = NonRegACBTracker()
+        self._tax_acb: NonRegACBTracker = _new_non_reg_acb_tracker()
 
     @property
     def rounding(self) -> str:
@@ -962,7 +973,7 @@ class PortfolioLedger:
         ]
         cash: dict[tuple[str, Currency], _MutableCashBucket] = {}
         positions: dict[tuple[str, str], _MutablePosition] = {}
-        tax_acb = NonRegACBTracker()
+        tax_acb = _new_non_reg_acb_tracker()
 
         for tx in ordered:
             self._apply_tx(tx, cash=cash, positions=positions, tax_acb=tax_acb)

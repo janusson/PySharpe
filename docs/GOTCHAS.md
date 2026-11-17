@@ -1,5 +1,34 @@
 # Gotchas
 
+### 2026 — Carried walk-forward transitions must solve self-financing post-fee turnover
+
+- Symptom: `HistoricalBacktester(..., initial_shares=...)` broke dollar
+  conservation (`final_equity + paid_costs != pre_trade_value`) whenever fees
+  forced additional sales or flipped an unchanged asset across the `$1e-4`
+  order threshold.
+- Root cause: computing transition turnover against `pre_trade_value * target`
+  ignores that fees shrink ending equity and therefore change every target
+  dollar position (and potentially the number of orders above `$1e-4`).
+- Fix: `HistoricalBacktester._carried_starting_capital` enumerates the exact
+  piecewise-linear intervals over sign changes and `$1e-4` thresholds, checks
+  feasibility (`equity + fees == pre_trade_value`), and raises `RuntimeError` if
+  fixed fees render an exact-target transition infeasible.
+- Regression tests: `tests/test_analysis_transaction_costs.py`
+  (`test_carried_transition_*`) and `tests/test_analysis_backtest_engine.py`
+  (`test_walk_forward_charges_only_actual_transition_trades`).
+
+### 2026 — Circular import between `execution.ledger` and `guardrails.tax_compliance`
+
+- Symptom: importing `pysharpe.guardrails.tax_compliance` in a fresh Python
+  process raised `ImportError: cannot import name 'ACBTracker' from partially
+  initialized module 'pysharpe.guardrails.tax_compliance'`.
+- Root cause: `guardrails.tax_compliance` imports `ACBPosition` from
+  `execution.tax_tracker`, which evaluates `execution/__init__.py` ->
+  `execution.ledger` -> back to `guardrails.tax_compliance.ACBTracker`.
+- Fix: `execution.ledger` imports `guardrails.tax_compliance.ACBTracker` only
+  under `TYPE_CHECKING` and inside `_new_non_reg_acb_tracker()`.
+- Regression test: `tests/test_tax_compliance.py::test_importing_guardrails_before_execution_does_not_cycle`.
+
 ### 2026 — `PySharpeError` escaped the rebalance script entry point
 
 - Symptom: running `uv run scripts/rebalance.py --portfolio nope` printed a raw
