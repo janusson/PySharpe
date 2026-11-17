@@ -88,14 +88,39 @@
 - **Regression test:** `test_stitched_series_fx_direction_with_varying_usdcad`
   in `tests/test_data_linkage.py`.
 
+### 2026 — DCA horizon and contribution timing need review (unresolved)
+
+- `simulate_dca(months=2, ...)` currently returns months 0 and 1, not 0
+  through 2. Its nonzero-rate formula grows the first contribution for one
+  month, despite documenting deposits at month end.
+- With $100 initially, $10 per month, and an effective monthly rate of 1%,
+  the current month-1 balance is $111.10; an end-of-month deposit would give
+  $111.00. Existing tests encode the current convention. Reconcile the API,
+  UI, CLI, and tests before presenting it as a conventional DCA projection.
+- The offline example intentionally uses fictional price inspection instead;
+  it does not call the DCA simulator.
+
+### 2026 — Dashboard analysis cache omitted price contents
+
+- Symptom: replacing an uploaded price history with different values but the
+  same tickers, dates, weights, and return basis reused the previous analysis,
+  even when the user requested analysis again.
+- Root cause: the session cache compared control values but not the actual
+  selected price frame. Mutating that frame in place had the same effect.
+- Fix: compare the current price frame with an independent snapshot before
+  reusing the cached analysis. This does not refresh upstream data or verify
+  its freshness, source vintage, or point-in-time availability.
+- Regression tests: `tests/test_app_analysis_cache.py` exercises replacement,
+  in-place mutation, frame-structure changes, and unchanged-frame reuse.
+
 ### 2026 — Chronological filling and calendar boundaries
 
 - Forward-fill in input row order is unsafe when timestamps are unsorted: a
-  future observation can fill an earlier row. FX conversion now fills
-  chronologically before restoring row order. Synthetic prefix regressions are
-  in `tests/test_fx_adjustment.py` and `tests/test_data_linkage.py`. Other
-  forward-fill sites require their own ordering and staleness review; a search
-  alone cannot establish causality.
+  future observation can fill an earlier row. FX conversion and dashboard
+  cleaning now fill chronologically before restoring row order. Synthetic prefix
+  regressions are in `tests/test_fx_adjustment.py`, `tests/test_data_linkage.py`,
+  and `tests/test_app_helpers.py`. Other forward-fill sites require their own
+  ordering and staleness review; a search alone cannot establish causality.
 - Treating the final input row as a period end made calendar rebalance events
   and fees change when future data was appended. Calendar rebalances now run
   at the first observed close in a new period, after marking existing holdings.

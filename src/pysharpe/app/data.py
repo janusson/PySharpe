@@ -70,14 +70,14 @@ def _deduplicate_columns(columns: Iterable[object]) -> pd.Index:
 
 
 def _clean_numeric_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """Forward/backward fill numeric data and normalise labels."""
+    """Forward-fill numeric data in index order and normalise labels."""
 
     if frame.empty:
         return frame
     cleaned = frame.dropna(how="all", axis=1)
     if cleaned.empty:
         return cleaned
-    cleaned = cleaned.ffill()
+    cleaned = cleaned.sort_index().ffill()
     cleaned.columns = _deduplicate_columns(cleaned.columns)
     return cleaned
 

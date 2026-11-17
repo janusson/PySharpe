@@ -159,7 +159,13 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.models`
 
 ## `test_app_helpers.py`
-- `app`
+- `app` (including chronological dashboard fill prefix invariance)
+
+## `test_app_analysis_cache.py`
+- `app` (analysis cache invalidation when selected price data changes)
+
+## `test_offline_example.py`
+- `demo.py` and `pysharpe.app.offline_example` (offline first-run flow and synthetic price comparison)
 
 ## `test_backtest_page.py`
 - `pysharpe.analysis.backtest_engine`
@@ -206,7 +212,7 @@ your change instead of the full suite every time.
 | `analysis/tactical_walk_forward.py` | `pytest tests/test_tactical_momentum.py` |
 | `analysis/tactical_momentum.py` trend rules | `pytest tests/test_tactical_extensions.py tests/test_tactical_momentum.py` |
 | `analysis/portfolio_overlap.py` | `pytest tests/test_tactical_extensions.py` |
-| `app.py`, `app/*.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py` |
+| `app.py`, `app/*.py`, `demo.py` | `pytest tests/test_app_streamlit.py tests/test_app_helpers.py tests/test_app_analysis_cache.py tests/test_offline_example.py` |
 | `cli.py` | `pytest tests/test_cli.py` |
 | `config.py` | `pytest tests/test_config.py tests/test_2d_allocation.py` |
 | `data/collation.py` | `pytest tests/test_collation.py` |
