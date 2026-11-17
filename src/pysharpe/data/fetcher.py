@@ -52,8 +52,11 @@ def apply_fx_conversion(
     adjusted_prices = prices.copy()
     rows_to_exclude = pd.Series(False, index=prices.index)
 
-    start_date = prices.index.min().strftime("%Y-%m-%d")
-    end_date = prices.index.max().strftime("%Y-%m-%d")
+    start_date = pd.Timestamp(prices.index.min()).strftime("%Y-%m-%d")
+    # yfinance `end` is exclusive; advance by 1 day so the final price date is included.
+    end_date = (pd.Timestamp(prices.index.max()) + pd.Timedelta(days=1)).strftime(
+        "%Y-%m-%d"
+    )
 
     for ticker in prices.columns:
         try:

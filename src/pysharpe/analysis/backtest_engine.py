@@ -56,6 +56,7 @@ class HistoricalBacktester:
         fee_per_trade: float = 0.0,
         slippage_pct: float = 0.0,
         spread_pct: float = 0.0,
+        initial_shares: dict[str, float] | None = None,
     ) -> None:
         """Initialize the backtester with price data and rule configurations.
 
@@ -119,19 +120,31 @@ class HistoricalBacktester:
         self.fee_per_trade = fee_per_trade
         self.slippage_pct = slippage_pct
         self.spread_pct = spread_pct
+        self.initial_shares = initial_shares
+        self.ending_shares_: dict[str, float] = {}
 
         # Identify valid assets
         available_assets = set(self.prices.columns)
         target_assets = set(self.target_weights.keys())
-        self.assets = sorted(list(available_assets.intersection(target_assets)))
+        held_assets = (
+            {a for a, qty in initial_shares.items() if abs(qty) > 1e-12}
+            if initial_shares is not None
+            else set()
+        )
+        missing_held = sorted(held_assets - available_assets)
+        if missing_held:
+            raise ValueError(
+                f"Initial held assets missing from prices data: {', '.join(missing_held)}"
+            )
+        self.assets = sorted(available_assets.intersection(target_assets | held_assets))
 
         if not self.assets:
             raise ValueError(
                 "No overlapping assets found between prices and target weights."
             )
 
-        # Construct target vector
-        raw_targets = np.array([self.target_weights[a] for a in self.assets])
+        # Construct target vector (assets held previously but absent from targets liquidate to 0)
+        raw_targets = np.array([self.target_weights.get(a, 0.0) for a in self.assets])
         total_target = raw_targets.sum()
         if total_target <= 0:
             raise ValueError("Total target weight must be positive.")
@@ -177,6 +190,7 @@ class HistoricalBacktester:
         n_days, n_assets = price_matrix.shape
 
         if n_days == 0:
+            self.ending_shares_ = dict.fromkeys(self.assets, 0.0)
             return BacktestResult(
                 pd.Series(dtype=float),
                 pd.DataFrame(columns=self.assets),
@@ -217,21 +231,42 @@ class HistoricalBacktester:
         rebalance_dates = []
 
         # Initial Setup (Day 0)
-        # Assume buy at Close of Day 0
+        # Either invest initial cash from scratch or carry and rebalance existing shares.
         initial_prices = price_matrix[0]
-        initial_target_dollars = self.initial_capital * self.targets
+        if self.initial_shares is None:
+            pre_trade_value = self.initial_capital
+            initial_target_dollars = pre_trade_value * self.targets
+            initial_num_trades = np.sum(initial_target_dollars > 1e-4)
+            total_initial_fees = self._transaction_costs(
+                float(np.sum(initial_target_dollars)), int(initial_num_trades)
+            )
+        else:
+            held_shares = np.array(
+                [float(self.initial_shares.get(a, 0.0)) for a in self.assets],
+                dtype=float,
+            )
+            pre_trade_value = float(np.sum(held_shares * initial_prices))
+            if pre_trade_value <= 0.0:
+                portfolio_values[0] = 0.0
+                self.ending_shares_ = dict.fromkeys(self.assets, 0.0)
+                return BacktestResult(
+                    pd.Series(portfolio_values, index=dates, name="Portfolio Value"),
+                    pd.DataFrame(daily_weights, index=dates, columns=self.assets),
+                    pd.DatetimeIndex([]),
+                )
+            ideal_target_shares = (pre_trade_value * self.targets) / initial_prices
+            dollars_traded = np.abs(ideal_target_shares - held_shares) * initial_prices
+            initial_num_trades = np.sum(dollars_traded > 1e-4)
+            total_initial_fees = self._transaction_costs(
+                float(np.sum(dollars_traded)), int(initial_num_trades)
+            )
 
-        # Calculate initial fees
-        initial_num_trades = np.sum(initial_target_dollars > 1e-4)
-        total_initial_fees = self._transaction_costs(
-            float(np.sum(initial_target_dollars)), int(initial_num_trades)
-        )
-
-        actual_starting_capital = max(0.0, self.initial_capital - total_initial_fees)
+        actual_starting_capital = max(0.0, pre_trade_value - total_initial_fees)
         if actual_starting_capital <= 0.0:
             # Initial costs consume the whole stake: no positions are opened
             # and the simulation records a flat zero equity curve.
             portfolio_values[0] = 0.0
+            self.ending_shares_ = dict.fromkeys(self.assets, 0.0)
             return BacktestResult(
                 pd.Series(portfolio_values, index=dates, name="Portfolio Value"),
                 pd.DataFrame(daily_weights, index=dates, columns=self.assets),
@@ -250,6 +285,7 @@ class HistoricalBacktester:
             total_value = np.sum(asset_values)
             portfolio_values[t] = total_value
             if total_value <= 0:
+                current_shares = np.zeros(n_assets)
                 break  # Portfolio wiped out; stop simulation
             current_weights = asset_values / total_value
 
@@ -311,6 +347,7 @@ class HistoricalBacktester:
                     total_value = 0.0
                     portfolio_values[t] = 0.0
                     daily_weights[t] = current_weights
+                    current_shares = np.zeros(n_assets)
                     break
                 total_value -= total_fees
 
@@ -323,6 +360,9 @@ class HistoricalBacktester:
             portfolio_values[t] = total_value
             daily_weights[t] = current_weights
 
+        self.ending_shares_ = {
+            asset: float(qty) for asset, qty in zip(self.assets, current_shares)
+        }
         return BacktestResult(
             portfolio_value=pd.Series(
                 portfolio_values, index=dates, name="Portfolio Value"
@@ -440,6 +480,7 @@ class WalkForwardBacktester:
         rebalance_events = []
 
         current_capital = self.initial_capital
+        current_shares: dict[str, float] | None = None
         start_idx = 0
 
         # Run until we can't form a full training window
@@ -456,8 +497,9 @@ class WalkForwardBacktester:
             # 2. Test
             test_data = prices.iloc[train_end_idx:test_end_idx]
 
-            # Use HistoricalBacktester to simulate the test window
-            # Start the test window with the ending capital of the previous window
+            # Use HistoricalBacktester to simulate the test window.
+            # Window 0 deploys initial_capital cash; later windows mark carried
+            # shares to market and charge costs only on actual turnover.
             sub_backtester = HistoricalBacktester(
                 prices=test_data,
                 target_weights=target_weights,
@@ -467,6 +509,7 @@ class WalkForwardBacktester:
                 fee_per_trade=self.fee_per_trade,
                 slippage_pct=self.slippage_pct,
                 spread_pct=self.spread_pct,
+                initial_shares=current_shares,
             )
             sub_result = sub_backtester.run()
 
@@ -475,8 +518,9 @@ class WalkForwardBacktester:
             historical_weights.append(sub_result.historical_weights)
             rebalance_events.append(dates[train_end_idx])
 
-            # Update capital for the next iteration
+            # Carry ending holdings and capital into the next window
             current_capital = sub_result.portfolio_value.iloc[-1]
+            current_shares = sub_backtester.ending_shares_
 
             # Step forward
             start_idx += self.test_window_days
@@ -488,7 +532,7 @@ class WalkForwardBacktester:
             ~combined_values.index.duplicated(keep="last")
         ]
 
-        combined_weights = pd.concat(historical_weights)
+        combined_weights = pd.concat(historical_weights).fillna(0.0)
         combined_weights = combined_weights[
             ~combined_weights.index.duplicated(keep="last")
         ]
@@ -529,7 +573,7 @@ class WalkForwardBacktester:
         # Calculate benchmark curve
         # Align benchmark with the strategy's dates
         bench_prices = prices[benchmark_ticker].loc[strategy_curve.index]
-        bench_returns = bench_prices.pct_change().fillna(0)
+        bench_returns = bench_prices.pct_change(fill_method=None).fillna(0)
         benchmark_curve = self.initial_capital * (1 + bench_returns).cumprod()
 
         comparison = pd.DataFrame(

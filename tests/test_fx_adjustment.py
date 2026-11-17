@@ -225,3 +225,31 @@ def test_apply_fx_conversion_trims_to_common_fx_window(monkeypatch: pytest.Monke
     )
     assert adjusted.loc[pd.Timestamp("2023-01-03"), "USD_A"] == pytest.approx(136.0)
     assert adjusted.loc[pd.Timestamp("2023-01-03"), "USD_B"] == pytest.approx(272.0)
+
+
+def test_apply_fx_conversion_requests_inclusive_end_date(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """FX requests advance end date by 1 day so exclusive-end providers include max date."""
+    mock_ticker = MagicMock()
+    mock_ticker.info = {"currency": "USD"}
+    monkeypatch.setattr("pysharpe.data.fetcher.yf.Ticker", lambda _: mock_ticker)
+
+    captured: dict[str, str | None] = {}
+    dates = pd.to_datetime(["2023-01-01", "2023-01-02"])
+    fx_df = pd.DataFrame({"Close": [1.35, 1.36]}, index=dates)
+
+    def _fetch(ticker, *, period, interval, start=None, end=None):
+        captured["start"] = start
+        captured["end"] = end
+        # Simulate exclusive-end slicing [start, end)
+        return fx_df.loc[(fx_df.index >= start) & (fx_df.index < end)]
+
+    fetcher = MagicMock()
+    fetcher.fetch_history.side_effect = _fetch
+
+    prices = pd.DataFrame({"USD_ASSET": [100.0, 100.0]}, index=dates)
+    adjusted = apply_fx_conversion(prices, base_currency="CAD", fetcher=fetcher)
+
+    assert captured == {"start": "2023-01-01", "end": "2023-01-03"}
+    assert adjusted.loc[dates[1], "USD_ASSET"] == pytest.approx(136.0)

@@ -315,10 +315,12 @@ class HistoryLinker:
             spy_df = self.fetcher.fetch_history(
                 "SPY", period="max", interval="1d", start=start_date, end=None
             )
-            equity_calendar = spy_df.index
+            equity_calendar = spy_df.index.sort_values()
 
-            # Reindex proxy_price to equity_calendar using ffill
-            proxy_price = proxy_price.reindex(equity_calendar, method="ffill")
+            # Reindex proxy_price to sorted equity_calendar using causal ffill
+            proxy_price = proxy_price.sort_index().reindex(
+                equity_calendar, method="ffill"
+            )
             proxy_price = proxy_price.dropna()
 
         if self.fx_adjust:
