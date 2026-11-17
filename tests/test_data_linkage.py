@@ -544,6 +544,38 @@ class TestHistoryLinkerStitched:
         assert stitched.index.equals(expected.index)
         assert stitched.values == pytest.approx(expected.values)
 
+    def test_stitched_series_unsorted_24_7_calendar_does_not_lookahead(self):
+        """Unsorted 24/7 crypto proxy or SPY calendar must sort causally before ffill."""
+
+        class _CryptoFetcher(_HistoryFetcher):
+            def fetch_history(self, ticker, **kwargs):
+                dates = pd.date_range("2020-01-01", periods=10, freq="D", tz="UTC")
+                if ticker == "BTC-USD":
+                    # Provide unordered proxy observations on odd days + handover day
+                    idx = dates[[5, 1, 3, 4]]
+                    return pd.DataFrame({"Close": [50.0, 10.0, 30.0, 40.0]}, index=idx)
+                if ticker == "SPY":
+                    # Unsorted equity calendar including Jan 2 and Jan 4
+                    return pd.DataFrame(
+                        {"Close": [1.0, 1.0, 1.0]},
+                        index=dates[[4, 2, 0]],
+                    )
+                return super().fetch_history(ticker, **kwargs)
+
+        linker = HistoryLinker(
+            proxy_map={"TARGET": "BTC-USD"},
+            fx_adjust=False,
+            fetcher=_CryptoFetcher(),
+        )
+        stitched = linker.get_stitched_series("TARGET", start_date="2020-01-01")
+
+        # Jan 2 is causally filled with Jan 1 proxy (10.0), not Jan 3/5 future values;
+        # Jan 0 has no prior proxy observation and is excluded cleanly.
+        assert pd.Timestamp("2020-01-01", tz="UTC") not in stitched.index
+        assert stitched.loc[pd.Timestamp("2020-01-03", tz="UTC")] == pytest.approx(
+            10.0 * (100.0 / 40.0)
+        )
+
 
 # ---------------------------------------------------------------------------
 # Window parameter propagation

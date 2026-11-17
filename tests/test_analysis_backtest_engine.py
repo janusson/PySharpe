@@ -469,3 +469,93 @@ class TestWalkForwardMissingData:
         ).run()
         assert np.all(np.isfinite(result.portfolio_value.values))
         assert len(result.portfolio_value) == 28
+
+
+def test_walk_forward_preserves_transition_return_and_turnover_costs():
+    """Window transitions must mark carried shares to market and tax only turnover."""
+    from pysharpe.optimization.base import OptimizationResult
+
+    class _EqualOptimizer:
+        def __init__(self, data):
+            self.assets = data.columns.tolist()
+
+        def optimize(self):
+            return OptimizationResult(
+                weights={"A": 0.5, "B": 0.5},
+                expected_return=0.0,
+                volatility=0.0,
+                sharpe_ratio=0.0,
+            )
+
+    dates = pd.date_range("2024-01-01", periods=6)
+    prices = pd.DataFrame(
+        {
+            "A": [10.0, 10.0, 10.0, 10.0, 20.0, 20.0],
+            "B": [10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+        },
+        index=dates,
+    )
+    result = WalkForwardBacktester(
+        optimizer_factory=_EqualOptimizer,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=1000.0,
+        slippage_pct=0.01,
+    ).run(prices)
+
+    # Day 2 (window 1 start): 1000 * 0.01 = 10 entry fee -> 990 invested (49.5 A, 49.5 B).
+    # Day 3: 990.
+    # Day 4 (window 2 boundary): A doubles to 20 -> pre-trade NAV = 49.5*20 + 49.5*10 = 1485.
+    # Rebalance to 50/50 trades 247.5 of A + 247.5 of B = 495 turnover -> 4.95 fee -> 1480.05.
+    expected = [990.0, 990.0, 1480.05, 1480.05]
+    assert result.portfolio_value.tolist() == pytest.approx(expected)
+
+
+def test_walk_forward_rotates_and_liquidates_dropped_asset():
+    """Assets absent from a new fold's target_weights are liquidated cleanly with costs."""
+    from pysharpe.optimization.base import OptimizationResult
+
+    calls = {"n": 0}
+
+    class _RotatingOptimizer:
+        def __init__(self, data):
+            pass
+
+        def optimize(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                weights = {"A": 1.0, "B": 0.0}
+            else:
+                weights = {"B": 1.0}
+            return OptimizationResult(
+                weights=weights,
+                expected_return=0.0,
+                volatility=0.0,
+                sharpe_ratio=0.0,
+            )
+
+    dates = pd.date_range("2024-01-01", periods=6)
+    prices = pd.DataFrame(
+        {
+            "A": [10.0, 10.0, 10.0, 12.0, 12.0, 12.0],
+            "B": [10.0, 10.0, 10.0, 10.0, 10.0, 15.0],
+        },
+        index=dates,
+    )
+    result = WalkForwardBacktester(
+        optimizer_factory=_RotatingOptimizer,
+        train_window_days=2,
+        test_window_days=2,
+        initial_capital=1000.0,
+        slippage_pct=0.01,
+    ).run(prices)
+
+    # Day 2: buy 1000 A minus 10 fee = 990 -> 99 shares of A.
+    # Day 3: A=12 -> 1188.
+    # Day 4: pre-trade value 1188, sell all 99 A + buy B -> 2376 turnover * 0.01 = 23.76 fee.
+    # Net = 1164.24 at B=10 -> 116.424 shares B. Day 5: B=15 -> 1746.36.
+    assert result.portfolio_value.tolist() == pytest.approx(
+        [990.0, 1188.0, 1164.24, 1746.36]
+    )
+    assert result.historical_weights.loc[dates[4], "A"] == pytest.approx(0.0)
+    assert result.historical_weights.loc[dates[5], "B"] == pytest.approx(1.0)

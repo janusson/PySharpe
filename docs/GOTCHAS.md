@@ -91,6 +91,19 @@
   `test_plot_correlation_heatmap_internal_gap_does_not_fabricate_zero_returns` in
   `tests/test_visualization_charts.py`.
 
+### 2026 — Walk-forward backtest dropped transition-day returns and overcharged fees
+
+- **Symptom:** `WalkForwardBacktester` handed `initial_capital` cash (ignoring
+  held shares) to each new test fold's `HistoricalBacktester`, losing overnight
+  market returns across window boundaries and charging 100%-turnover entry
+  costs at every fold even when holdings barely changed.
+- **Fix:** Carry `initial_shares` / `ending_shares_` across fold transitions so
+  boundary closes mark held positions to market, liquidate dropped holdings, and
+  charge costs strictly on executed turnover.
+- **Regression tests:** `test_walk_forward_preserves_transition_return_and_turnover_costs`
+  and `test_walk_forward_rotates_and_liquidates_dropped_asset` in
+  `tests/test_analysis_backtest_engine.py`.
+
 ### 2026 — HistoryLinker divided USD proxies by USDCAD=X instead of multiplying
 
 - **Symptom:** `HistoryLinker.get_stitched_series` with `fx_adjust=True`
