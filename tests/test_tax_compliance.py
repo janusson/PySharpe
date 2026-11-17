@@ -1014,3 +1014,36 @@ def test_acb_position_type_is_shared_with_execution_ledger():
     from pysharpe.guardrails.tax_compliance import ACBPosition as GuardrailACBPosition
 
     assert GuardrailACBPosition is ExecutionACBPosition
+
+
+def test_importing_guardrails_before_execution_does_not_cycle():
+    """Fresh process can import guardrails.tax_compliance before execution."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import pysharpe
+
+    package_root = str(Path(pysharpe.__file__).resolve().parents[1])
+    env = os.environ.copy()
+    existing_pp = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        f"{package_root}{os.pathsep}{existing_pp}" if existing_pp else package_root
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import pysharpe.guardrails.tax_compliance; "
+                "import pysharpe.execution.ledger; "
+                "ledger = pysharpe.execution.ledger.PortfolioLedger()"
+            ),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
