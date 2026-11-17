@@ -678,6 +678,33 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
   been removed entirely.  Concentration risk is handled natively by
   Ledoit-Wolf covariance shrinkage.
 
+### 2026 — Multi-account cash-flow rebalance sell-sizing, zero-cash & whole-share FX bugs
+- **Symptoms**:
+  1. `evaluate_taxable_rebalance` under-sized sell amounts by `frac_in_acct` when an
+     asset was split across multiple accounts (multiplying `acct_val * (sell_weight / current_w)`
+     by `acct_val / total_asset_val` a second time).
+  2. `allocate_contribution_cash_flow` overwrote duplicate `(ticker, account)` rows when
+     constructing `current_values_nested`, appended duplicate account labels to
+     `acct_types_list[t]`, and omitted post-buy `buy_orders` amounts from `current_values_nested`.
+  3. `build_rebalance_plan` crashed on multi-account portfolios whenever one account had
+     `$0` current equity (`account_cash[acct] == 0.0` passed to `allocate_contribution`),
+     did not round `total_value == 0` splits to cents, and deducted an FX fee even when
+     `allow_fractional=False` floored purchases to `0` whole shares.
+- **Fix**:
+  1. Removed double `frac_in_acct` scaling in `evaluate_taxable_rebalance`; aggregated
+     duplicate `(ticker, account)` rows and post-buy amounts in `allocate_contribution_cash_flow`.
+  2. Extracted `_apply_fx_and_share_rounding` and `_zero_allocation_frame` in `rebalance.py`,
+     preserving full pre-fee cash in `leftover_cash` when `floored == 0`, rounding empty-account
+     splits to cents with exact remainder conservation, and skipping `allocate_contribution`
+     when an account's apportioned cash is `$0`.
+- **Regression tests**:
+  - `TestMultiAccountAndDuplicateRowsRegressions` in `tests/test_cash_flow_rebalance.py`
+  - `test_build_rebalance_plan_multi_account_zero_equity_account_does_not_crash`,
+    `test_build_rebalance_plan_three_empty_accounts_rounds_cash_to_cents`, and
+    `test_build_rebalance_plan_zero_whole_shares_does_not_burn_fx_fee` in
+    `tests/test_execution_rebalance.py`
+- **Grep guard**: `grep -rn 'frac_in_acct' src/pysharpe/execution/` (must return 0 matches)
+
 ---
 
 ## Pre-commit verification checklist

@@ -1246,3 +1246,86 @@ def test_main_prints_plan_on_success(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Rebalance plan for demo" in captured.out
+
+
+def test_build_rebalance_plan_multi_account_zero_equity_account_does_not_crash(
+    tmp_path,
+):
+    _write_artifacts(
+        tmp_path,
+        weights={"VFV.TO": 1.0},
+        prices={"VFV.TO": [100.0]},
+    )
+    holdings = _write_holdings(
+        tmp_path / "holdings.csv",
+        [
+            {"ticker": "VFV.TO", "account": "TFSA", "current_value": 1000.0},
+            {"ticker": "VFV.TO", "account": "NON_REG", "current_value": 0.0},
+        ],
+    )
+
+    plan = build_rebalance_plan(
+        "demo",
+        new_cash=200.0,
+        holdings_csv=holdings,
+        export_dir=tmp_path,
+        execution_config=ExecutionConfig(allow_fractional=False),
+    )
+
+    assert plan.account_cash == {"NON_REG": 0.0, "TFSA": 200.0}
+    assert plan.account_allocations is not None
+    non_reg = plan.account_allocations["NON_REG"].iloc[0]
+    assert non_reg["recommended_allocation"] == 0.0
+    assert non_reg["recommended_shares"] == 0.0
+    assert non_reg["leftover_cash"] == 0.0
+    tfsa = plan.account_allocations["TFSA"].iloc[0]
+    assert tfsa["recommended_allocation"] == pytest.approx(200.0)
+    assert tfsa["recommended_shares"] == 2.0
+
+
+def test_build_rebalance_plan_three_empty_accounts_rounds_cash_to_cents(tmp_path):
+    _write_artifacts(
+        tmp_path,
+        weights={"VFV.TO": 1.0},
+        prices={"VFV.TO": [10.0]},
+    )
+    holdings = _write_holdings(
+        tmp_path / "holdings.csv",
+        [
+            {"ticker": "VFV.TO", "account": "FHSA", "current_value": 0.0},
+            {"ticker": "VFV.TO", "account": "NON_REG", "current_value": 0.0},
+            {"ticker": "VFV.TO", "account": "TFSA", "current_value": 0.0},
+        ],
+    )
+
+    plan = build_rebalance_plan(
+        "demo",
+        new_cash=100.0,
+        holdings_csv=holdings,
+        export_dir=tmp_path,
+    )
+
+    assert plan.account_cash is not None
+    assert plan.account_cash == {"FHSA": 33.34, "NON_REG": 33.33, "TFSA": 33.33}
+    assert sum(plan.account_cash.values()) == pytest.approx(100.0)
+
+
+def test_build_rebalance_plan_zero_whole_shares_does_not_burn_fx_fee(tmp_path):
+    _write_artifacts(
+        tmp_path,
+        weights={"VOO": 1.0},
+        prices={"VOO": [100.0]},
+    )
+    plan = build_rebalance_plan(
+        "demo",
+        new_cash=50.0,
+        holdings_mapping={"VOO": 0.0},
+        holdings_kind="value",
+        export_dir=tmp_path,
+        execution_config=ExecutionConfig(fx_fee_bps=200, allow_fractional=False),
+    )
+
+    row = plan.allocations.iloc[0]
+    assert row["recommended_shares"] == 0.0
+    assert row["recommended_allocation"] == 0.0
+    assert row["leftover_cash"] == pytest.approx(50.0)

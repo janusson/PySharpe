@@ -546,3 +546,54 @@ class TestResultDataclass:
             sell_orders=pd.DataFrame({"a": [1]}),
         )
         assert r.taxable_sell_triggered
+
+
+class TestMultiAccountAndDuplicateRowsRegressions:
+    def test_evaluate_taxable_rebalance_no_double_frac_scaling(self) -> None:
+        # VFV is 60% of the $100k portfolio ($30k in TFSA + $30k in NON_REG),
+        # with 50% target and 100 bps soft ceiling -> 9% ($9,000) excess overall.
+        # The 50% NON_REG sleeve must sell $4,500 (not $2,250 from double frac_in_acct).
+        cfg = RebalanceConfig(upper_threshold_bps=200.0, soft_ceiling_bps=100.0)
+        sell_df = evaluate_taxable_rebalance(
+            current_weights={"VFV": 0.60, "VDY": 0.40},
+            target_weights={"VFV": 0.50, "VDY": 0.50},
+            account_types={"VFV": ["TFSA", "NON_REG"], "VDY": "TFSA"},
+            current_values={"VFV": {"TFSA": 30_000.0, "NON_REG": 30_000.0}},
+            config=cfg,
+        )
+        assert len(sell_df) == 1
+        row = sell_df.iloc[0]
+        assert row["ticker"] == "VFV"
+        assert row["account"] == "NON_REG"
+        assert row["sell_amount"] == pytest.approx(4_500.0)
+
+    def test_allocate_contribution_aggregates_duplicate_rows_and_sell_sizing(
+        self,
+    ) -> None:
+        # Duplicate (VFV, NON_REG) lots ($30k + $30k = $60k) must be summed in
+        # current_values (not overwritten to $30k) and reflected in post-buy
+        # new_weight after adding buy orders.
+        balances = pd.DataFrame(
+            {
+                "ticker": ["VFV", "VFV", "VDY"],
+                "account": ["NON_REG", "NON_REG", "TFSA"],
+                "current_value": [30_000.0, 30_000.0, 40_000.0],
+            }
+        )
+        cfg = RebalanceConfig(upper_threshold_bps=200.0, soft_ceiling_bps=100.0)
+        res = allocate_contribution_cash_flow(
+            cash_amount=2_000.0,
+            current_balances=balances,
+            target_weights={"VFV": 0.50, "VDY": 0.50},
+            account_types={"VFV": "NON_REG", "VDY": "TFSA"},
+            opportunity_scores={"VFV": 0.20, "VDY": 0.80},
+            config=cfg,
+        )
+        # VFV excess sell on $60k NON_REG with 9% excess is $9,000 (not $4,500).
+        assert len(res.sell_orders) == 1
+        assert res.sell_orders.iloc[0]["sell_amount"] == pytest.approx(9_000.0)
+        # All $2,000 fresh cash routes to underweight VDY; post-buy VDY weight
+        # reflects initial $40k + $2k buy over $102k total.
+        assert res.buy_orders["buy_amount"].sum() == pytest.approx(2_000.0)
+        vdy_row = res.buy_orders.loc[res.buy_orders["ticker"] == "VDY"].iloc[0]
+        assert vdy_row["new_weight"] == pytest.approx(42_000.0 / 102_000.0)

@@ -271,13 +271,9 @@ def evaluate_taxable_rebalance(
                 acct_vals = current_values.get(ticker, {})
                 acct_val = acct_vals.get(acct_str, 0.0)
                 if acct_val > 0.0 and current_w > 0.0:
-                    # The fraction of this asset's total value held in this
-                    # specific account.
-                    frac_in_acct = acct_val / (
-                        sum(acct_vals.values()) if sum(acct_vals.values()) > 0 else 1.0
-                    )
-                    # Scale the sell weight by the account's share.
-                    sell_amount = acct_val * (sell_weight / current_w) * frac_in_acct
+                    # Total asset value * (sell_weight / current_w) * (acct_val / total_asset_val)
+                    # simplifies algebraically to acct_val * (sell_weight / current_w).
+                    sell_amount = acct_val * (sell_weight / current_w)
 
             rows.append(
                 {
@@ -519,20 +515,30 @@ def allocate_contribution_cash_flow(
             ticker_values.get(ticker, 0.0) + total_buy
         ) / new_portfolio_value
 
-    # Build the current_values structure for sell‑amount sizing.
+    # Build the current_values structure for sell-amount sizing, aggregating
+    # multiple rows for the same (ticker, account) and including post-buy
+    # additions so weights and values remain consistent.
     current_values_nested: dict[str, dict[str, float]] = {}
-    for _, row in current_balances.iterrows():
-        t = str(row["ticker"])
-        a = str(row["account"])
-        v = float(row["current_value"])
-        current_values_nested.setdefault(t, {})[a] = v
-
-    # Build account_types list for multi-account holdings.
     acct_types_list: dict[str, list[str]] = {}
     for _, row in current_balances.iterrows():
         t = str(row["ticker"])
         a = str(row["account"])
-        acct_types_list.setdefault(t, []).append(a)
+        v = float(row["current_value"])
+        acct_map = current_values_nested.setdefault(t, {})
+        acct_map[a] = acct_map.get(a, 0.0) + v
+        seen_accts = acct_types_list.setdefault(t, [])
+        if a not in seen_accts:
+            seen_accts.append(a)
+
+    for ticker, acct_map in buy_orders.items():
+        for acct, amount in acct_map.items():
+            if amount < config.min_allocation_dollars:
+                continue
+            nested = current_values_nested.setdefault(ticker, {})
+            nested[acct] = nested.get(acct, 0.0) + amount
+            seen_accts = acct_types_list.setdefault(ticker, [])
+            if acct not in seen_accts:
+                seen_accts.append(acct)
 
     sell_df = evaluate_taxable_rebalance(
         current_weights=post_buy_weights,
