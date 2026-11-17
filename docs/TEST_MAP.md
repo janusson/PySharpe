@@ -248,7 +248,7 @@ your change instead of the full suite every time.
 | `execution/brokerage.py` | `pytest tests/test_brokerage.py` |
 | `execution/cash_flow_rebalance.py` | `pytest tests/test_cash_flow_rebalance.py` |
 | `execution/ledger.py` | `pytest tests/test_execution_ledger.py` |
-| `execution/rebalance.py` | `pytest tests/test_execution_rebalance.py tests/test_brokerage.py tests/test_tax_location.py tests/test_rebalance_demo_example.py` |
+| `execution/rebalance.py` | `pytest tests/test_execution_rebalance.py tests/test_cli.py tests/test_brokerage.py tests/test_tax_location.py tests/test_rebalance_demo_example.py` |
 | `examples/rebalance_demo/*` | `pytest tests/test_rebalance_demo_example.py` and `python examples/rebalance_demo/check_example.py` |
 | `execution/tax_tracker.py` | `pytest tests/test_tax_tracker.py` |
 | `examples/canadian_portfolio_reference.py` | `pytest tests/test_reference_example.py` |

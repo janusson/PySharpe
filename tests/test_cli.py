@@ -593,3 +593,97 @@ def test_plot_subcommand_show_invokes_matplotlib(monkeypatch, tmp_path):
 
     assert exit_code == 0
     assert showed == ["shown"]
+
+
+def test_rebalance_subcommand_snapshot_csv_with_fx_and_inline_weights(tmp_path, capsys):
+    broker_csv = tmp_path / "broker_positions.csv"
+    broker_csv.write_text(
+        "\n".join(
+            [
+                "Account,Symbol,Shares,Price,Currency",
+                "TFSA,VFV.TSE,10,130.00,CAD",
+                "RRSP,VOO.NYSE,2,400.00,USD",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "rebalance",
+            "--snapshot-csv",
+            str(broker_csv),
+            "--fx",
+            "USD=1.35",
+            "--normalise-tickers",
+            "--weights",
+            '{"VFV.TO": 0.50, "VOO": 0.50}',
+            "--new-cash",
+            "1500",
+            "--allow-fractional",
+        ]
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Rebalance plan for portfolio" in output
+    assert "New cash: $1,500.00" in output
+    assert "TFSA" in output
+    assert "RRSP" in output
+    assert "VFV.TO" in output
+
+
+def test_rebalance_subcommand_deploy_existing_cash_without_new_cash(tmp_path, capsys):
+    broker_csv = tmp_path / "broker_positions.csv"
+    broker_csv.write_text(
+        "\n".join(
+            [
+                "Account,Symbol,Shares,Price,Currency",
+                "TFSA,VFV.TO,10,130.00,CAD",
+                "RRSP,VCN.TO,20,50.00,CAD",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "rebalance",
+            "--snapshot-csv",
+            str(broker_csv),
+            "--weights",
+            '{"VFV.TO": 0.60, "VCN.TO": 0.40}',
+            "--cash",
+            '{"TFSA": 600, "RRSP": 400}',
+            "--deploy-existing-cash",
+        ]
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "New cash: $1,000.00" in output
+
+
+def test_rebalance_subcommand_missing_fx_returns_error(tmp_path, capsys):
+    broker_csv = tmp_path / "broker_usd.csv"
+    broker_csv.write_text(
+        "Account,Symbol,Shares,Price,Currency\nRRSP,VOO,2,400.00,USD\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "rebalance",
+            "--snapshot-csv",
+            str(broker_csv),
+            "--weights",
+            '{"VOO": 1.0}',
+            "--new-cash",
+            "500",
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert output.startswith("Error:")
+    assert "USD" in output
