@@ -104,10 +104,51 @@ def test_expected_return_matches_mean(sample_price_frame):
 def test_sharpe_ratio_handles_risk_free_rate(sample_price_series):
     returns = compute_returns(sample_price_series)
     sharpe = sharpe_ratio(returns, risk_free_rate=0.02, periods_per_year=252)
-    ann_return = annualize_return(returns, periods_per_year=252)
+    ann_return = expected_return(returns, periods_per_year=252)
     ann_vol = annualize_volatility(returns, periods_per_year=252)
     expected = (ann_return - 0.02) / ann_vol
     assert pytest.approx(expected, rel=1e-9) == sharpe
+
+    geo_sharpe = sharpe_ratio(
+        returns,
+        risk_free_rate=0.02,
+        periods_per_year=252,
+        return_method="geometric",
+    )
+    geo_return = annualize_return(returns, periods_per_year=252)
+    assert pytest.approx((geo_return - 0.02) / ann_vol, rel=1e-9) == geo_sharpe
+
+
+def test_sharpe_ratio_zero_mean_symmetric_is_zero():
+    """Arithmetic default gives exact zero Sharpe for a zero-mean symmetric stream."""
+    returns = pd.Series([0.1, -0.1])
+    assert sharpe_ratio(
+        returns, risk_free_rate=0.0, periods_per_year=2
+    ) == pytest.approx(0.0, abs=1e-12)
+    assert (
+        sharpe_ratio(
+            returns,
+            risk_free_rate=0.0,
+            periods_per_year=2,
+            return_method="geometric",
+        )
+        < 0.0
+    )
+
+
+def test_sharpe_ratio_dataframe_and_invalid_method():
+    returns = pd.DataFrame(
+        {"A": [0.02, 0.0, 0.01, -0.01], "B": [0.01, 0.02, -0.01, 0.0]}
+    )
+    result = sharpe_ratio(returns, risk_free_rate=0.02, periods_per_year=12)
+    assert isinstance(result, pd.Series)
+    for col in returns.columns:
+        assert result[col] == pytest.approx(
+            sharpe_ratio(returns[col], risk_free_rate=0.02, periods_per_year=12)
+        )
+
+    with pytest.raises(ValueError, match="Unsupported return_method"):
+        sharpe_ratio(returns, return_method="cagr")  # type: ignore[arg-type]
 
 
 def test_sharpe_ratio_raises_when_vol_zero():
@@ -330,13 +371,7 @@ def test_sortino_ratio_vs_sharpe_for_symmetric_returns():
 
 
 def test_sortino_ratio_larger_than_sharpe_for_asymmetric_upside():
-    """Sortino > Sharpe when upside volatility dominates downside.
-
-    The fixture keeps the mean low so the comparison tests the denominators
-    rather than the numerator convention: ``sharpe_ratio`` still annualises a
-    geometric return, so a high-mean series would inflate it independently of
-    the Sortino definition.
-    """
+    """Sortino > Sharpe when upside volatility dominates downside."""
     rng = np.random.default_rng(42)
     base = rng.normal(0.0002, 0.02, 120)
     # Rare, large upside moves: positive skew with a small mean.

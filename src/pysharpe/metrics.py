@@ -8,7 +8,7 @@ ity so they slot naturally into notebook or production workflows.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -237,35 +237,53 @@ def sharpe_ratio(
     *,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
+    return_method: Literal["arithmetic", "geometric"] = "arithmetic",
 ) -> float | pd.Series:
     """Calculate the annualised Sharpe ratio.
 
-    Uses the geometric compound annualised return from
-    :func:`annualize_return` minus ``risk_free_rate`` in the numerator, divided
-    by the annualised volatility from :func:`annualize_volatility`.  (Unlike
-    :func:`sortino_ratio` and :func:`expected_return`, which use arithmetic mean
-    annualisation, geometric compounding is retained here for API compatibility.)
+    Defaults to ``return_method="arithmetic"``, using the annualised arithmetic
+    mean excess return ``(mean(R) - risk_free_rate / periods_per_year) *
+    periods_per_year`` divided by the annualised volatility from
+    :func:`annualize_volatility`, matching :func:`sortino_ratio`,
+    :func:`expected_return`, and the portfolio optimisers so a zero-mean return
+    stream has zero excess return at ``risk_free_rate=0``. Pass
+    ``return_method="geometric"`` to use the compound CAGR from
+    :func:`annualize_return` in the numerator instead.
 
     Args:
         returns: Periodic returns as decimal fractions.
         risk_free_rate: Annual risk-free rate expressed as a decimal.
         periods_per_year: Observation frequency of the input ``returns``.
+        return_method: Annualisation convention for the return numerator,
+            either ``"arithmetic"`` (default) or ``"geometric"``.
 
     Returns:
         Sharpe ratio of the supplied returns.
 
     Raises:
-        ValueError: If volatility is zero for any column.
+        ValueError: If ``return_method`` is invalid, ``periods_per_year`` is
+            not positive, fewer than two observations remain, or volatility is
+            zero for any column.
 
     Example:
         >>> import pandas as pd
         >>> from pysharpe import metrics
         >>> rets = pd.Series([0.01, 0.015, -0.005], dtype=float)
         >>> metrics.sharpe_ratio(rets, risk_free_rate=0.02, periods_per_year=252)  # doctest: +ELLIPSIS
-        -0.1...
+        10.04...
     """
 
-    annualised_return = annualize_return(returns, periods_per_year=periods_per_year)
+    if return_method not in {"arithmetic", "geometric"}:
+        raise ValueError(
+            f"Unsupported return_method '{return_method}'. "
+            "Expected 'arithmetic' or 'geometric'."
+        )
+
+    if return_method == "arithmetic":
+        annualised_return = expected_return(returns, periods_per_year=periods_per_year)
+    else:
+        annualised_return = annualize_return(returns, periods_per_year=periods_per_year)
+
     annualised_volatility = annualize_volatility(
         returns,
         periods_per_year=periods_per_year,

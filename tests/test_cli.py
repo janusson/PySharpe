@@ -354,6 +354,32 @@ def test_simulate_dca_subcommand_uses_projection(monkeypatch, capsys):
     assert "Final balance" in out
 
 
+def test_simulate_dca_subcommand_deposit_timing_flag(monkeypatch, capsys):
+    captured: dict[str, object] = {}
+
+    class DummyProjection:
+        months = [0, 1, 2]
+        contributions = [100.0, 110.0, 120.0]
+        balances = [100.0, 111.1, 122.2]
+
+        def final_contribution(self) -> float:
+            return 120.0
+
+        def final_balance(self) -> float:
+            return 122.2
+
+    def fake_simulate_dca(**kwargs):
+        captured.update(kwargs)
+        return DummyProjection()
+
+    monkeypatch.setattr(cli, "simulate_dca", fake_simulate_dca)
+
+    exit_code = cli.main(["simulate-dca", "--months", "2", "--deposit-timing", "start"])
+    assert exit_code == 0
+    assert captured["deposit_timing"] == "start"
+    capsys.readouterr()
+
+
 def test_rebalance_subcommand_builds_buy_plan(tmp_path, capsys):
     export_dir = tmp_path / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)

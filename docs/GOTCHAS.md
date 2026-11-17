@@ -72,9 +72,17 @@
   `test_sortino_ratio_matches_downside_moment_definition`,
   `test_sortino_ratio_hand_computed_known_answer`.
 - Grep guard: `rg -n "annualize_return\(" src/pysharpe/metrics.py` must not match
-  inside `sortino_ratio`. Geometric compounding belongs to
-  `annualize_return`/`cagr` and must stay out of arithmetic reward-to-risk
-  ratios; `sharpe_ratio`'s geometric numerator is tracked separately.
+  inside `sortino_ratio` or the default `"arithmetic"` path of `sharpe_ratio`.
+  Geometric compounding belongs to `annualize_return`/`cagr` (or explicit
+  `sharpe_ratio(..., return_method="geometric")`) and must stay out of default
+  arithmetic reward-to-risk ratios.
+
+### 2026 — `sharpe_ratio` defaulted to geometric compounding instead of arithmetic excess return
+
+- **Symptom:** `sharpe_ratio(pd.Series([0.1, -0.1]), risk_free_rate=0.0, periods_per_year=2)` returned a negative ratio instead of `0.0`, diverging from `sortino_ratio`, `expected_return`, `SharpeOptimizer`, and `app/analytics.py`.
+- **Root cause:** `sharpe_ratio` unconditionally fed `annualize_return` (geometric CAGR) into its excess-return numerator.
+- **Fix:** Default `sharpe_ratio` to `return_method="arithmetic"` (`expected_return(returns) - risk_free_rate`), while preserving explicit `return_method="geometric"` for callers that want compound CAGR comparisons.
+- **Regression tests:** `test_sharpe_ratio_handles_risk_free_rate`, `test_sharpe_ratio_zero_mean_symmetric_is_zero`, and `test_sharpe_ratio_dataframe_and_invalid_method` in `tests/test_metrics.py`.
 
 ### 2026 — Implicit `pct_change()` forward-fill fabricated zero returns across missing prices
 
@@ -116,17 +124,11 @@
 - **Regression test:** `test_stitched_series_fx_direction_with_varying_usdcad`
   in `tests/test_data_linkage.py`.
 
-### 2026 — DCA horizon and contribution timing need review (unresolved)
+### 2026 — `simulate_dca` truncated month `N` and compounded end-of-month deposits immediately
 
-- `simulate_dca(months=2, ...)` currently returns months 0 and 1, not 0
-  through 2. Its nonzero-rate formula grows the first contribution for one
-  month, despite documenting deposits at month end.
-- With $100 initially, $10 per month, and an effective monthly rate of 1%,
-  the current month-1 balance is $111.10; an end-of-month deposit would give
-  $111.00. Existing tests encode the current convention. Reconcile the API,
-  UI, CLI, and tests before presenting it as a conventional DCA projection.
-- The offline example intentionally uses fictional price inspection instead;
-  it does not call the DCA simulator.
+- **Symptom:** `simulate_dca(months=N, ...)` previously emitted `months=0..N-1` (`N` points stopping short of month `N`) and grew each deposit by `(1 + monthly_rate)` even though its docstring promised end-of-month contributions (`$111.10` at month 1 instead of `$111.00` for `$100` initial, `$10` monthly, 1% effective monthly rate).
+- **Fix:** Project `0..months` inclusive (`months + 1` points covering `months` elapsed months) and default to `deposit_timing="end"` (`monthly_contribution * (powers - 1) / monthly_rate`), while supporting explicit `deposit_timing="start"` (annuity due) across `simulate_dca`, `pysharpe simulate-dca --deposit-timing`, and `render_dca_projection`.
+- **Regression tests:** `test_simulate_dca_returns_expected_series`, `test_simulate_dca_deposit_timing_end_vs_start`, and `test_simulate_dca_zero_rate_and_invalid_timing` in `tests/test_visualization_frontier.py`.
 
 ### 2026 — Dashboard analysis cache omitted price contents
 

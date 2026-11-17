@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
-from typing import cast
+from typing import Literal, cast
 
 import pandas as pd
 import streamlit as st
@@ -111,12 +111,24 @@ def render_metrics_table(metrics_result, portfolios=None):
     return _charts.render_metrics_table(metrics_result, portfolios=portfolios)
 
 
-def render_dca_projection(months: int, initial: float, monthly: float, rate: float):
+def render_dca_projection(
+    months: int,
+    initial: float,
+    monthly: float,
+    rate: float,
+    deposit_timing: Literal["end", "start"] = "end",
+):
     """Render the DCA projection while honouring patched Streamlit hooks."""
 
     _dca.st = st
     _dca.simulate_dca = simulate_dca
-    return _render_dca_projection(months, initial, monthly, rate)
+    return _render_dca_projection(
+        months,
+        initial,
+        monthly,
+        rate,
+        deposit_timing=deposit_timing,
+    )
 
 
 def _sync_chart_stub() -> None:

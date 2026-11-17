@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -46,23 +46,36 @@ def simulate_dca(
     initial_investment: float,
     monthly_contribution: float,
     annual_return_rate: float,
+    deposit_timing: Literal["end", "start"] = "end",
 ) -> DCAProjection:
-    """Simulate a dollar-cost averaging schedule.
+    """Simulate a dollar-cost averaging schedule over ``0..months`` inclusive.
 
-    Parameters
-    ----------
-    months:
-        Number of months to project. Must be greater than zero.
-    initial_investment:
-        Lump sum deployed at month zero.
-    monthly_contribution:
-        Amount invested at the end of every month.
-    annual_return_rate:
-        Expected annual compound rate (expressed as 0.10 for 10%).
+    Args:
+        months: Number of elapsed months to project. Must be greater than zero.
+            The returned series spans indices ``0`` through ``months``
+            inclusive (``months + 1`` points).
+        initial_investment: Lump sum deployed at month zero.
+        monthly_contribution: Recurring deposit added each month.
+        annual_return_rate: Expected annual compound rate (expressed as
+            ``0.10`` for 10%).
+        deposit_timing: When each recurring deposit occurs within the month:
+            ``"end"`` (default, ordinary annuity — deposited at the end of each
+            month ``1..months`` so month-k deposits do not compound during month
+            ``k``) or ``"start"`` (annuity due — deposited before monthly
+            compounding).
+
+    Returns:
+        :class:`DCAProjection` with ``months``, ``contributions``, and
+        ``balances`` spanning ``0..months``.
+
+    Raises:
+        ValueError: If ``months <= 0``, ``annual_return_rate <= -1``, or
+            ``deposit_timing`` is not ``"end"`` or ``"start"``.
+
     Example:
         >>> from pysharpe.visualization.dca import simulate_dca
         >>> simulate_dca(months=3, initial_investment=100.0, monthly_contribution=10.0, annual_return_rate=0.12).final_balance()  # doctest: +ELLIPSIS
-        121...
+        133.1...
     """
 
     if months <= 0:
@@ -71,7 +84,12 @@ def simulate_dca(
     if annual_return_rate <= -1:
         raise ValueError("annual_return_rate must be greater than -100%")
 
-    month_index = np.arange(months, dtype=int)
+    if deposit_timing not in {"end", "start"}:
+        raise ValueError(
+            f"Unsupported deposit_timing '{deposit_timing}'. Expected 'end' or 'start'."
+        )
+
+    month_index = np.arange(months + 1, dtype=int)
     contributions = initial_investment + monthly_contribution * month_index.astype(
         float
     )
@@ -83,7 +101,10 @@ def simulate_dca(
     balances = powers * initial_investment
 
     if not np.isclose(monthly_rate, 0.0):
-        balances += monthly_contribution * growth_factor * (powers - 1) / monthly_rate
+        # End-of-month (ordinary annuity) deposits earn compounding starting the
+        # following month; start-of-month (annuity due) earns one extra period.
+        annuity_factor = growth_factor if deposit_timing == "start" else 1.0
+        balances += monthly_contribution * annuity_factor * (powers - 1) / monthly_rate
     else:
         balances += monthly_contribution * month_index.astype(float)
 
