@@ -76,6 +76,34 @@
   `annualize_return`/`cagr` and must stay out of arithmetic reward-to-risk
   ratios; `sharpe_ratio`'s geometric numerator is tracked separately.
 
+### 2026 — HistoryLinker divided USD proxies by USDCAD=X instead of multiplying
+
+- **Symptom:** `HistoryLinker.get_stitched_series` with `fx_adjust=True`
+  computed `proxy_price * (1.0 / fx_price)` using `USDCAD=X` (CAD per 1 USD),
+  inverting currency movements relative to `apply_fx_conversion` (`USD * USDCAD=X`).
+  Constant-FX unit tests masked the direction bug because the handover scalar
+  cancelled constant FX factors.
+- **Fix:** Multiplied USD proxies by `fx_price` (`USD * CAD/USD = CAD`) and
+  added a time-varying `USDCAD=X` regression test.
+- **Regression test:** `test_stitched_series_fx_direction_with_varying_usdcad`
+  in `tests/test_data_linkage.py`.
+
+### 2026 — Chronological filling and calendar boundaries
+
+- Forward-fill in input row order is unsafe when timestamps are unsorted: a
+  future observation can fill an earlier row. FX conversion now fills
+  chronologically before restoring row order. Synthetic prefix regressions are
+  in `tests/test_fx_adjustment.py` and `tests/test_data_linkage.py`. Other
+  forward-fill sites require their own ordering and staleness review; a search
+  alone cannot establish causality.
+- Treating the final input row as a period end made calendar rebalance events
+  and fees change when future data was appended. Calendar rebalances now run
+  at the first observed close in a new period, after marking existing holdings.
+  `tests/test_analysis_backtest_engine.py` checks prefix invariance and exact
+  values across monthly, quarterly and annual boundaries.
+- See [temporal leakage](temporal_leakage.md) for unresolved issues, assumptions,
+  and the distinction between retrospective and point-in-time calculations.
+
 ### 2026 — Empty market-data series cannot prove freshness
 
 - Symptom: a caller supplied provenance metadata for an all-missing price or FX
@@ -685,7 +713,7 @@ bug that shipped and was later fixed — the goal is to prevent recurrence.
 Before declaring any change "done", verify:
 
 - [ ] All MER values are decimal fractions (< 0.10)?
-- [ ] No `.bfill()` on time-series data?
+- [ ] No future-dependent filling of historical time-series data? Test prefix invariance as well as searching for `.bfill()`; chronological forward-fill also requires an explicit staleness policy.
 - [ ] FX conversion excludes rows without rate coverage instead of backfilling?
 - [ ] `AssetTaxCharacteristics` income fractions sum to 1.0?
 - [ ] Caches invalidated properly (mtime keys, `cache_clear()` in tests)?

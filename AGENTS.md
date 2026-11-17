@@ -18,7 +18,7 @@ You are an expert quantitative finance developer and scientific software enginee
 - **Consult the supporting docs:** Before writing code, read `CLAUDE.md` for architecture and commands. Read `docs/TEST_MAP.md` to identify which test subset to run for your change. Consult `docs/GOTCHAS.md` for known failure patterns that must not be reintroduced.
 - **Pre-commit verification:** Before declaring any change complete, run through this checklist:
   1. Are all MER values decimal fractions (< 0.10), never percentage points?
-  2. No `.bfill()` on time-series data (lookahead bias)?
+  2. No future-dependent filling on historical time-series data (including `.bfill()`)? Test prefix invariance; chronological forward-fill alone does not establish a valid staleness policy.
   3. FX conversion excludes rows without rate coverage instead of backfilling?
   4. `AssetTaxCharacteristics` income fractions sum to 1.0?
   5. Caches invalidated properly (mtime keys, `cache_clear()` in tests)?

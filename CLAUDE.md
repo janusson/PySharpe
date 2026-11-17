@@ -150,7 +150,8 @@ src/pysharpe/
   guarantees ≥ embargo observations between every adjacent test-fold pair
   (trailing remainders are excluded, never clamped).  Size the gaps from the
   asset's autocorrelation decay with `autocorrelation_decay_lag` or
-  `PurgedKFold.from_returns`.
+  `PurgedKFold.from_returns`. Fold separation alone does not guarantee causal
+  training, and gap estimation must not use future evaluation observations.
 - **DSR** (`validation/metrics.py`): `compute_dsr(..., theta=1.0)` deflates
   the observed Sharpe by √θ (Lo 2002 autocorrelation variance-inflation
   factor) before deflation; `compute_validation_metrics` computes θ from the

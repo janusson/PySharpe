@@ -55,6 +55,7 @@ nav:
   - Data Flow: flowchart.md
   - Test Map: TEST_MAP.md
   - Gotchas: GOTCHAS.md
+  - Temporal Leakage Audit: temporal_leakage.md
   - Benchmarks: benchmarks.md
   - Tactical Research: tactical_research.md
   - Proxy Mapping: proxies.md

@@ -70,7 +70,10 @@ class HistoricalBacktester:
             The starting cash value injected into the simulation at t=0.
         rebalance_freq : str, optional
             A pandas frequency string dictating calendar rebalancing. Common values
-            include 'M' (monthly end), 'Q' (quarterly), or 'A' (annual). If None,
+            include 'M' (monthly), 'Q' (quarterly), or 'A' (annual). A
+            rebalance executes at the first observed close in a new period,
+            after the prior holdings earn that day's return. The initial close
+            establishes the portfolio and is not a calendar rebalance. If None,
             the portfolio is not rebalanced based on the calendar.
         abs_band : float, optional
             Absolute deviation threshold (e.g., 0.05). If an asset's weight drifts
@@ -196,19 +199,14 @@ class HistoricalBacktester:
             period_freq = _PERIOD_ALIAS_MAP.get(
                 self.rebalance_freq, self.rebalance_freq
             )
-            # Group by period and mark the last day of each period
+            # Detect a crossed period using only the current and prior dates.
             if isinstance(dates, pd.DatetimeIndex):
                 period_idx = dates.to_period(period_freq)  # type: ignore[union-attr]
             else:
                 dates_dt = pd.DatetimeIndex(dates)
                 period_idx = dates_dt.to_period(period_freq)
-            is_period_end = np.zeros(n_days, dtype=bool)
             if n_days > 1:
-                is_period_end[:-1] = period_idx[:-1] != period_idx[1:]
-            # The last element is always a period end in this logic
-            if n_days > 0:
-                is_period_end[-1] = True
-            calendar_triggers = is_period_end
+                calendar_triggers[1:] = period_idx[1:] != period_idx[:-1]
 
         # Simulation State
         current_shares = np.zeros(n_assets)
