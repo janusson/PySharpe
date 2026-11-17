@@ -132,8 +132,21 @@ export. Check your file's header row and map it accordingly.
 `pysharpe.execution.cash_flow_rebalance.allocate_contribution_cash_flow`
 takes.
 
-`snapshot.holdings_frame()` returns `ticker` / `account` / `shares` /
-`current_value` / `currency`, which the existing CLI already consumes:
+`build_rebalance_plan` also accepts `snapshot=` or `reconciliation=`
+(with optional `target_weights=`, `latest_prices=`, `deploy_existing_cash=`,
+and `account_types=`), and the CLI can ingest a brokerage snapshot directly:
+
+```bash
+uv run pysharpe rebalance \
+    --snapshot-csv positions-export.csv \
+    --fx USD=1.35 \
+    --normalise-tickers \
+    --weights '{"VFV.TO": 0.60, "VOO": 0.40}' \
+    --new-cash 5000
+```
+
+`snapshot.holdings_frame()` still exports the `ticker` / `account` / `shares` /
+`current_value` / `currency` table for custom CSV workflows:
 
 ```python
 snapshot.holdings_frame().to_csv("data/holdings.csv", index=False)

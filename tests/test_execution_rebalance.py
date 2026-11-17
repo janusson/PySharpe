@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -29,7 +30,22 @@ import pandas as pd
 import pytest
 
 from pysharpe.config import ExecutionConfig
+from pysharpe.data.interop import (
+    HoldingsSnapshot,
+    Position,
+    normalise_ticker,
+    read_holdings_snapshot,
+)
 from pysharpe.exceptions import DataIngestionError, DataValidationError
+from pysharpe.execution.ledger import (
+    Account,
+    AccountType,
+    Currency,
+    MarketSnapshot,
+    PortfolioLedger,
+    Transaction,
+    TransactionKind,
+)
 from pysharpe.execution.rebalance import (
     RebalancePlan,
     _coerce_non_negative,
@@ -1329,3 +1345,306 @@ def test_build_rebalance_plan_zero_whole_shares_does_not_burn_fx_fee(tmp_path):
     assert row["recommended_shares"] == 0.0
     assert row["recommended_allocation"] == 0.0
     assert row["leftover_cash"] == pytest.approx(50.0)
+
+
+def test_build_rebalance_plan_from_snapshot_and_direct_weights():
+    snapshot = HoldingsSnapshot(
+        as_of=date(2026, 1, 15),
+        fx_rates={"USD": 1.40},
+        positions=(
+            Position(
+                account="TFSA",
+                ticker="VFV.TO",
+                quantity=20.0,
+                price=130.0,
+                currency="CAD",
+            ),
+            Position(
+                account="RRSP",
+                ticker="VOO",
+                quantity=5.0,
+                price=400.0,
+                currency="USD",
+            ),
+        ),
+        cash={"TFSA": {"CAD": 200.0}},
+    )
+
+    plan = build_rebalance_plan(
+        snapshot=snapshot,
+        target_weights={"VFV.TO": 0.50, "VOO": 0.50},
+        new_cash=1000.0,
+    )
+
+    assert plan.weights_path is None
+    assert plan.prices_path is None
+    assert plan.is_multi_account
+    assert plan.accounts == ["RRSP", "TFSA"]
+    # RRSP = 5 * 400 * 1.40 = 2800 CAD; TFSA = 20 * 130 = 2600 CAD -> 5400 total
+    assert plan.account_cash == {
+        "RRSP": pytest.approx(1000.0 * 2800.0 / 5400.0, abs=0.01),
+        "TFSA": pytest.approx(1000.0 * 2600.0 / 5400.0, abs=0.01),
+    }
+    assert sum(plan.account_cash.values()) == pytest.approx(1000.0)
+
+    rrsp = plan.account_allocations["RRSP"]
+    voo_row = rrsp.loc[rrsp["ticker"] == "VOO"].iloc[0]
+    assert voo_row["latest_price"] == pytest.approx(560.0)
+
+
+def test_build_rebalance_plan_snapshot_requires_prices_for_unheld_targets():
+    snapshot = HoldingsSnapshot(
+        as_of=date(2026, 1, 15),
+        fx_rates={},
+        positions=(
+            Position(
+                account="TFSA",
+                ticker="VFV.TO",
+                quantity=10.0,
+                price=130.0,
+                currency="CAD",
+            ),
+        ),
+    )
+
+    with pytest.raises(DataValidationError, match="VDY.TO"):
+        build_rebalance_plan(
+            snapshot=snapshot,
+            target_weights={"VFV.TO": 0.6, "VDY.TO": 0.4},
+            new_cash=500.0,
+        )
+
+    plan = build_rebalance_plan(
+        snapshot=snapshot,
+        target_weights={"VFV.TO": 0.6, "VDY.TO": 0.4},
+        latest_prices={"VFV.TO": 130.0, "VDY.TO": 50.0},
+        new_cash=500.0,
+    )
+    assert set(plan.allocations["ticker"]) == {"VDY.TO", "VFV.TO"}
+
+
+def test_build_rebalance_plan_snapshot_rejects_conflicting_cross_account_prices():
+    snapshot = HoldingsSnapshot(
+        as_of=date(2026, 1, 15),
+        fx_rates={"USD": 1.40},
+        positions=(
+            Position(
+                account="TFSA",
+                ticker="VOO",
+                quantity=2.0,
+                price=400.0,
+                currency="USD",
+            ),
+            Position(
+                account="RRSP",
+                ticker="VOO",
+                quantity=2.0,
+                price=450.0,
+                currency="CAD",
+            ),
+        ),
+    )
+
+    with pytest.raises(DataValidationError, match="Conflicting CAD unit prices"):
+        build_rebalance_plan(
+            snapshot=snapshot,
+            target_weights={"VOO": 1.0},
+            new_cash=500.0,
+        )
+
+
+def test_build_rebalance_plan_from_reconciliation_deploy_existing_cash_and_account_types():
+    tfsa = Account("TFSA-Main", AccountType.TFSA)
+    rrsp = Account("RRSP-Main", AccountType.RRSP)
+    fhsa = Account("FHSA-CashOnly", AccountType.FHSA)
+    ledger = PortfolioLedger()
+    ledger.record_many(
+        [
+            Transaction(
+                timestamp=datetime(2026, 1, 2, 10, 0, tzinfo=UTC),
+                account=tfsa,
+                kind=TransactionKind.DEPOSIT,
+                currency=Currency.CAD,
+                amount="2000.00",
+            ),
+            Transaction(
+                timestamp=datetime(2026, 1, 2, 10, 5, tzinfo=UTC),
+                account=tfsa,
+                kind=TransactionKind.BUY,
+                currency=Currency.CAD,
+                ticker="VCN.TO",
+                quantity="20",
+                price="50.00",
+            ),
+            Transaction(
+                timestamp=datetime(2026, 1, 2, 10, 10, tzinfo=UTC),
+                account=rrsp,
+                kind=TransactionKind.DEPOSIT,
+                currency=Currency.USD,
+                amount="2000.00",
+                fx_rate="1.40",
+            ),
+            Transaction(
+                timestamp=datetime(2026, 1, 2, 10, 15, tzinfo=UTC),
+                account=rrsp,
+                kind=TransactionKind.BUY,
+                currency=Currency.USD,
+                ticker="VOO",
+                quantity="2",
+                price="500.00",
+                fx_rate="1.40",
+            ),
+            Transaction(
+                timestamp=datetime(2026, 1, 2, 10, 20, tzinfo=UTC),
+                account=fhsa,
+                kind=TransactionKind.DEPOSIT,
+                currency=Currency.CAD,
+                amount="600.00",
+            ),
+        ]
+    )
+
+    report = ledger.reconcile(
+        MarketSnapshot(
+            as_of=datetime(2026, 1, 10, 16, 0, tzinfo=UTC),
+            cad_per_usd="1.40",
+            cad_prices={"VCN.TO": "50.00"},
+            usd_prices={"VOO": "500.00"},
+        )
+    )
+
+    plan = build_rebalance_plan(
+        reconciliation=report,
+        account_by="account_id",
+        deploy_existing_cash=True,
+        account_types={
+            "TFSA-Main": "TFSA",
+            "RRSP-Main": "RRSP",
+            "FHSA-CashOnly": "FHSA",
+        },
+        target_weights={"VCN.TO": 0.50, "VOO": 0.50},
+        new_cash=0.0,
+    )
+
+    assert plan.account_cash == {
+        "FHSA-CashOnly": pytest.approx(600.0),
+        "RRSP-Main": pytest.approx(1400.0),
+        "TFSA-Main": pytest.approx(1000.0),
+    }
+    assert plan.new_cash == pytest.approx(3000.0)
+    assert plan.accounts == ["FHSA-CashOnly", "RRSP-Main", "TFSA-Main"]
+
+    # Incomplete account_types mapping raises DataValidationError rather than guessing
+    with pytest.raises(DataValidationError, match="account_types"):
+        build_rebalance_plan(
+            reconciliation=report,
+            account_by="account_id",
+            deploy_existing_cash=True,
+            account_types={"TFSA-Main": "TFSA"},
+            target_weights={"VCN.TO": 0.50, "VOO": 0.50},
+            new_cash=0.0,
+        )
+
+
+def test_build_rebalance_plan_rejects_multiple_or_missing_holdings_sources(tmp_path):
+    snapshot = HoldingsSnapshot(
+        as_of=date(2026, 1, 15),
+        fx_rates={},
+        positions=(
+            Position(
+                account="TFSA",
+                ticker="VFV.TO",
+                quantity=5.0,
+                price=130.0,
+                currency="CAD",
+            ),
+        ),
+    )
+    csv_path = _write_holdings(
+        tmp_path / "holdings.csv",
+        [{"ticker": "VFV.TO", "current_value": 650.0}],
+    )
+
+    with pytest.raises(DataValidationError, match="only one"):
+        build_rebalance_plan(
+            snapshot=snapshot,
+            holdings_csv=csv_path,
+            target_weights={"VFV.TO": 1.0},
+            new_cash=100.0,
+        )
+
+    with pytest.raises(DataValidationError, match="No holdings"):
+        build_rebalance_plan(
+            target_weights={"VFV.TO": 1.0},
+            latest_prices={"VFV.TO": 130.0},
+            new_cash=100.0,
+        )
+
+
+def test_rebalance_main_end_to_end_broker_snapshot_csv(tmp_path, capsys):
+    broker_csv = tmp_path / "wealthsimple.csv"
+    broker_csv.write_text(
+        "\n".join(
+            [
+                "Account,Symbol,Shares,Price,Currency",
+                "TFSA,VFV.TSE,10,130.00,CAD",
+                "RRSP,VOO.NYSE,4,400.00,USD",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot_roundtrip = read_holdings_snapshot(
+        broker_csv,
+        as_of=date(2026, 1, 15),
+        fx_rates={"USD": 1.35},
+        ticker_transform=normalise_ticker,
+    )
+    assert [p.ticker for p in snapshot_roundtrip.positions] == ["VFV.TO", "VOO"]
+
+    exit_code = main(
+        [
+            "--snapshot-csv",
+            str(broker_csv),
+            "--fx",
+            "USD=1.35",
+            "--normalise-tickers",
+            "--weights",
+            '{"VFV.TO": 0.50, "VOO": 0.50}',
+            "--cash",
+            '{"TFSA": 500, "RRSP": {"USD": 100}}',
+            "--deploy-existing-cash",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Rebalance plan for portfolio" in captured.out
+    assert "New cash: $635.00" in captured.out
+    assert "VFV.TO" in captured.out
+    assert "VOO" in captured.out
+
+
+def test_rebalance_main_rejects_bad_fx_flag(tmp_path, capsys):
+    broker_csv = tmp_path / "holdings.csv"
+    broker_csv.write_text(
+        "Account,Symbol,Shares,Price,Currency\nTFSA,VFV.TO,10,130.00,CAD\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--snapshot-csv",
+            str(broker_csv),
+            "--fx",
+            "USD_1.35",
+            "--weights",
+            '{"VFV.TO": 1.0}',
+            "--new-cash",
+            "100",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out.startswith("Error:")
+    assert "CURRENCY=RATE" in captured.out

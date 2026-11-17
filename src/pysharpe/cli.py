@@ -20,7 +20,7 @@ from pysharpe.execution.allocator import (
     allocate_contribution,
     score_opportunities,
 )
-from pysharpe.execution.rebalance import build_rebalance_plan, format_rebalance_plan
+from pysharpe.execution.rebalance import add_rebalance_arguments, run_rebalance_cli
 from pysharpe.optimization.bayesian import BayesianOptimizer
 from pysharpe.optimization.models import OptimisationResult
 from pysharpe.visualization import plot_dca_projection, simulate_dca
@@ -393,54 +393,6 @@ def _handle_plot(args: argparse.Namespace) -> int:
     return 0
 
 
-def _parse_holdings_json(raw: str) -> dict[str, float]:
-    """Parse inline JSON or a JSON file path into a holdings mapping.
-
-    Parameters
-    ----------
-    raw : str
-        Either a JSON object string or a path to a JSON file.
-
-    Returns
-    -------
-    dict[str, float]
-        Mapping of ticker symbol to current value or share count.
-
-    Raises
-    ------
-    ValueError
-        If the payload is not a valid non-empty ticker-to-number mapping.
-    """
-
-    candidate = Path(raw).expanduser()
-    payload = candidate.read_text(encoding="utf-8") if candidate.exists() else raw
-    data = json.loads(payload)
-    if not isinstance(data, dict):
-        raise ValueError("Holdings JSON must be an object mapping ticker to value.")
-
-    parsed: dict[str, float] = {}
-    for ticker, value in data.items():
-        clean_ticker = str(ticker).strip()
-        if not clean_ticker:
-            continue
-
-        try:
-            numeric = float(value)
-        except (ValueError, TypeError):
-            numeric = float("nan")
-        if pd.isna(numeric):
-            raise ValueError(f"Invalid holdings value for ticker {clean_ticker}.")
-        if numeric < 0:
-            raise ValueError(
-                f"Holdings value cannot be negative for ticker {clean_ticker}."
-            )
-        parsed[clean_ticker] = float(numeric)
-
-    if not parsed:
-        raise ValueError("Holdings JSON did not contain any valid ticker entries.")
-    return parsed
-
-
 def _handle_rebalance(args: argparse.Namespace) -> int:
     """Execute the user-facing rebalance CLI workflow.
 
@@ -456,35 +408,13 @@ def _handle_rebalance(args: argparse.Namespace) -> int:
         parsing, or file errors.
     """
 
-    holdings_mapping = None
-    if args.holdings_json:
-        try:
-            holdings_mapping = _parse_holdings_json(args.holdings_json)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            print(f"Error: {exc}")
-            return 1
-
     execution_config = _load_execution_config_optional(args)
     proxy_map = get_settings().proxy_map
-
-    try:
-        plan = build_rebalance_plan(
-            args.portfolio,
-            new_cash=args.new_cash,
-            holdings_csv=args.holdings_csv,
-            holdings_mapping=holdings_mapping,
-            holdings_kind=args.holdings_kind,
-            export_dir=args.export_dir,
-            config_path=args.config,
-            execution_config=execution_config,
-            proxy_map=proxy_map,
-        )
-    except (FileNotFoundError, OSError, ValueError, PySharpeError) as exc:
-        print(f"Error: {exc}")
-        return 1
-
-    print(format_rebalance_plan(plan, include_zero_buys=args.include_zero_buys))
-    return 0
+    return run_rebalance_cli(
+        args,
+        execution_config=execution_config,
+        proxy_map=proxy_map,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -524,73 +454,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     rebalance = subparsers.add_parser(
         "rebalance",
-        help="Build buy orders from saved optimisation outputs and current holdings.",
+        help="Build buy orders from saved optimisation outputs, snapshots, or holdings.",
     )
-    rebalance.add_argument(
-        "--portfolio",
-        required=True,
-        help=(
-            "Portfolio name whose <portfolio>_weights.txt and "
-            "<portfolio>_collated.csv will be used."
-        ),
-    )
-    rebalance_holdings = rebalance.add_mutually_exclusive_group(required=True)
-    rebalance_holdings.add_argument(
-        "--holdings-csv",
-        type=Path,
-        help=(
-            "CSV containing a ticker column and either "
-            "current_value/total_value or shares."
-        ),
-    )
-    rebalance_holdings.add_argument(
-        "--holdings-json",
-        help=(
-            "Inline JSON object or path to a JSON file mapping "
-            "ticker to value/share count."
-        ),
-    )
-    rebalance.add_argument(
-        "--holdings-kind",
-        choices=("value", "shares"),
-        help="Interpret holdings JSON values, or override CSV auto-detection.",
-    )
-    rebalance.add_argument(
-        "--new-cash",
-        type=float,
-        required=True,
-        help="Dollar amount of new capital to allocate.",
-    )
-    rebalance.add_argument(
-        "--export-dir",
-        type=Path,
-        help=(
-            "Directory containing optimisation artefacts. "
-            "Defaults to the configured export directory."
-        ),
-    )
-    rebalance.add_argument(
-        "--config",
-        type=Path,
-        help="Optional JSON config with allocation_weights and fundamentals.",
-    )
-    rebalance.add_argument(
-        "--include-zero-buys",
-        action="store_true",
-        help=(
-            "Show the full merged portfolio state instead of only "
-            "positive buy recommendations."
-        ),
-    )
-    rebalance.add_argument(
-        "--allow-fractional",
-        action="store_true",
-        default=None,
-        help=(
-            "Allow fractional share purchases. When set, overrides "
-            "the portfolio_config.json setting to True."
-        ),
-    )
+    add_rebalance_arguments(rebalance, include_allow_fractional=True)
 
     # optimise
     optimise = subparsers.add_parser(
