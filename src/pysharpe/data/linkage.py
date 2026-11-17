@@ -333,7 +333,9 @@ class HistoryLinker:
             # prices (lookahead bias).  Rows before the first available FX
             # rate are excluded, mirroring apply_fx_conversion's coverage
             # guardrail.
-            aligned_fx = fx_price.reindex(proxy_price.index).ffill()
+            aligned_fx = fx_price.reindex(proxy_price.index)
+            order = proxy_price.index.argsort(kind="stable")
+            aligned_fx = aligned_fx.iloc[order].ffill().iloc[order.argsort()]
             if aligned_fx.isna().any():
                 logger.warning(
                     "Excluding %d proxy rows without FX rate coverage for %s.",
@@ -350,8 +352,9 @@ class HistoryLinker:
                 return target_price
             proxy_price = proxy_price.reindex(fx_price.index)
 
-            # Multiply proxy price by 1 / USDCAD as requested
-            proxy_price = proxy_price * (1.0 / fx_price)
+            # Convert USD-denominated proxy prices to CAD using USDCAD=X
+            # (CAD per 1 USD), matching apply_fx_conversion().
+            proxy_price = proxy_price * fx_price
 
         # Find the inception date (T0) of the target
         # Use intersection to ensure both series have data on the handover date

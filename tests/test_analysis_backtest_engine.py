@@ -167,11 +167,66 @@ def test_historical_backtester_run_calendar_rebalance():
 
     result = backtester.run()
 
-    # "2024-01-29" (M), "2024-01-30" (T), "2024-01-31" (W), "2024-02-01" (Th)
-    # The monthly calendar boundary is Jan 31st, plus the final day always triggers.
-    assert len(result.rebalance_events) == 2
-    assert result.rebalance_events[0] == pd.Timestamp("2024-01-31")
-    assert result.rebalance_events[1] == pd.Timestamp("2024-02-01")
+    # The first observed close in February executes January's rebalance.
+    assert result.rebalance_events.tolist() == [pd.Timestamp("2024-02-01")]
+    assert result.portfolio_value.tolist() == pytest.approx([1000, 1100, 1250, 1250])
+    assert result.historical_weights.iloc[2]["AAPL"] == pytest.approx(0.6)
+    assert result.historical_weights.iloc[3]["AAPL"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("freq", ["M", "ME", "MS"])
+def test_calendar_rebalance_is_prefix_invariant_with_costs(freq):
+    dates = pd.to_datetime(
+        ["2024-01-29", "2024-01-30", "2024-01-31", "2024-02-01", "2024-02-02"]
+    )
+    prices = pd.DataFrame(
+        {"A": [100.0, 200.0, 220.0, 240.0, 260.0], "B": [100.0] * 5},
+        index=dates,
+    )
+    kwargs = dict(
+        target_weights={"A": 0.5, "B": 0.5},
+        initial_capital=1000.0,
+        rebalance_freq=freq,
+        fee_per_trade=10.0,
+    )
+    full = HistoricalBacktester(prices=prices, **kwargs).run()
+    for end in range(1, len(prices) + 1):
+        prefix = HistoricalBacktester(prices=prices.iloc[:end], **kwargs).run()
+        pd.testing.assert_series_equal(
+            prefix.portfolio_value, full.portfolio_value.iloc[:end]
+        )
+        pd.testing.assert_frame_equal(
+            prefix.historical_weights, full.historical_weights.iloc[:end]
+        )
+        assert (
+            prefix.rebalance_events.tolist()
+            == full.rebalance_events[full.rebalance_events <= dates[end - 1]].tolist()
+        )
+    assert full.rebalance_events.tolist() == [pd.Timestamp("2024-02-01")]
+    assert full.portfolio_value.iloc[3] == pytest.approx(1646.0)
+
+
+@pytest.mark.parametrize(
+    ("freq", "dates", "expected"),
+    [
+        ("ME", ["2024-03-28", "2024-04-02", "2024-04-03"], "2024-04-02"),
+        ("QE", ["2024-03-28", "2024-04-02", "2024-05-01"], "2024-04-02"),
+        ("YE", ["2023-12-29", "2024-01-02", "2024-02-01"], "2024-01-02"),
+    ],
+)
+def test_calendar_rebalance_on_first_observed_close_after_boundary(
+    freq, dates, expected
+):
+    prices = pd.DataFrame(
+        {"A": [100.0, 200.0, 200.0], "B": [100.0, 100.0, 100.0]},
+        index=pd.to_datetime(dates),
+    )
+    result = HistoricalBacktester(
+        prices, {"A": 0.5, "B": 0.5}, rebalance_freq=freq
+    ).run()
+    assert result.rebalance_events.tolist() == [pd.Timestamp(expected)]
+    assert result.portfolio_value.iloc[1] == pytest.approx(15000.0)
+    assert result.historical_weights.iloc[1].tolist() == pytest.approx([0.5, 0.5])
 
 
 def test_historical_backtester_run_vol_threshold_rebalance():

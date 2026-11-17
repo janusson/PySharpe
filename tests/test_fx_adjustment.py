@@ -144,6 +144,35 @@ def test_apply_fx_conversion_excludes_rows_with_no_fx_data(
     assert adjusted.loc[pd.Timestamp("2023-01-02"), "USD_ASSET"] == pytest.approx(135.0)
 
 
+def test_apply_fx_conversion_unsorted_prices_preserves_causal_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_ticker = MagicMock()
+    mock_ticker.info = {"currency": "USD"}
+    monkeypatch.setattr("pysharpe.data.fetcher.yf.Ticker", lambda _: mock_ticker)
+
+    fetcher = MagicMock()
+    rates = pd.DataFrame(
+        {"Close": [1.5, 3.0]},
+        index=pd.to_datetime(["2023-01-02", "2023-01-04"]),
+    )
+    fetcher.fetch_history.side_effect = lambda ticker, **kwargs: rates.loc[
+        : kwargs["end"]
+    ]
+    dates = pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"])
+    prefix = pd.DataFrame({"USD_ASSET": [100.0] * 3}, index=dates[:3])
+    full = pd.DataFrame({"USD_ASSET": [100.0] * 4}, index=dates).iloc[[3, 0, 2, 1]]
+
+    prefix_result = apply_fx_conversion(prefix, fetcher=fetcher)
+    full_result = apply_fx_conversion(full, fetcher=fetcher)
+
+    assert list(full_result.index) == list(dates[[3, 2, 1]])
+    pd.testing.assert_frame_equal(
+        full_result.loc[full_result.index <= dates[2]].sort_index(), prefix_result
+    )
+    assert full_result.loc[dates[2], "USD_ASSET"] == pytest.approx(150.0)
+
+
 def test_apply_fx_conversion_trims_to_common_fx_window(monkeypatch: pytest.MonkeyPatch):
     """When two foreign tickers have different FX start dates, the output is trimmed
     to the latest common start — ensuring no row uses a bfilled rate for any ticker."""

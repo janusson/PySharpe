@@ -67,7 +67,7 @@ your change instead of the full suite every time.
 - `pysharpe.optimization.models`
 
 ## `test_fx_adjustment.py`
-- `pysharpe.data.fetcher`
+- `pysharpe.data.fetcher` (including unsorted FX prefix invariance)
 
 ## `test_data_fetcher_cache.py`
 - `pysharpe.data.fetcher`
@@ -84,7 +84,7 @@ your change instead of the full suite every time.
 ## `test_data_linkage.py`
 - `pysharpe.data.linkage`
 - `pysharpe.data.fetcher`
-- Stitched proxy-history coverage (merged from the former `test_data_linkage_stitched.py`)
+- Stitched proxy-history coverage, including FX direction and unsorted FX prefix invariance (merged from the former `test_data_linkage_stitched.py`)
 
 ## `test_cli.py`
 - `pysharpe.cli`
@@ -111,6 +111,7 @@ your change instead of the full suite every time.
 - `pysharpe.analysis.backtest_engine`
 - `pysharpe.optimization.base`
 - Missing-price (NaN) handling incl. fully-missing asset columns
+- Calendar rebalance prefix invariance and first-observed-close boundary timing
 
 ## `test_tactical_momentum.py`
 - `pysharpe.analysis.tactical_momentum` (momentum signals, portfolio simulation, CAD/FX handling, costs, benchmarks, JSON contract)

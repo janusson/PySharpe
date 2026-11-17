@@ -108,7 +108,10 @@ def apply_fx_conversion(
         if isinstance(prices_index, pd.DatetimeIndex) and prices_index.tz is not None:
             prices_index = prices_index.tz_localize(None)
 
-        aligned_fx = fx_series.reindex(prices_index).ffill()
+        aligned_fx = fx_series.reindex(prices_index)
+        # Fill in chronological order, then restore the original price row order.
+        order = prices_index.argsort(kind="stable")
+        aligned_fx = aligned_fx.iloc[order].ffill().iloc[order.argsort()]
 
         leading_nan = aligned_fx.isna()
         if leading_nan.any():

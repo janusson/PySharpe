@@ -301,5 +301,5 @@ def test_download_portfolios_uses_history_linker(tmp_path):
     df = results["TARGET"]
 
     assert len(df) == 10
-    assert pytest.approx(df["Close"].iloc[0]) == (10.0 * 0.5) * (100.0 / 7.0)
+    assert pytest.approx(df["Close"].iloc[0]) == (10.0 * 2.0) * (100.0 / 28.0)
     assert pytest.approx(df["Close"].iloc[-1]) == 105.0
