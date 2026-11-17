@@ -89,7 +89,7 @@ src/pysharpe/
 │   ├── bayesian.py          # PyMC posterior return/covariance estimation
 │   ├── black_litterman.py   # Black-Litterman model with investor views
 │   ├── expected_returns.py  # EMA, mean, shrinkage, constant-return
-│   ├── tax_location.py      # 2-D Asset Location Matrix (TFSA/RRSP/NON_REG)
+│   ├── tax_location.py      # 2-D Asset Location Matrix (TFSA/FHSA/RRSP/NON_REG)
 │   ├── models.py            # PortfolioWeights, OptimisationResult
 │   └── weights.py           # Weight normalization utilities
 ├── execution/
@@ -211,7 +211,7 @@ predictive ML, day-trading algorithms, gamified UI.
 
 - **Primary objective:** Deterministic Value Averaging (VA), not Markowitz MPT.
 - **Opportunity score:** 60% path drift + 40% valuation/mean-reversion (by default).
-- **Tax-advantaged:** TFSA assumed; no tax-loss harvesting (TFSA prohibits).
+- **Canadian multi-account scope:** Supports `TFSA`, `FHSA`, `RRSP`, `LIRA`, `RRIF`, and `NON_REG` with CRA ACB & superficial-loss guardrails; automated tax-loss harvesting (TLH) remains prohibited.
 - **Foreign withholding tax:** Modeled as strict yield reduction on US dividends.
 - **MER values:** Always decimal fractions (< 0.10), never percentage points.
 

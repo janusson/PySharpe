@@ -5,24 +5,26 @@ description: >-
   when working with the deterministic VA strategy, contribution allocation
   (allocate_contribution), opportunity scoring (score_opportunities: 60%
   path drift + 40% fundamental valuation/mean-reversion by default),
-  rebalancing plans (build_rebalance_plan), tax tracking for Canadian TFSA
-  accounts, foreign withholding tax drag on US dividends (VFV/QQC yield
-  reduction), or AllocationConfig tuning. STRICT BOUNDARIES: no tax-loss
-  harvesting (TFSA prohibits), no Markowitz mean-variance solvers (VA is
-  authoritative), no single-stock models (broad-market CAD ETFs only).
+  rebalancing plans (build_rebalance_plan), tax tracking for Canadian accounts
+  (TFSA, FHSA, RRSP, and non-registered), foreign withholding tax drag on US
+  dividends (VFV/QQC yield reduction), or AllocationConfig tuning. STRICT
+  BOUNDARIES: no automated tax-loss harvesting (TLH), no Markowitz
+  mean-variance solvers (VA is authoritative), no single-stock models
+  (broad-market CAD ETFs only).
 ---
 
 # PySharpe Value Averaging Allocation Engine
 
 Covers the deterministic value averaging strategy, contribution allocation,
-opportunity scoring, rebalancing, and tax tracking for Canadian TFSA accounts.
+opportunity scoring, rebalancing, and tax tracking across Canadian TFSA,
+FHSA, RRSP, and non-registered accounts.
 
 ## Module Locations
 
 - `src/pysharpe/execution/allocator.py` — `score_opportunities()`,
   `allocate_contribution()`, `AllocationConfig`.
 - `src/pysharpe/execution/rebalance.py` — `build_rebalance_plan()`.
-- `src/pysharpe/execution/tax_tracker.py` — TFSA tax tracking.
+- `src/pysharpe/execution/tax_tracker.py` — CRA ACB & registered-account tracking.
 
 ## Value Averaging Strategy
 
@@ -73,18 +75,22 @@ calculation, normalization, budget allocation, and bounds enforcement), load:
 3. Calls `allocate_contribution()` to determine buy/sell amounts.
 4. Returns a rebalance plan with dollar amounts per asset.
 
-## TFSA Constraints
+## Canadian Multi-Account Tax Guardrails
 
-All portfolios operate within Canadian Tax-Free Savings Account rules:
+Portfolios may span Canadian registered (`TFSA`, `FHSA`, `RRSP`, `LIRA`,
+`RRIF`) and taxable (`NON_REG`) accounts with strict guardrails:
 
-- **Capital gains are tax-exempt** — no capital gains tax logic.
-- **Losses cannot be claimed** — **tax-loss harvesting (TLH) is strictly
-  prohibited.** Never implement TLH.
+- **Registered accounts (`TFSA`, `FHSA`, `RRSP`):** Capital gains inside
+  registered shelters are tax-exempt or tax-deferred and losses cannot be
+  claimed.
+- **No automated TLH:** **Automated tax-loss harvesting (TLH) is strictly
+  prohibited** across all accounts. Superficial-loss and ACB tracking exist
+  strictly as CRA compliance guardrails.
 - **Foreign withholding tax** on US dividends (e.g., VFV, QQC): modeled as a
-  strict yield reduction on the foreign income portion. This is a yield drag,
-  not a capital gains concern.
-- **No tax-bracket routing** — TFSA is flat; do not build progressive tax
-  layers.
+  strict yield reduction on the foreign income portion (with treaty exemption
+  only for directly held US-listed assets in `RRSP`/`LIRA`/`RRIF`).
+- **No speculative tax-bracket optimization** — keep return/yield adjustments
+  confined to configured account tax profiles.
 
 ## Asset Universe
 

@@ -55,8 +55,9 @@ current adjusted download is not automatically a point-in-time vintage.
 - Convert with an FX observation actually available no later than the price's
   decision timestamp, subject to an explicit staleness limit. Exclude uncovered
   rows; never fill them from a later rate. Same calendar date is insufficient
-  where market closing times differ. Current interfaces do not establish release
-  times or a universal staleness limit.
+  where market closing times differ. `apply_fx_conversion` and `HistoryLinker`
+  enforce a default 7-calendar-day staleness cutoff (`max_fx_staleness_days=7`,
+  opt-out via `None`), while exact intraday release timestamps remain out of scope.
 - Entry is at an explicitly specified execution timestamp; existing holdings earn
   price movement through the execution close before that close's rebalance.
   Exit, unavailable execution prices, delisted holdings and costs need explicit
@@ -70,7 +71,7 @@ current adjusted download is not automatically a point-in-time vintage.
 | Stage | Earliest information date and audit status |
 | --- | --- |
 | Provider download and DuckDB cache (`data/fetcher.py`) | The provider's observation/revision availability, not merely its index date. Cache keys omit provider configuration/adjustment basis; cached values are not historical vintages. |
-| FX conversion (`data/fetcher.py`, `data/linkage.py`) | The later of the asset quote and matched FX availability. This change orders forward-fill chronologically; exact-date reindexing can discard a known rate on an off-index day. FX request end and stale-rate policies remain unresolved. |
+| FX conversion (`data/fetcher.py`, `data/linkage.py`) | The later of the asset quote and matched FX availability. Forward-fill runs chronologically and excludes carried FX quotes older than `max_fx_staleness_days=7` calendar days by default (inclusive `end_date` requests prevent boundary truncation). Exact-date reindexing and intraday release timestamps remain subject to provider daily closes. |
 | Proxy stitching (`data/linkage.py`) | Proxy returns require their endpoint quotes; stitched absolute levels additionally require the future handover scalar. Proxy requests can ignore caller bounds. USD proxies now multiply by `USDCAD=X` (`USD * CAD/USD -> CAD`, matching `apply_fx_conversion`). |
 | Collation and cached CSV (`data/collation.py`, `portfolio_optimization.py`) | Inputs and any proxy handover must be available. Cache mtime invalidation does not prove observation freshness or vintage correctness. Forward-filled values are marks, not evidence of trading. |
 | Price returns (`metrics.py`, `analysis/comparison.py`, `analysis/benchmarks.py`) | Both original adjacent endpoints. PR #100 corrects a gap-bridging defect in the helper but remains unmerged; upstream row deletion can still bridge gaps independently. |

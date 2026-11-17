@@ -11,7 +11,7 @@ from typing import Optional
 import duckdb
 import pandas as pd
 
-from .fetcher import PriceFetcher, YFinancePriceFetcher
+from .fetcher import PriceFetcher, YFinancePriceFetcher, align_fx_rates
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +260,7 @@ class HistoryLinker:
         proxy_map: dict[str, str],
         fx_adjust: bool = False,
         fetcher: Optional[PriceFetcher] = None,
+        max_fx_staleness_days: int | None = 7,
     ):
         """Initialize the HistoryLinker.
 
@@ -267,10 +268,16 @@ class HistoryLinker:
             proxy_map (dict): Mapping of target tickers to their proxy tickers.
             fx_adjust (bool): Whether to perform FX adjustment via USDCAD=X.
             fetcher (Optional[PriceFetcher]): Provider for historical data.
+            max_fx_staleness_days (int | None): Maximum calendar age allowed
+                when carrying forward observed FX rates (default ``7`` days;
+                pass ``None`` for unbounded causal forward-fill).
         """
+        if max_fx_staleness_days is not None and max_fx_staleness_days < 0:
+            raise ValueError("max_fx_staleness_days must be non-negative or None.")
         self.proxy_map = proxy_map
         self.fx_adjust = fx_adjust
         self.fetcher = fetcher or YFinancePriceFetcher()
+        self.max_fx_staleness_days = max_fx_staleness_days
         self.crypto_tickers = {"BTC-USD", "ETH-USD"}  # Define known 24/7 tickers
 
     def _is_24_7_asset(self, ticker: str) -> bool:
@@ -330,19 +337,20 @@ class HistoryLinker:
             )
             fx_price = fx_df["Close"].dropna()
 
-            # Align FX to the proxy dates with forward-fill only — never
-            # backfill, which would apply future exchange rates to historical
-            # prices (lookahead bias).  Rows before the first available FX
-            # rate are excluded, mirroring apply_fx_conversion's coverage
-            # guardrail.
-            aligned_fx = fx_price.reindex(proxy_price.index)
-            order = proxy_price.index.argsort(kind="stable")
-            aligned_fx = aligned_fx.iloc[order].ffill().iloc[order.argsort()]
+            # Align FX to the proxy dates with causal forward-fill subject to
+            # the configured staleness bound — never backfill (lookahead bias).
+            aligned_fx = align_fx_rates(
+                fx_price,
+                proxy_price.index,
+                max_staleness_days=self.max_fx_staleness_days,
+            )
             if aligned_fx.isna().any():
                 logger.warning(
-                    "Excluding %d proxy rows without FX rate coverage for %s.",
+                    "Excluding %d proxy rows without fresh FX rate coverage for %s "
+                    "(max_fx_staleness_days=%s).",
                     int(aligned_fx.isna().sum()),
                     target_ticker,
+                    self.max_fx_staleness_days,
                 )
             fx_price = aligned_fx.dropna()
             if fx_price.empty:
