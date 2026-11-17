@@ -41,8 +41,8 @@ def plot_correlation_heatmap(
     else:
         fig = ax.figure
 
-    # Calculate daily returns
-    returns = prices.pct_change()
+    # Calculate daily returns without forward-filling missing observations
+    returns = prices.pct_change(fill_method=None)
 
     # Calculate pairwise correlation matrix (ignores NaNs pairwise automatically)
     corr_matrix = returns.corr()

@@ -54,6 +54,27 @@ def test_compute_returns_validates_method(sample_price_series):
         compute_returns(sample_price_series, method="bogus")
 
 
+def test_compute_returns_missing_endpoint_does_not_fabricate_zero():
+    """Missing price observations must yield NaN returns, never fabricated 0.0."""
+    prices = pd.Series([100.0, np.nan, 110.0], dtype=float)
+    simple = compute_returns(prices, method="simple", dropna=False)
+    log_ret = compute_returns(prices, method="log", dropna=False)
+
+    assert simple.isna().all()
+    assert log_ret.isna().all()
+
+
+def test_compute_returns_prefix_invariant_on_gaps():
+    """Appending future prices must not change earlier return values across gaps."""
+    short = pd.Series([100.0, 105.0, np.nan, 110.0], dtype=float)
+    extended = pd.Series([100.0, 105.0, np.nan, 110.0, 115.0], dtype=float)
+
+    pd.testing.assert_series_equal(
+        compute_returns(short, method="simple", dropna=False),
+        compute_returns(extended, method="simple", dropna=False).iloc[: len(short)],
+    )
+
+
 def test_annualize_return_series(sample_price_series):
     returns = compute_returns(sample_price_series)
     result = annualize_return(returns, periods_per_year=252)
@@ -92,6 +113,12 @@ def test_sharpe_ratio_handles_risk_free_rate(sample_price_series):
 def test_sharpe_ratio_raises_when_vol_zero():
     returns = pd.Series([0.0, 0.0, 0.0])
     with pytest.raises(ValueError):
+        sharpe_ratio(returns)
+
+
+def test_sharpe_ratio_zero_vol_handles_non_string_column_names():
+    returns = pd.DataFrame({0: [0.01, -0.02, 0.03], 1: [0.0, 0.0, 0.0]})
+    with pytest.raises(ValueError, match="1"):
         sharpe_ratio(returns)
 
 

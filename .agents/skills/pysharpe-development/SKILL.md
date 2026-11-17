@@ -20,8 +20,8 @@ to make changes safely.
 ## Quick-Start Commands
 
 ```bash
-# Install for development (syncs project + dev group from uv.lock)
-uv sync
+# Install for development (syncs locked package and optional extras from uv.lock)
+uv sync --locked --all-extras
 
 # Run all tests
 uv run pytest
@@ -47,13 +47,14 @@ uv run pysharpe --help
 
 ## Key Conventions
 
-- `ruff` is the sole formatter and linter (88-char line length, double quotes).
-  `black` is listed in dev deps but ruff-format is authoritative.
+- `ruff` is the sole formatter and linter (88-char line length, double quotes); `black` is not used.
 - Tests use only synthetic data (no network calls). Fixtures live in
   `tests/conftest.py`. The `data/` directory under `tests/` holds fixture CSVs.
 - `get_settings()` is LRU-cached; call `get_settings.cache_clear()` in tests
   that need to vary env vars.
-- `portfolio_config.json` in the working directory is loaded automatically when it exists — `pysharpe optimise` falls back to it, and `load_execution_config()` does too. Pass `--config` to use a different file.
+- Config files (`portfolio_config.json` / execution config) are NOT auto-loaded
+  from the working directory; pass `--config PATH` on the CLI or an explicit path
+  to library helpers.
 - `proxy_map.json` maps tickers to historical proxies using `proxy`, `fx_adjust`, `start_date`, `is_us_domiciled`, and `is_cad_denominated`; it is loaded by `build_settings()`.
 
 ## Public API Registration

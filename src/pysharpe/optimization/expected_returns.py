@@ -62,7 +62,7 @@ def shrinkage_expected_return(
         >>> abs(mu.std()) <= abs(raw.std())
         np.True_
     """
-    returns = prices.pct_change().dropna()
+    returns = prices.pct_change(fill_method=None).dropna()
 
     n_periods, n_assets = returns.shape
 
@@ -139,6 +139,6 @@ def constant_expected_return(prices: pd.DataFrame, frequency: int = 252) -> pd.S
     Returns:
         Annualized expected returns (identical for all assets).
     """
-    returns = prices.pct_change().dropna()
+    returns = prices.pct_change(fill_method=None).dropna()
     grand_mean = returns.mean().mean() * frequency
     return pd.Series(grand_mean, index=returns.columns)

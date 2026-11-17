@@ -372,6 +372,26 @@ def test_plot_correlation_heatmap_tolerates_partial_overlap(sns):
     assert annotations == pytest.approx([1.0, 1.0, 1.0, 1.0])
 
 
+def test_plot_correlation_heatmap_internal_gap_does_not_fabricate_zero_returns(sns):
+    dates = pd.date_range("2024-01-01", periods=6, freq="D")
+    frame = pd.DataFrame(
+        {
+            "AAA": [100.0, 110.0, 99.0, 108.9, 120.0, 132.0],
+            "BBB": [100.0, 110.0, np.nan, 108.9, 120.0, 132.0],
+        },
+        index=dates,
+    )
+
+    ax = plot_correlation_heatmap(frame)
+
+    # Pairs with valid overlapping returns move identically; missing observations
+    # must remain NaN rather than fabricating a 0.0 return on day 2.
+    off_diag = [
+        float(text.get_text()) for text in ax.texts if float(text.get_text()) < 0.9999
+    ]
+    assert off_diag == []
+
+
 def test_plot_correlation_heatmap_show_triggers_display(sns, monkeypatch):
     import matplotlib.pyplot as plt
 

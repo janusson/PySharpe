@@ -5,26 +5,21 @@ reproducibility, and approachable tooling. The guidelines below outline how to
 get started.
 
 ## Development environment
-1. Create and activate a virtual environment.
+1. Install PySharpe in editable mode with the locked development toolchain (`uv`):
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Install PySharpe in editable mode with the development toolchain.
-   ```bash
-   uv sync
+   uv sync --locked --all-extras
    ```
 
-## Running tests and lint checks
-- Execute the full test suite with coverage:
+## Running tests, type checks, and lint checks
+- Execute the full pre-commit gate (`ruff` lint/format, `pyright`, and `pytest` with coverage):
   ```bash
-  python -m pytest
+  make check
   ```
-- Run the linters before opening a pull request:
+- Or run individual targets mirroring CI:
   ```bash
-  ruff check src tests
-  ruff format --check src tests
-  black --check src tests
+  make lint       # uv run ruff check . && uv run ruff format --check .
+  make typecheck  # uv run pyright --warnings
+  make test       # uv run pytest with coverage floor
   ```
 
 The CI workflow mirrors these commands and must succeed for every contribution.

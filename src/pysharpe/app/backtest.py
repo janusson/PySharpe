@@ -193,7 +193,7 @@ def _run_and_display(
     with st.spinner("Running backtest..."):
         result = backtester.run()
 
-    port_returns = result.portfolio_value.pct_change().dropna()
+    port_returns = result.portfolio_value.pct_change(fill_method=None).dropna()
     cagr_val = metrics.cagr(result.portfolio_value)
     mdd_val = metrics.maximum_drawdown(result.portfolio_value)
     sharpe_val = metrics.sharpe_ratio(port_returns)
