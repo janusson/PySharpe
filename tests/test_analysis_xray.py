@@ -29,6 +29,7 @@ FX = {"USD": 1.35}
 VOO_CHAR = AssetTaxCharacteristics(
     "VOO",
     dividend_yield=0.013,
+    distribution_yield=0.013,
     is_us_domiciled=True,
     income_frac_eligible_dividends=0.0,
     income_frac_foreign_income=1.0,
@@ -36,6 +37,7 @@ VOO_CHAR = AssetTaxCharacteristics(
 VFV_CHAR = AssetTaxCharacteristics(
     "VFV.TO",
     dividend_yield=0.012,
+    distribution_yield=0.012,
     is_cad_wrapped_us_equity=True,
     income_frac_eligible_dividends=0.0,
     income_frac_foreign_income=1.0,
@@ -280,7 +282,7 @@ def test_direct_us_holding_points_at_treaty_account_when_present():
     voo_flag = next(f for f in withholding if f.tickers == ("VOO",))
     assert "RRSP-A" in voo_flag.message
     vfv_flag = next(f for f in withholding if f.tickers == ("VFV.TO",))
-    assert vfv_flag.drag_bps == pytest.approx(18.0)
+    assert vfv_flag.drag_bps == pytest.approx(7.66)
     assert "withheld inside the fund" in vfv_flag.message
 
 
@@ -294,8 +296,8 @@ def test_non_registered_income_drag_is_flagged():
 
     flags = [f for f in report.flags if f.code == "income_tax_drag"]
     assert len(flags) == 1
-    # 100% foreign income x 30% marginal rate = 3000 bps of the income component
-    assert flags[0].drag_bps == pytest.approx(3000.0)
+    # 1.3% distribution yield x 30% marginal rate = 39 bps of NAV
+    assert flags[0].drag_bps == pytest.approx(39.0)
     assert report.marginal_tax_rate == pytest.approx(0.30)
 
 

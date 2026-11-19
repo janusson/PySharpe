@@ -16,7 +16,7 @@ shape of the portfolio *implies*:
   account that would avoid the drag when the snapshot contains one.
 
 Everything is computed from the snapshot alone. Flags are annualized drag
-estimates in basis points of the position's yield, not tax advice, and unknown
+estimates in basis points of portfolio NAV, not tax advice, and unknown
 inputs stay unknown: a ticker without
 :class:`~pysharpe.optimization.tax_location.AssetTaxCharacteristics` is
 reported as unassessed rather than assumed tax-free.
@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from typing import cast
 
 import pandas as pd
 
@@ -60,11 +61,7 @@ _TREATY_ACCOUNTS = frozenset({AccountType.RRSP, AccountType.LIRA, AccountType.RR
 
 
 def _resolve_account_type(label: str) -> AccountType:
-    """Map an account label to an :class:`AccountType` without silent defaulting.
-
-    The tax-location engine defaults unknown labels to non-registered, which
-    would quietly mis-state a TFSA as taxable. The X-ray refuses instead.
-    """
+    """Map an account label to an :class:`AccountType` without silent defaulting."""
     text = label.strip().upper()
     try:
         return AccountType(text)
@@ -342,6 +339,7 @@ def _tax_flags(
     account_types: Mapping[str, AccountType],
     characteristics: Mapping[str, AssetTaxCharacteristics],
     engine: AssetLocationEngine,
+    total_value: float,
 ) -> list[XrayFlag]:
     """Build withholding and income-tax drag flags from the snapshot."""
     flags: list[XrayFlag] = []
@@ -357,16 +355,18 @@ def _tax_flags(
         if asset is None:
             continue
 
+        weight = cast(float, row.value_cad) / total_value if total_value > 0 else 0.0
         fwt = engine.compute_fwt_drag(asset, account_type.value)
+        fwt *= weight
         if fwt > 0.0:
             message = (
-                f"{row.ticker} in {row.account} loses {fwt:.4%} of yield per year "
+                f"{row.ticker} in {row.account} loses {fwt:.4%} of portfolio NAV per year "
                 f"to US foreign withholding tax."
             )
             if asset.is_cad_wrapped_us_equity:
                 message += (
                     " The tax is withheld inside the fund, so no account "
-                    "wrapper recovers it."
+                    "change is modeled as recovering it."
                 )
             else:
                 message += " TFSA and FHSA have no treaty protection."
@@ -388,7 +388,20 @@ def _tax_flags(
             )
 
         if account_type is AccountType.NON_REG:
-            income_drag = engine.compute_income_tax_drag(asset, account_type.value)
+            if asset.distribution_yield is None:
+                flags.append(
+                    XrayFlag(
+                        code="unassessed_asset",
+                        severity="info",
+                        message=f"Missing distribution yield for {row.ticker}",
+                        tickers=(str(row.ticker),),
+                        accounts=(str(row.account),),
+                    )
+                )
+                continue
+            income_drag = weight * engine.compute_income_tax_drag(
+                asset, account_type.value
+            )
             if income_drag <= 0.0:
                 continue
             flags.append(
@@ -397,8 +410,8 @@ def _tax_flags(
                     severity="info",
                     message=(
                         f"{row.ticker} in {row.account} is taxed on income; the "
-                        f"annual income-tax drag is {income_drag:.4%} of the "
-                        f"income component and is not recoverable."
+                        f"annual income-tax drag is {income_drag:.4%} of portfolio NAV "
+                        f"(CAD {income_drag * total_value:,.2f} per year)."
                     ),
                     tickers=(str(row.ticker),),
                     accounts=(str(row.account),),
@@ -521,7 +534,9 @@ def portfolio_xray(
     characteristics = asset_characteristics or {}
     profile = tax_profile or TaxProfile(marginal_tax_rate=_DEFAULT_MARGINAL_RATE)
     engine = AssetLocationEngine(profile)
-    flags.extend(_tax_flags(table, resolved_types, characteristics, engine))
+    flags.extend(
+        _tax_flags(table, resolved_types, characteristics, engine, total_value)
+    )
 
     unassessed = sorted(
         ticker

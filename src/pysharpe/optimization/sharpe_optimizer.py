@@ -258,7 +258,9 @@ class SharpeOptimizer:
                         return_basis=self.return_basis,
                     )
                 else:
-                    net[i, j] = observed_return - self._mer_deduction(ticker)
+                    raise DataValidationError(
+                        f"Missing tax characteristics for {ticker}"
+                    )
         return net
 
     @staticmethod

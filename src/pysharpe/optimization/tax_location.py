@@ -14,11 +14,11 @@ The engine models three distinct structural Canadian tax rules:
    assets and CAD-wrapped US ETFs experience an unrecoverable 15% FWT drag
    on dividend yields.
 
-3. **Non-Registered (Taxable)**: FWT is recoverable via the Foreign Tax Credit,
+3. **Non-Registered (Taxable)**: the scenario assumes full recovery of withholding,
    but annual income is taxed at marginal rates:
    - Interest / foreign income → taxed at full MTR.
    - Eligible Canadian dividends → gross-up (38%) and dividend tax credit.
-   - Capital gains → inclusion rate (50% or 66.67% above $250k threshold).
+   - Capital gains → configured inclusion rate on distributed gains.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _normalize_account(account: str) -> AccountType:
     """Normalize an account label string to an ``AccountType`` enum member.
 
     Handles common aliases such as ``"Non-Reg"``, ``"Taxable"``, ``"Margin"``.
-    Unknown strings default to ``AccountType.NON_REG``.
+    Unknown labels raise DataValidationError.
     """
     upper = account.upper().strip()
     aliases: dict[str, AccountType] = {
@@ -107,7 +107,11 @@ def _normalize_account(account: str) -> AccountType:
     try:
         return AccountType(upper)
     except ValueError:
-        return aliases.get(upper, AccountType.NON_REG)
+        if upper in aliases:
+            return aliases[upper]
+        raise DataValidationError(
+            f"Unknown account classification {account!r}"
+        ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -194,18 +198,21 @@ class AssetTaxCharacteristics:
     is_cad_wrapped_us_equity : bool
         ``True`` when the asset is a Canadian-listed ETF that wraps US
         equities (e.g. VFV.TO, XUS.TO).  The 15 % US FWT is deducted at
-        the fund level and is unrecoverable regardless of account type.
+        the fund level in the registered-account scenarios.
     income_frac_interest : float
-        Fraction of expected return attributable to interest / other
+        Fraction of annual distributions attributable to interest / other
         income (taxed at full MTR in non-registered accounts).
     income_frac_eligible_dividends : float
-        Fraction of expected return from eligible Canadian dividends.
+        Fraction of annual distributions from eligible Canadian dividends.
     income_frac_foreign_income : float
-        Fraction of expected return from foreign dividends / income.
+        Fraction of annual distributions from foreign dividends / income.
     income_frac_capital_gains : float
-        Fraction of expected return from realised capital gains.
+        Fraction of annual distributions from realised capital gains.
     mer : float
         Annual Management Expense Ratio as a decimal (e.g. ``0.0017``).
+
+    distribution_yield is annual taxable distributions divided by NAV, including
+    distributed gains and interest. Taxable calculations require it explicitly.
 
     The four income-fraction fields must sum to 1.0.
     """
@@ -219,9 +226,14 @@ class AssetTaxCharacteristics:
     income_frac_foreign_income: float = 0.0
     income_frac_capital_gains: float = 0.0
     mer: float = 0.0
+    distribution_yield: float | None = None
 
     def __post_init__(self) -> None:
-        if self.dividend_yield < 0.0:
+        if self.distribution_yield is not None and (
+            not np.isfinite(self.distribution_yield) or self.distribution_yield < 0
+        ):
+            raise ValueError("distribution_yield must be finite and non-negative")
+        if not np.isfinite(self.dividend_yield) or self.dividend_yield < 0.0:
             raise ValueError(
                 f"dividend_yield must be non-negative, got {self.dividend_yield}"
             )
@@ -304,10 +316,9 @@ class AssetLocationEngine:
         float
             Annual FWT drag as a decimal (e.g. ``0.00195`` for 0.195 %).
         """
+        acct = _normalize_account(account)
         if not asset.has_us_equity_exposure:
             return 0.0
-
-        acct = _normalize_account(account)
 
         if acct in _TREATY_PROTECTED:
             # RRSP / LIRA / RRIF: US-Canada treaty exempts directly-held
@@ -315,7 +326,7 @@ class AssetLocationEngine:
             if asset.is_us_domiciled and not asset.is_cad_wrapped_us_equity:
                 return 0.0
             # CAD-wrapped US equity: FWT is taken at the fund level and is
-            # unrecoverable in *any* account type.
+            # modeled as unrecoverable in this registered account.
             if asset.is_cad_wrapped_us_equity:
                 return asset.dividend_yield * _US_FWT_RATE
             return 0.0
@@ -324,7 +335,7 @@ class AssetLocationEngine:
             # TFSA / FHSA: no treaty → FWT is lost on all US equity exposure.
             return asset.dividend_yield * _US_FWT_RATE
 
-        # Non-Registered: FWT is recoverable via the Foreign Tax Credit.
+        # Taxable scenario assumes full credit for investor-level withholding.
         return 0.0
 
     def compute_income_tax_drag(
@@ -344,7 +355,7 @@ class AssetLocationEngine:
         Returns
         -------
         float
-            Annual income-tax drag as a decimal fraction of expected return.
+            Annual income-tax drag as a decimal fraction of position NAV.
         """
         acct = _normalize_account(account)
         if acct != AccountType.NON_REG:
@@ -360,7 +371,9 @@ class AssetLocationEngine:
         drag += asset.income_frac_foreign_income * tp.marginal_tax_rate
         drag += asset.income_frac_capital_gains * tp.capital_gains_effective_rate
 
-        return drag
+        if asset.distribution_yield is None:
+            raise DataValidationError(f"Missing distribution_yield for {asset.ticker}")
+        return asset.distribution_yield * drag
 
     def compute_total_drag(self, asset: AssetTaxCharacteristics, account: str) -> float:
         """Sum foreign-withholding and income-tax drags; exclude MER.
@@ -514,12 +527,15 @@ class AssetLocationEngine:
         dict[str, float]
             Ticker → tax-adjusted expected return.
         """
+        missing = expected_returns.keys() - assets.keys()
+        if missing:
+            raise DataValidationError(
+                f"Missing tax characteristics for {sorted(missing)}"
+            )
         return {
             ticker: self.compute_tax_adjusted_return(
                 r, assets[ticker], account, return_basis=return_basis
             )
-            if ticker in assets
-            else r
             for ticker, r in expected_returns.items()
         }
 
@@ -551,9 +567,7 @@ class AssetLocationEngine:
         for ticker, r in expected_returns.items():
             asset = assets.get(ticker)
             if asset is None:
-                for acct in accounts:
-                    result[(ticker, acct)] = r
-                continue
+                raise DataValidationError(f"Missing tax characteristics for {ticker}")
             for acct in accounts:
                 result[(ticker, acct)] = self.compute_tax_adjusted_return(
                     r, asset, acct, return_basis=return_basis
@@ -569,6 +583,7 @@ class AssetLocationEngine:
 def build_asset_characteristics(
     ticker: str,
     *,
+    distribution_yield: float | None = None,
     dividend_yield: float = 0.02,
     proxy_meta: dict[str, object] | None = None,
     mer: float = 0.0,
@@ -618,6 +633,7 @@ def build_asset_characteristics(
     return AssetTaxCharacteristics(
         ticker=ticker,
         dividend_yield=dividend_yield,
+        distribution_yield=distribution_yield,
         is_us_domiciled=is_us,
         is_cad_wrapped_us_equity=is_cad_wrapped,
         income_frac_interest=income_frac_interest,
@@ -631,6 +647,7 @@ def build_asset_characteristics(
 def build_asset_characteristics_batch(
     tickers: list[str],
     *,
+    distribution_yield: float | None = None,
     dividend_yield: float = 0.02,
     proxy_map: dict[str, dict[str, object]] | None = None,
     mer_by_ticker: dict[str, float] | None = None,
@@ -667,6 +684,7 @@ def build_asset_characteristics_batch(
         result[ticker] = build_asset_characteristics(
             ticker,
             dividend_yield=dividend_yield,
+            distribution_yield=distribution_yield,
             proxy_meta=proxy_meta,
             mer=mer,
             **income_kwargs,

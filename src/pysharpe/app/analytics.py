@@ -110,10 +110,7 @@ def _apply_account_drag(
     :meth:`AssetLocationEngine.compute_tax_adjusted_return
     <pysharpe.optimization.tax_location.AssetLocationEngine.compute_tax_adjusted_return>`
     which deducts MER only for explicitly gross-of-expense inputs and applies
-    foreign withholding and income-tax drag for the target account. Assets
-    without characteristics pass through unadjusted
-    (no MER/tax information available), consistent with the optimizer's 1-D
-    fallback.
+    foreign withholding and income-tax drag for the target account. A tax-adjusted calculation requires characteristics for every asset.
     """
     if tax_profile is None:
         return mu.copy()
@@ -123,10 +120,11 @@ def _apply_account_drag(
     for ticker, ret in adjusted.items():
         key = str(ticker)
         char = chars.get(key)
-        if char is not None:
-            adjusted[key] = engine.compute_tax_adjusted_return(
-                float(ret), char, account, return_basis=return_basis
-            )
+        if char is None:
+            raise ValueError(f"Missing tax characteristics for {key}")
+        adjusted[key] = engine.compute_tax_adjusted_return(
+            float(ret), char, account, return_basis=return_basis
+        )
     return adjusted
 
 
