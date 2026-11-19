@@ -49,6 +49,7 @@ BENCHMARK_MERS: dict[str, float] = {
 def build_benchmark_characteristics(
     ticker: str,
     *,
+    distribution_yield: float | None = None,
     mer: float | None = None,
     dividend_yield: float | None = None,
     income_frac_interest: float | None = None,
@@ -60,8 +61,7 @@ def build_benchmark_characteristics(
 
     The all-in-one funds hold US-listed securities at the fund level, so the
     unrecoverable 15 % US withholding tax is modeled via
-    ``is_cad_wrapped_us_equity`` (the fund-level FWT applies in every account
-    type).  Distribution composition defaults follow the funds' global
+    ``is_cad_wrapped_us_equity`` (registered accounts model fund-level withholding). Distribution composition defaults follow the funds' global
     mix: foreign income dominates, with a smaller eligible-dividend slice and
     a capital-gains component; balanced funds add an interest component from
     their bond sleeve.  These are documented estimates — pass explicit values
@@ -105,6 +105,9 @@ def build_benchmark_characteristics(
 
     return AssetTaxCharacteristics(
         ticker=key,
+        distribution_yield=distribution_yield
+        if distribution_yield is not None
+        else ((0.018 if is_balanced else 0.015) if key in BENCHMARK_MERS else None),
         dividend_yield=dividend_yield,
         is_us_domiciled=False,
         is_cad_wrapped_us_equity=True,
@@ -300,6 +303,8 @@ def _harmonized_benchmark_metrics(
     chars = dict(asset_characteristics or {})
     for ticker in prices_df.columns:
         if ticker not in chars:
+            if ticker.upper() not in BENCHMARK_MERS:
+                raise ValueError(f"Missing benchmark tax characteristics for {ticker}")
             chars[ticker] = build_benchmark_characteristics(ticker)
 
     # Evaluate benchmarks alongside the portfolio universe.

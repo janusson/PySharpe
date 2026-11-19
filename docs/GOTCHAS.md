@@ -862,3 +862,16 @@ Before declaring any change "done", verify:
 - [ ] New public symbols registered in `_EXPORT_MAP`, `TYPE_CHECKING`, AND `__all__`?
 - [ ] Tests use synthetic data only, with fixed seeds?
 - [ ] No new dependencies on network calls, day-trading, or price prediction?
+
+### Annual income-tax drag uses distributed cash flow
+
+For taxable accounts, supply `distribution_yield` as annual gross taxable
+distributions divided by opening position NAV. The four character fractions
+partition those distributions, including distributed gains. Exclude unrealized
+appreciation. Supply zero for known zero distributions. Missing yield is unknown.
+Keep `dividend_yield` separate for the withholding model. Benchmark presets
+use scenario yield estimates. An 8% total return already includes distributions.
+On CAD 100,000, a 1% entirely foreign distribution taxed at 45% costs CAD 450
+(45 basis points), leaving CAD 7,550. X-ray scales position tax by total NAV
+including cash. Verify withholding recoverability and whether fund-level costs
+are already embedded in the return series before interpreting estimates.

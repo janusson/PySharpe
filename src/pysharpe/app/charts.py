@@ -58,7 +58,10 @@ class _TaxContext:
     account: str
 
 
-def _tax_context(price_data: pd.DataFrame) -> _TaxContext:
+def _tax_context(
+    price_data: pd.DataFrame,
+    characteristics: dict[str, AssetTaxCharacteristics] | None = None,
+) -> _TaxContext:
     """Build the tax/MER evaluation context from the app settings.
 
     Uses the user's active ``TaxProfile`` and per-ticker MER/proxy metadata.
@@ -66,11 +69,12 @@ def _tax_context(price_data: pd.DataFrame) -> _TaxContext:
     basis; account-specific tax drag is modeled separately.
     """
 
-    characteristics = build_asset_characteristics_batch(
-        list(price_data.columns),
-        proxy_map=SETTINGS.proxy_map,
-        mer_by_ticker=SETTINGS.mer_by_ticker,
-    )
+    if characteristics is None:
+        characteristics = build_asset_characteristics_batch(
+            list(price_data.columns),
+            proxy_map=SETTINGS.proxy_map,
+            mer_by_ticker=SETTINGS.mer_by_ticker,
+        )
     return _TaxContext(
         tax_profile=SETTINGS.tax_profile,
         asset_characteristics=characteristics,
@@ -487,6 +491,7 @@ def run_full_analysis(
     custom_weights: dict[str, float],
     *,
     return_basis: ReturnBasis | str | None = None,
+    asset_characteristics: dict[str, AssetTaxCharacteristics] | None = None,
 ) -> dict:
     """Execute the full analytics pipeline and return cached results.
 
@@ -523,7 +528,7 @@ def run_full_analysis(
     """
 
     assets = list(price_data.columns)
-    ctx = _tax_context(price_data)
+    ctx = _tax_context(price_data, asset_characteristics)
     mu = shrinkage_expected_return(
         price_data.dropna(), shrinkage_floor=DEFAULT_SHRINKAGE_FLOOR
     )
