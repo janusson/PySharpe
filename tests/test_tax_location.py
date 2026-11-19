@@ -1204,3 +1204,19 @@ def test_unknown_tax_inputs_refused():
         engine.compute_fwt_drag(asset, "unclassified")
     with pytest.raises(DataValidationError, match="distribution_yield"):
         engine.compute_tax_adjusted_return(0.08, asset, "Taxable")
+
+
+def test_interest_distribution_with_no_dividends():
+    asset = AssetTaxCharacteristics(
+        "bond",
+        dividend_yield=0,
+        distribution_yield=0.04,
+        income_frac_interest=1,
+        income_frac_eligible_dividends=0,
+    )
+    engine = AssetLocationEngine(TaxProfile(marginal_tax_rate=0.30))
+    # CAD 100,000 earns 6,000 including 4,000 interest. Tax is 1,200.
+    assert engine.compute_income_tax_drag(asset, "Taxable") == pytest.approx(0.012)
+    assert engine.compute_tax_adjusted_return(0.06, asset, "Taxable") == pytest.approx(
+        0.048
+    )
