@@ -26,6 +26,11 @@ your change instead of the full suite every time.
 - `pysharpe.execution.rebalance` (artefact loaders, holdings parsing, account tax adjustment, single/multi-account plan building, rendering, `main()` exit codes)
 - `pysharpe.execution.allocator` (via end-to-end contribution allocation)
 
+## `test_execution_ledger.py`
+- `pysharpe.execution.ledger` (account/transaction validation, USD-to-CAD FX conversion, Decimal rounding modes, chronological replay with atomic rollback, cash and book-cost conservation)
+- `pysharpe.execution.cash_flow_rebalance` (snapshot reconciliation feeding rebalance invariants)
+- Public lazy export registration (`pysharpe` top level)
+
 ## `test_rebalance_demo_example.py`
 - `examples/rebalance_demo/` inputs pinned to the hand-derived buy plan in its README
 - `pysharpe.execution.rebalance` single-account whole-share path and `cli.main(["rebalance", ...])` output
@@ -100,6 +105,9 @@ your change instead of the full suite every time.
 
 ## `test_pytest_configure.py`
 - `tests/conftest.py` collection-time Pyright gate and failure warning
+
+## `test_skill_paths.py`
+- `.agents/skills/*/SKILL.md` (every documented `tests/...` path must exist)
 
 ## `test_config.py`
 - `pysharpe.config`
@@ -184,6 +192,11 @@ your change instead of the full suite every time.
 - `pysharpe.workflows`
 - `pysharpe.optimization.models`
 
+## `test_visualization_charts.py`
+- `pysharpe.visualization.equity_curve` (`plot_equity_curves`, common-inception `plot_comparative_returns`, `plot_holdings_history`, per-ticker failure handling)
+- `pysharpe.visualization.correlation` (`plot_correlation_heatmap`)
+- Headless `Agg` rendering on synthetic prices; no network calls
+
 ## `test_data_collector.py`
 - `pysharpe.data_collector`
 
@@ -209,6 +222,10 @@ your change instead of the full suite every time.
 - `examples/canadian_portfolio_reference.py` (end-to-end account, CAD/USD cash,
   book-cost, and pooled tax-ACB reference example)
 - `pysharpe.guardrails.tax_compliance.ACBTracker` as consumed by the example
+
+## `test_test_map_coverage.py`
+- `docs/TEST_MAP.md` (every `tests/test_*.py` module is mapped, and every mapped
+  module exists)
 
 ## Installed-wheel smoke check
 - `scripts/smoke_wheel.py` runs in CI from outside the checkout using a fresh
@@ -272,3 +289,5 @@ your change instead of the full suite every time.
 | `validation/resampling.py` | `pytest tests/test_resampling.py` |
 | `validation/sample_size.py` | `pytest tests/test_sample_size.py` |
 | `workflows.py` | `pytest tests/test_workflows.py` |
+| `docs/TEST_MAP.md` | `pytest tests/test_test_map_coverage.py` |
+| `.agents/skills/*/SKILL.md` | `pytest tests/test_skill_paths.py` |

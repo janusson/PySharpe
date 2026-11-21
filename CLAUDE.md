@@ -34,7 +34,7 @@ All developer workflows are available via `make` (see `make help`):
 | `lint` | ruff check + ruff format --check |
 | `lint-fix` | ruff check --fix |
 | `format` | ruff format (in place) |
-| `typecheck` | pyright --warnings src/ (warnings are fatal) |
+| `typecheck` | pyright --warnings (whole repository; warnings are fatal) |
 | `test` | pytest with coverage (fails below 75%) |
 | `check` | Full pre-commit gate: lint + typecheck + test |
 | `build_docs` | mkdocs build --strict (warnings are fatal) |
@@ -51,7 +51,8 @@ typed Returns sections — dotted types without a name are not parsed (see
 `docs/GOTCHAS.md`).
 
 CI (`.github/workflows/ci.yml`) enforces all three gates (`make lint`,
-`make typecheck`, `make test`) plus a strict docs build on every pull request.
+`make typecheck`, `make test`) plus a strict docs build, an installed-wheel smoke
+test, and a gitleaks secret scan on every pull request.
 
 ## Architecture Overview
 
