@@ -873,5 +873,7 @@ Keep `dividend_yield` separate for the withholding model. Benchmark presets
 use scenario yield estimates. An 8% total return already includes distributions.
 On CAD 100,000, a 1% entirely foreign distribution taxed at 45% costs CAD 450
 (45 basis points), leaving CAD 7,550. X-ray scales position tax by total NAV
-including cash. Verify withholding recoverability and whether fund-level costs
-are already embedded in the return series before interpreting estimates.
+including cash. Directly held US securities assume investor-level withholding
+credit in taxable accounts; Canadian wrappers retain fund-level withholding drag
+in every account. Verify whether fund-level costs are already embedded in the
+return series before interpreting estimates.
