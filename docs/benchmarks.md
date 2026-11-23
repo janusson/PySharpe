@@ -1,7 +1,7 @@
 # Benchmark Summary
 
 Timings captured with `python scripts/benchmark.py --repeats 5` on a MacBook Pro
-(M2 Pro, Python 3.12). Baseline refers to commit `v0.1.0` prior to the caching
+(M2 Pro, Python 3.12). Baseline refers to tag `0.4.0` prior to the caching
 and vectorisation improvements landed in this change set.
 
 | Scenario       | Size / Months | Metric                | Baseline (s) | Optimised (s) | Speed-up |

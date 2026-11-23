@@ -2,6 +2,8 @@
 
 Run the right subset of tests for your change instead of the full suite.
 
+> **Note:** This is a quick-reference subset. The authoritative, complete test-to-module map is at [`docs/TEST_MAP.md`](../../../docs/TEST_MAP.md). Keep both in sync; this file should only be updated by syncing from the main map.
+
 ## Test File → Source Module Coverage
 
 | Test File | Modules Covered |

@@ -4,6 +4,22 @@ Auto-generated from module docstrings with
 [mkdocstrings](https://mkdocstrings.github.io/). Regenerate with
 `make build_docs`.
 
+## Data Pipeline
+
+::: pysharpe.data.fetcher
+
+::: pysharpe.data.collation
+
+::: pysharpe.data.portfolio
+
+::: pysharpe.data.linkage
+
+::: pysharpe.data.interop
+
+::: pysharpe.data.workflows
+
+::: pysharpe.data_collector
+
 ## Configuration
 
 ::: pysharpe.config
@@ -21,15 +37,19 @@ Auto-generated from module docstrings with
 
 ::: pysharpe.metrics
 
-## Data Pipeline
+## CLI & Workflows
 
-::: pysharpe.data.fetcher
+::: pysharpe.cli
 
-::: pysharpe.data.collation
+::: pysharpe.workflows
 
-::: pysharpe.data.portfolio
+## Portfolio Optimization (top-level)
 
-::: pysharpe.data.linkage
+::: pysharpe.portfolio_optimization
+
+## Logging Utilities
+
+::: pysharpe.logging_utils
 
 ## Optimization
 
@@ -86,6 +106,30 @@ Auto-generated from module docstrings with
 ::: pysharpe.analysis.tactical_walk_forward
 
 ::: pysharpe.analysis.portfolio_overlap
+
+::: pysharpe.analysis.xray
+
+::: pysharpe.analysis.backtest
+
+::: pysharpe.analysis.visualization
+
+## App
+
+::: pysharpe.app
+
+::: pysharpe.app.charts
+
+::: pysharpe.app.dca
+
+::: pysharpe.app.offline_example
+
+::: pysharpe.app.rebalance_ui
+
+::: pysharpe.app.analytics
+
+::: pysharpe.app.backtest
+
+::: pysharpe.app.data
 
 ## Validation
 
