@@ -182,6 +182,12 @@ your change instead of the full suite every time.
 ## `test_sample_size.py`
 - `pysharpe.validation.sample_size`
 
+## `test_canadian_etf_research_example.py`
+- `examples/canadian_etf_research.py`
+- `pysharpe.metrics`
+- `pysharpe.analysis.backtest_engine`
+- `pysharpe.execution.allocator`
+
 ## Installed-wheel smoke check
 - `scripts/smoke_wheel.py` runs in CI from outside the checkout using a fresh
   wheel-only virtual environment. It imports all public package modules, resolves
@@ -213,6 +219,7 @@ your change instead of the full suite every time.
 | `data/linkage.py` | `pytest tests/test_data_linkage.py` |
 | `data/portfolio.py` | `pytest tests/test_portfolio_repository.py` |
 | `data_collector.py` | `pytest tests/test_data_collector.py` |
+| `examples/canadian_etf_research.py` | `pytest tests/test_canadian_etf_research_example.py` |
 | `exceptions.py` | `pytest tests/test_optimization_base.py tests/test_covariance_shrinkage.py tests/test_black_litterman.py tests/test_optimization_hrp.py` |
 | `execution/allocator.py` | `pytest tests/test_2d_allocation.py` |
 | `execution/brokerage.py` | `pytest tests/test_brokerage.py` |

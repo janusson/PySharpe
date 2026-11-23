@@ -90,6 +90,7 @@ and commissions using only execution-date prices.
 | [Test Map](TEST_MAP.md) | Test-file to source-module mapping |
 | [Gotchas](GOTCHAS.md) | Known failure patterns and guardrails |
 | [Benchmarks](benchmarks.md) | Canadian ETF baselines |
+| [Canadian ETF Research](canadian_etf_research.md) | Reproducible portfolio-comparison research example |
 | [Proxy Mapping](proxies.md) | Ticker proxy resolution and FX adjustment |
 | [API Reference](api.md) | Auto-generated API documentation |
 
