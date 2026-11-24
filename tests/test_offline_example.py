@@ -13,6 +13,11 @@ from streamlit.testing.v1 import AppTest
 
 from pysharpe.app.offline_example import _example_prices, _price_multipliers
 
+# Streamlit >= 1.66 resolves a relative AppTest.from_file path against the
+# calling test module, not the working directory. Anchor the demo script to
+# the repository root so tests pass from any CWD.
+DEMO_SCRIPT = str(Path(__file__).resolve().parents[1] / "demo.py")
+
 
 def test_example_chart_matches_hand_computed_price_multipliers():
     prices = _example_prices()
@@ -45,7 +50,7 @@ def test_first_run_example_loads_without_network_or_portfolio(monkeypatch):
         yf.download("FAKE")
     attempted.clear()
 
-    at = AppTest.from_file("demo.py", default_timeout=60).run()
+    at = AppTest.from_file(DEMO_SCRIPT, default_timeout=60).run()
     assert not at.exception
     assert at.button[0].label == "Load example dataset"
     assert not at.metric
@@ -78,7 +83,7 @@ def test_first_run_example_loads_without_network_or_portfolio(monkeypatch):
 
 
 def test_fresh_process_does_not_initialize_research_data(tmp_path):
-    script = """\
+    script = f"""\
 import socket
 import sys
 
@@ -88,7 +93,7 @@ def deny_network(*args, **kwargs):
 socket.socket.connect = deny_network
 socket.create_connection = deny_network
 from streamlit.testing.v1 import AppTest
-at = AppTest.from_file('demo.py', default_timeout=60).run()
+at = AppTest.from_file({DEMO_SCRIPT!r}, default_timeout=60).run()
 at.button[0].click().run()
 assert not at.exception, at.exception
 assert len(at.metric) == 2
@@ -114,7 +119,7 @@ assert 'pysharpe.app.data' not in sys.modules
 
 
 def test_example_does_not_replace_research_session_state():
-    at = AppTest.from_file("demo.py", default_timeout=60)
+    at = AppTest.from_file(DEMO_SCRIPT, default_timeout=60)
     at.session_state["data_state"] = {"source": "upload", "marker": "keep"}
     at.session_state["analysis_state"] = {"marker": "keep"}
     at.run()

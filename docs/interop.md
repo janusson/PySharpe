@@ -58,7 +58,9 @@ labels). Pass the shipped normaliser to convert them:
 from pysharpe import normalise_ticker, read_holdings_snapshot
 
 snapshot = read_holdings_snapshot(
-    "export.csv", as_of=date(2025, 3, 31), fx_rates={"USD": 1.36},
+    "export.csv",
+    as_of=date(2025, 3, 31),
+    fx_rates={"USD": 1.36},
     ticker_transform=normalise_ticker,
 )
 ```
@@ -118,7 +120,7 @@ snapshot = read_holdings_snapshot(
 )
 
 snapshot.total_value_cad()
-snapshot.missing_cost_basis()   # positions whose basis the export omitted
+snapshot.missing_cost_basis()  # positions whose basis the export omitted
 ```
 
 Header names differ between vendors and change over time; the mapping above is
