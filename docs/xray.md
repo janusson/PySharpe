@@ -39,7 +39,7 @@ report = portfolio_xray(
     },
 )
 print(report.report())
-report.to_frame()   # one row per finding
+report.to_frame()  # one row per finding
 ```
 
 ## Findings and their rules
