@@ -274,8 +274,8 @@ class TestFwtDrag:
         assert engine.compute_fwt_drag(vfv, "TFSA") == pytest.approx(expected)
 
     def test_vfv_non_reg_no_fwt_drag(self, engine, vfv):
-        """FWT recoverable via FTC for Non-Reg accounts."""
-        assert engine.compute_fwt_drag(vfv, "Non-Reg") == 0.0
+        """Canadian-wrapper FWT remains a fund-level drag in Non-Reg."""
+        assert engine.compute_fwt_drag(vfv, "Non-Reg") == pytest.approx(0.0018)
 
     # -- Canadian (VCN.TO) --
 
@@ -437,6 +437,18 @@ class TestTotalDrag:
         total = engine.compute_total_drag(voo, "Non-Reg")
         # FWT = 0, income = 1.0 * 0.50 = 0.50
         assert total == pytest.approx(0.0065)
+
+    def test_cad_wrapper_non_reg_retains_fund_level_fwt(self, engine):
+        """A Canadian wrapper's fund-level FWT is not investor-creditable."""
+        vfv = AssetTaxCharacteristics(
+            "VFV.TO",
+            dividend_yield=0.012,
+            distribution_yield=0.012,
+            is_cad_wrapped_us_equity=True,
+            income_frac_eligible_dividends=0.0,
+            income_frac_foreign_income=1.0,
+        )
+        assert engine.compute_fwt_drag(vfv, "NON_REG") == pytest.approx(0.0018)
 
 
 # ---------------------------------------------------------------------------

@@ -14,8 +14,9 @@ The engine models three distinct structural Canadian tax rules:
    assets and CAD-wrapped US ETFs experience an unrecoverable 15% FWT drag
    on dividend yields.
 
-3. **Non-Registered (Taxable)**: the scenario assumes full recovery of withholding,
-   but annual income is taxed at marginal rates:
+3. **Non-Registered (Taxable)**: investor-level withholding is assumed fully
+   recoverable, but fund-level withholding in a Canadian wrapper remains a drag;
+   annual income is taxed at marginal rates:
    - Interest / foreign income → taxed at full MTR.
    - Eligible Canadian dividends → gross-up (38%) and dividend tax credit.
    - Capital gains → configured inclusion rate on distributed gains.
@@ -320,15 +321,18 @@ class AssetLocationEngine:
         if not asset.has_us_equity_exposure:
             return 0.0
 
+        # A Canadian wrapper cannot claim the treaty exemption. Its fund-level
+        # withholding remains a yield drag in every account, while directly held
+        # US securities may receive investor-level foreign-tax credit treatment
+        # in taxable accounts.
+        if asset.is_cad_wrapped_us_equity:
+            return asset.dividend_yield * _US_FWT_RATE
+
         if acct in _TREATY_PROTECTED:
             # RRSP / LIRA / RRIF: US-Canada treaty exempts directly-held
             # US-domiciled assets from FWT.
             if asset.is_us_domiciled and not asset.is_cad_wrapped_us_equity:
                 return 0.0
-            # CAD-wrapped US equity: FWT is taken at the fund level and is
-            # modeled as unrecoverable in this registered account.
-            if asset.is_cad_wrapped_us_equity:
-                return asset.dividend_yield * _US_FWT_RATE
             return 0.0
 
         if acct in _NO_TREATY_PROTECTION:
