@@ -313,11 +313,21 @@ def test_compute_adjusted_metrics_applies_shrinkage_and_tax_drag():
     profile = TaxProfile(marginal_tax_rate=0.45)
     chars = {
         "VFV.TO": AssetTaxCharacteristics(
-            "VFV.TO", dividend_yield=0.015, is_cad_wrapped_us_equity=True, mer=0.0009
+            "VFV.TO",
+            dividend_yield=0.015,
+            distribution_yield=0.015,
+            is_cad_wrapped_us_equity=True,
+            mer=0.0009,
         ),
-        "VCN.TO": AssetTaxCharacteristics("VCN.TO", dividend_yield=0.025, mer=0.0005),
+        "VCN.TO": AssetTaxCharacteristics(
+            "VCN.TO", dividend_yield=0.025, distribution_yield=0.025, mer=0.0005
+        ),
         "QQC.TO": AssetTaxCharacteristics(
-            "QQC.TO", dividend_yield=0.012, is_cad_wrapped_us_equity=True, mer=0.0020
+            "QQC.TO",
+            dividend_yield=0.012,
+            distribution_yield=0.012,
+            is_cad_wrapped_us_equity=True,
+            mer=0.0020,
         ),
     }
 
@@ -398,9 +408,15 @@ def test_evaluate_adjusted_performance_uses_net_of_drag_returns():
     prices = _seeded_price_frame(seed=9)
     profile = TaxProfile(marginal_tax_rate=0.45)
     chars = {
-        "VFV.TO": AssetTaxCharacteristics("VFV.TO", dividend_yield=0.02, mer=0.0010),
-        "VCN.TO": AssetTaxCharacteristics("VCN.TO", dividend_yield=0.02, mer=0.0010),
-        "QQC.TO": AssetTaxCharacteristics("QQC.TO", dividend_yield=0.02, mer=0.0010),
+        "VFV.TO": AssetTaxCharacteristics(
+            "VFV.TO", dividend_yield=0.02, distribution_yield=0.02, mer=0.0010
+        ),
+        "VCN.TO": AssetTaxCharacteristics(
+            "VCN.TO", dividend_yield=0.02, distribution_yield=0.02, mer=0.0010
+        ),
+        "QQC.TO": AssetTaxCharacteristics(
+            "QQC.TO", dividend_yield=0.02, distribution_yield=0.02, mer=0.0010
+        ),
     }
     mu = shrinkage_expected_return(prices, shrinkage_floor=0.3)
 

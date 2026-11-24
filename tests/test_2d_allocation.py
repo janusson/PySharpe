@@ -90,6 +90,7 @@ def _make_tax_chars() -> dict[str, AssetTaxCharacteristics]:
         "VFV": AssetTaxCharacteristics(
             ticker="VFV",
             dividend_yield=0.012,
+            distribution_yield=0.012,
             is_cad_wrapped_us_equity=True,
             income_frac_eligible_dividends=0.0,
             income_frac_foreign_income=1.0,
@@ -98,6 +99,7 @@ def _make_tax_chars() -> dict[str, AssetTaxCharacteristics]:
         "QQC": AssetTaxCharacteristics(
             ticker="QQC",
             dividend_yield=0.005,
+            distribution_yield=0.005,
             is_cad_wrapped_us_equity=True,
             income_frac_eligible_dividends=0.0,
             income_frac_foreign_income=1.0,
@@ -106,6 +108,7 @@ def _make_tax_chars() -> dict[str, AssetTaxCharacteristics]:
         "VDY": AssetTaxCharacteristics(
             ticker="VDY",
             dividend_yield=0.035,
+            distribution_yield=0.035,
             is_cad_wrapped_us_equity=False,
             income_frac_eligible_dividends=0.8,
             income_frac_foreign_income=0.2,

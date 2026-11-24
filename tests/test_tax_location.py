@@ -111,12 +111,17 @@ class TestAssetTaxCharacteristics:
         assert a.mer == 0.0
 
     def test_us_domiciled(self):
-        a = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        a = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         assert a.has_us_equity_exposure is True
 
     def test_cad_wrapped_us(self):
         a = AssetTaxCharacteristics(
-            "VFV.TO", dividend_yield=0.012, is_cad_wrapped_us_equity=True
+            "VFV.TO",
+            dividend_yield=0.012,
+            distribution_yield=0.012,
+            is_cad_wrapped_us_equity=True,
         )
         assert a.has_us_equity_exposure is True
 
@@ -126,13 +131,16 @@ class TestAssetTaxCharacteristics:
 
     def test_rejects_negative_mer(self):
         with pytest.raises(ValueError, match="MER"):
-            AssetTaxCharacteristics("X", dividend_yield=0.02, mer=-0.001)
+            AssetTaxCharacteristics(
+                "X", dividend_yield=0.02, distribution_yield=0.02, mer=-0.001
+            )
 
     def test_rejects_negative_income_fractions(self):
         with pytest.raises(ValueError, match="non-negative"):
             AssetTaxCharacteristics(
                 "X",
                 dividend_yield=0.02,
+                distribution_yield=0.02,
                 income_frac_interest=1.5,
                 income_frac_eligible_dividends=-0.5,
                 income_frac_foreign_income=0.0,
@@ -144,6 +152,7 @@ class TestAssetTaxCharacteristics:
             AssetTaxCharacteristics(
                 "X",
                 dividend_yield=0.02,
+                distribution_yield=0.02,
                 income_frac_interest=0.5,
                 income_frac_eligible_dividends=0.3,
                 income_frac_foreign_income=0.0,
@@ -154,6 +163,7 @@ class TestAssetTaxCharacteristics:
         a = AssetTaxCharacteristics(
             "X",
             dividend_yield=0.02,
+            distribution_yield=0.02,
             income_frac_interest=0.1,
             income_frac_eligible_dividends=0.5,
             income_frac_foreign_income=0.2,
@@ -190,7 +200,6 @@ class TestNormalizeAccount:
             ("Margin", AccountType.NON_REG),
             ("Cash", AccountType.NON_REG),
             ("UNREGISTERED", AccountType.NON_REG),
-            ("UnknownType", AccountType.NON_REG),  # default fallback
         ],
     )
     def test_normalization(self, raw, expected):
@@ -211,21 +220,27 @@ class TestFwtDrag:
     def voo(self):
         """US-domiciled ETF, directly held (e.g. VOO in USD)."""
         return AssetTaxCharacteristics(
-            "VOO", dividend_yield=0.013, is_us_domiciled=True
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
         )
 
     @pytest.fixture
     def vfv(self):
         """CAD-wrapped US ETF (e.g. VFV.TO)."""
         return AssetTaxCharacteristics(
-            "VFV.TO", dividend_yield=0.012, is_cad_wrapped_us_equity=True
+            "VFV.TO",
+            dividend_yield=0.012,
+            distribution_yield=0.012,
+            is_cad_wrapped_us_equity=True,
         )
 
     @pytest.fixture
     def vcn(self):
         """Canadian-domiciled ETF, no US exposure."""
         return AssetTaxCharacteristics(
-            "VCN.TO", dividend_yield=0.025, is_us_domiciled=False
+            "VCN.TO",
+            dividend_yield=0.025,
+            distribution_yield=0.025,
+            is_us_domiciled=False,
         )
 
     # -- US-domiciled (VOO) --
@@ -259,8 +274,8 @@ class TestFwtDrag:
         assert engine.compute_fwt_drag(vfv, "TFSA") == pytest.approx(expected)
 
     def test_vfv_non_reg_no_fwt_drag(self, engine, vfv):
-        """FWT recoverable via FTC for Non-Reg accounts."""
-        assert engine.compute_fwt_drag(vfv, "Non-Reg") == 0.0
+        """Canadian-wrapper FWT remains a fund-level drag in Non-Reg."""
+        assert engine.compute_fwt_drag(vfv, "Non-Reg") == pytest.approx(0.0018)
 
     # -- Canadian (VCN.TO) --
 
@@ -297,6 +312,7 @@ class TestIncomeTaxDrag:
         asset = AssetTaxCharacteristics(
             "VCN",
             dividend_yield=0.03,
+            distribution_yield=0.03,
             income_frac_eligible_dividends=1.0,
         )
         for account in ("TFSA", "RRSP", "FHSA"):
@@ -307,40 +323,44 @@ class TestIncomeTaxDrag:
         asset = AssetTaxCharacteristics(
             "bond",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=1.0,
             income_frac_eligible_dividends=0.0,
         )
         drag = engine.compute_income_tax_drag(asset, "Non-Reg")
-        assert drag == pytest.approx(0.50 * 1.0)  # 50% MTR
+        assert drag == pytest.approx(0.50 * 0.04)  # 50% MTR
 
     def test_non_reg_pure_eligible_dividends(self, engine):
         """100% eligible dividends → effective dividend rate."""
         asset = AssetTaxCharacteristics(
             "VCN",
             dividend_yield=0.03,
+            distribution_yield=0.03,
             income_frac_eligible_dividends=1.0,
             income_frac_interest=0.0,
         )
         drag = engine.compute_income_tax_drag(asset, "Non-Reg")
         eff_div_rate = engine._profile.eligible_dividend_effective_rate
-        assert drag == pytest.approx(eff_div_rate)
+        assert drag == pytest.approx(0.03 * eff_div_rate)
 
     def test_non_reg_pure_capital_gains(self, engine):
         """100% capital gains → MTR * inclusion_rate."""
         asset = AssetTaxCharacteristics(
             "growth",
             dividend_yield=0.0,
+            distribution_yield=0.0,
             income_frac_capital_gains=1.0,
             income_frac_eligible_dividends=0.0,
         )
         drag = engine.compute_income_tax_drag(asset, "Non-Reg")
-        assert drag == pytest.approx(0.50 * 0.50)  # 0.25
+        assert drag == pytest.approx(0.0)
 
     def test_non_reg_blended(self, engine):
         """Mixed income sources should be weighted by fractions."""
         asset = AssetTaxCharacteristics(
             "blend",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=0.2,
             income_frac_eligible_dividends=0.4,
             income_frac_foreign_income=0.1,
@@ -354,7 +374,7 @@ class TestIncomeTaxDrag:
             + 0.3 * tp.capital_gains_effective_rate
         )
         assert engine.compute_income_tax_drag(asset, "Non-Reg") == pytest.approx(
-            expected
+            0.04 * expected
         )
 
     def test_non_reg_with_foreign_income(self, engine):
@@ -362,11 +382,12 @@ class TestIncomeTaxDrag:
         asset = AssetTaxCharacteristics(
             "intl",
             dividend_yield=0.03,
+            distribution_yield=0.03,
             income_frac_foreign_income=1.0,
             income_frac_eligible_dividends=0.0,
         )
         drag = engine.compute_income_tax_drag(asset, "Non-Reg")
-        assert drag == pytest.approx(0.50)  # full MTR
+        assert drag == pytest.approx(0.015)  # full MTR
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +402,9 @@ class TestTotalDrag:
 
     def test_voo_tfsa_total_is_fwt_only(self, engine):
         """In TFSA, only FWT applies (no income tax)."""
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         fwt = engine.compute_fwt_drag(voo, "TFSA")
         income = engine.compute_income_tax_drag(voo, "TFSA")
         assert income == 0.0
@@ -392,26 +415,40 @@ class TestTotalDrag:
         bond = AssetTaxCharacteristics(
             "bond",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=1.0,
             income_frac_eligible_dividends=0.0,
         )
         fwt = engine.compute_fwt_drag(bond, "Non-Reg")
         assert fwt == 0.0
         total = engine.compute_total_drag(bond, "Non-Reg")
-        assert total == pytest.approx(0.50)  # MTR
+        assert total == pytest.approx(0.02)  # MTR
 
     def test_voo_non_reg_fwt_zero_income_applies(self, engine):
         """VOO in Non-Reg: FWT recoverable, but eligible dividends taxed."""
         voo = AssetTaxCharacteristics(
             "VOO",
             dividend_yield=0.013,
+            distribution_yield=0.013,
             is_us_domiciled=True,
             income_frac_foreign_income=1.0,  # foreign dividends
             income_frac_eligible_dividends=0.0,
         )
         total = engine.compute_total_drag(voo, "Non-Reg")
         # FWT = 0, income = 1.0 * 0.50 = 0.50
-        assert total == pytest.approx(0.50)
+        assert total == pytest.approx(0.0065)
+
+    def test_cad_wrapper_non_reg_retains_fund_level_fwt(self, engine):
+        """A Canadian wrapper's fund-level FWT is not investor-creditable."""
+        vfv = AssetTaxCharacteristics(
+            "VFV.TO",
+            dividend_yield=0.012,
+            distribution_yield=0.012,
+            is_cad_wrapped_us_equity=True,
+            income_frac_eligible_dividends=0.0,
+            income_frac_foreign_income=1.0,
+        )
+        assert engine.compute_fwt_drag(vfv, "NON_REG") == pytest.approx(0.0018)
 
 
 # ---------------------------------------------------------------------------
@@ -432,14 +469,18 @@ class TestTaxAdjustedReturn:
 
     def test_fwt_drag_reduces_return(self, engine):
         """FWT drag should reduce the expected return."""
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         result = engine.compute_tax_adjusted_return(0.10, voo, "TFSA")
         expected_drag = 0.013 * 0.15  # 0.00195
         assert result == pytest.approx(0.10 - expected_drag)
 
     def test_mer_deducted(self, engine):
         """MER should be deducted alongside drag."""
-        asset = AssetTaxCharacteristics("XEQT.TO", dividend_yield=0.02, mer=0.0020)
+        asset = AssetTaxCharacteristics(
+            "XEQT.TO", dividend_yield=0.02, distribution_yield=0.02, mer=0.0020
+        )
         result = engine.compute_tax_adjusted_return(
             0.07,
             asset,
@@ -453,6 +494,7 @@ class TestTaxAdjustedReturn:
         vfv = AssetTaxCharacteristics(
             "VFV.TO",
             dividend_yield=0.012,
+            distribution_yield=0.012,
             is_cad_wrapped_us_equity=True,
             mer=0.0009,
         )
@@ -466,7 +508,9 @@ class TestTaxAdjustedReturn:
         assert result == pytest.approx(0.09 - 0.0009 - fwt_drag)
 
     def test_net_return_basis_does_not_deduct_mer(self, engine):
-        asset = AssetTaxCharacteristics("VFV.TO", dividend_yield=0.0, mer=0.0017)
+        asset = AssetTaxCharacteristics(
+            "VFV.TO", dividend_yield=0.0, distribution_yield=0.0, mer=0.0017
+        )
         result = engine.compute_tax_adjusted_return(
             0.08,
             asset,
@@ -476,7 +520,9 @@ class TestTaxAdjustedReturn:
         assert result == pytest.approx(0.08)
 
     def test_unknown_basis_with_nonzero_mer_raises(self, engine):
-        asset = AssetTaxCharacteristics("VFV.TO", dividend_yield=0.0, mer=0.0017)
+        asset = AssetTaxCharacteristics(
+            "VFV.TO", dividend_yield=0.0, distribution_yield=0.0, mer=0.0017
+        )
         with pytest.raises(DataValidationError, match="Return basis is required"):
             engine.compute_tax_adjusted_return(0.08, asset, "TFSA")
 
@@ -485,21 +531,23 @@ class TestTaxAdjustedReturn:
         bond = AssetTaxCharacteristics(
             "bond",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=1.0,
             income_frac_eligible_dividends=0.0,
         )
         result = engine.compute_tax_adjusted_return(0.05, bond, "Non-Reg")
-        assert result == pytest.approx(0.05 - 0.45)  # 0.45 = MTR
+        assert result == pytest.approx(0.05 - 0.018)  # 0.45 = MTR
 
     def test_negative_adjusted_return_possible(self, engine):
         """If tax drag exceeds expected return, the adjusted return can go negative."""
         bond = AssetTaxCharacteristics(
             "bond",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=1.0,
             income_frac_eligible_dividends=0.0,
         )
-        result = engine.compute_tax_adjusted_return(0.03, bond, "Non-Reg")
+        result = engine.compute_tax_adjusted_return(0.01, bond, "Non-Reg")
         assert result < 0.0
 
 
@@ -519,14 +567,18 @@ class TestTaxEfficiencyScore:
         assert score == 1.0
 
     def test_fwt_drag_reduces_score(self, engine):
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         score = engine.compute_tax_efficiency_score(voo, "TFSA")
         expected_drag = 0.013 * 0.15  # 0.00195
         expected_score = 1.0 - (expected_drag / 0.15)  # default max_drag=0.15
         assert score == pytest.approx(expected_score)
 
     def test_custom_max_drag(self, engine):
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         score_small = engine.compute_tax_efficiency_score(voo, "TFSA", max_drag=0.01)
         score_large = engine.compute_tax_efficiency_score(voo, "TFSA", max_drag=0.30)
         # Smaller max_drag → larger impact → lower score
@@ -537,6 +589,7 @@ class TestTaxEfficiencyScore:
         bond = AssetTaxCharacteristics(
             "bond",
             dividend_yield=0.04,
+            distribution_yield=0.04,
             income_frac_interest=1.0,
             income_frac_eligible_dividends=0.0,
         )
@@ -546,14 +599,16 @@ class TestTaxEfficiencyScore:
 
     def test_rejects_non_positive_max_drag(self, engine):
         asset = AssetTaxCharacteristics(
-            "VOO", dividend_yield=0.013, is_us_domiciled=True
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
         )
         with pytest.raises(ValueError, match="max_drag"):
             engine.compute_tax_efficiency_score(asset, "TFSA", max_drag=0.0)
 
     def test_rrsp_is_more_efficient_than_tfsa_for_voo(self, engine):
         """VOO should score higher in RRSP (no FWT) than in TFSA (FWT applies)."""
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         rrsp_score = engine.compute_tax_efficiency_score(voo, "RRSP")
         tfsa_score = engine.compute_tax_efficiency_score(voo, "TFSA")
         assert rrsp_score > tfsa_score
@@ -568,6 +623,7 @@ class TestTaxEfficiencyScore:
         voo = AssetTaxCharacteristics(
             "VOO",
             dividend_yield=0.013,
+            distribution_yield=0.013,
             is_us_domiciled=True,
             income_frac_capital_gains=1.0,
             income_frac_eligible_dividends=0.0,
@@ -595,7 +651,10 @@ class TestAdjustedOpportunityScores:
         assets = {
             "VCN": AssetTaxCharacteristics("VCN.TO", dividend_yield=0.02),
             "VOO": AssetTaxCharacteristics(
-                "VOO", dividend_yield=0.013, is_us_domiciled=True
+                "VOO",
+                dividend_yield=0.013,
+                distribution_yield=0.013,
+                is_us_domiciled=True,
             ),
         }
         base_scores = {"VCN": 0.8, "VOO": 0.8}
@@ -619,7 +678,10 @@ class TestAdjustedOpportunityScores:
         """tax_weight=0 should return base scores unchanged."""
         assets = {
             "VOO": AssetTaxCharacteristics(
-                "VOO", dividend_yield=0.013, is_us_domiciled=True
+                "VOO",
+                dividend_yield=0.013,
+                distribution_yield=0.013,
+                is_us_domiciled=True,
             ),
         }
         base = {"VOO": 0.5}
@@ -632,7 +694,10 @@ class TestAdjustedOpportunityScores:
         """tax_weight=1.0 should return pure tax efficiency scores."""
         assets = {
             "VOO": AssetTaxCharacteristics(
-                "VOO", dividend_yield=0.013, is_us_domiciled=True
+                "VOO",
+                dividend_yield=0.013,
+                distribution_yield=0.013,
+                is_us_domiciled=True,
             ),
         }
         base = {"VOO": 0.5}
@@ -658,7 +723,9 @@ class TestAdjustExpectedReturns:
         return AssetLocationEngine(TaxProfile(marginal_tax_rate=0.45))
 
     def test_single_account(self, engine):
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         vcn = AssetTaxCharacteristics("VCN.TO", dividend_yield=0.02)
         assets = {"VOO": voo, "VCN": vcn}
         er = {"VOO": 0.10, "VCN": 0.07}
@@ -669,11 +736,13 @@ class TestAdjustExpectedReturns:
         assert result["VCN"] == pytest.approx(er["VCN"])
 
     def test_unknown_ticker_passthrough(self, engine):
-        result = engine.adjust_expected_returns({"X": 0.10}, {}, "TFSA")
-        assert result["X"] == 0.10
+        with pytest.raises(DataValidationError, match="Missing tax characteristics"):
+            engine.adjust_expected_returns({"X": 0.10}, {}, "TFSA")
 
     def test_multi_account(self, engine):
-        voo = AssetTaxCharacteristics("VOO", dividend_yield=0.013, is_us_domiciled=True)
+        voo = AssetTaxCharacteristics(
+            "VOO", dividend_yield=0.013, distribution_yield=0.013, is_us_domiciled=True
+        )
         assets = {"VOO": voo}
         er = {"VOO": 0.10}
         accounts = ["TFSA", "RRSP", "Non-Reg"]
@@ -682,11 +751,10 @@ class TestAdjustExpectedReturns:
         assert result[("VOO", "RRSP")] > result[("VOO", "TFSA")]
 
     def test_multi_account_unknown_ticker(self, engine):
-        result = engine.adjust_expected_returns_multi_account(
-            {"X": 0.10}, {}, ["TFSA", "RRSP"]
-        )
-        assert result[("X", "TFSA")] == 0.10
-        assert result[("X", "RRSP")] == 0.10
+        with pytest.raises(DataValidationError, match="Missing tax characteristics"):
+            engine.adjust_expected_returns_multi_account(
+                {"X": 0.10}, {}, ["TFSA", "RRSP"]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +773,7 @@ class TestBuildAssetCharacteristics:
         a = build_asset_characteristics(
             "VOO",
             dividend_yield=0.013,
+            distribution_yield=0.013,
             proxy_meta={"is_us_domiciled": True},
         )
         assert a.is_us_domiciled is True
@@ -713,6 +782,7 @@ class TestBuildAssetCharacteristics:
         a = build_asset_characteristics(
             "VFV.TO",
             dividend_yield=0.012,
+            distribution_yield=0.012,
             proxy_meta={
                 "is_us_domiciled": False,
                 "is_cad_wrapped_us_equity": True,
@@ -725,6 +795,7 @@ class TestBuildAssetCharacteristics:
         a = build_asset_characteristics(
             "VFV.TO",
             dividend_yield=0.012,
+            distribution_yield=0.012,
             proxy_meta={
                 "is_us_domiciled": False,
                 "is_cad_denominated": True,
@@ -738,6 +809,7 @@ class TestBuildAssetCharacteristics:
         a = build_asset_characteristics(
             "XIC.TO",
             dividend_yield=0.025,
+            distribution_yield=0.025,
             proxy_meta={
                 "is_us_domiciled": False,
                 "is_cad_denominated": True,
@@ -752,7 +824,9 @@ class TestBuildAssetCharacteristics:
         assert a.is_cad_wrapped_us_equity is False
 
     def test_mer_passed_through(self):
-        a = build_asset_characteristics("XEQT.TO", dividend_yield=0.02, mer=0.0020)
+        a = build_asset_characteristics(
+            "XEQT.TO", dividend_yield=0.02, distribution_yield=0.02, mer=0.0020
+        )
         assert a.mer == 0.0020
 
     def test_batch(self):
@@ -769,6 +843,7 @@ class TestBuildAssetCharacteristics:
         batch = build_asset_characteristics_batch(
             tickers,
             dividend_yield=0.02,
+            distribution_yield=0.02,
             proxy_map=proxy_map,
             mer_by_ticker=mer_map,
         )
@@ -813,11 +888,17 @@ class TestRebalanceIntegration:
         profile = TaxProfile(marginal_tax_rate=0.45)
         characteristics = {
             "VOO": AssetTaxCharacteristics(
-                "VOO", dividend_yield=0.013, is_us_domiciled=True
+                "VOO",
+                dividend_yield=0.013,
+                distribution_yield=0.013,
+                is_us_domiciled=True,
             ),
             "VCN": AssetTaxCharacteristics("VCN.TO", dividend_yield=0.025),
             "VFV": AssetTaxCharacteristics(
-                "VFV.TO", dividend_yield=0.012, is_cad_wrapped_us_equity=True
+                "VFV.TO",
+                dividend_yield=0.012,
+                distribution_yield=0.012,
+                is_cad_wrapped_us_equity=True,
             ),
         }
 
@@ -865,11 +946,17 @@ class TestRebalanceIntegration:
         profile = TaxProfile(marginal_tax_rate=0.45)
         characteristics = {
             "VOO": AssetTaxCharacteristics(
-                "VOO", dividend_yield=0.013, is_us_domiciled=True
+                "VOO",
+                dividend_yield=0.013,
+                distribution_yield=0.013,
+                is_us_domiciled=True,
             ),
             "VCN": AssetTaxCharacteristics("VCN.TO", dividend_yield=0.025),
             "VFV": AssetTaxCharacteristics(
-                "VFV.TO", dividend_yield=0.012, is_cad_wrapped_us_equity=True
+                "VFV.TO",
+                dividend_yield=0.012,
+                distribution_yield=0.012,
+                is_cad_wrapped_us_equity=True,
             ),
         }
 
@@ -985,6 +1072,7 @@ class TestRebalanceIntegration:
             "VOO": AssetTaxCharacteristics(
                 "VOO",
                 dividend_yield=0.013,
+                distribution_yield=0.013,
                 is_us_domiciled=True,
                 income_frac_foreign_income=0.3,
                 income_frac_capital_gains=0.7,
@@ -993,6 +1081,7 @@ class TestRebalanceIntegration:
             "VCN": AssetTaxCharacteristics(
                 "VCN.TO",
                 dividend_yield=0.025,
+                distribution_yield=0.025,
                 income_frac_eligible_dividends=0.7,
                 income_frac_capital_gains=0.3,
             ),
@@ -1057,6 +1146,7 @@ class TestRebalanceIntegration:
             "VFV": AssetTaxCharacteristics(
                 "VFV.TO",
                 dividend_yield=0.012,
+                distribution_yield=0.012,
                 is_cad_wrapped_us_equity=True,
                 income_frac_foreign_income=0.2,
                 income_frac_capital_gains=0.8,
@@ -1091,7 +1181,54 @@ class TestRebalanceIntegration:
 
     def test_rejects_mer_greater_than_10_percent(self):
         with pytest.raises(ValueError, match="MER must be a decimal fraction < 0.10"):
-            AssetTaxCharacteristics("X", dividend_yield=0.02, mer=0.15)
+            AssetTaxCharacteristics(
+                "X", dividend_yield=0.02, distribution_yield=0.02, mer=0.15
+            )
 
         with pytest.raises(ValueError, match="MER must be a decimal fraction < 0.10"):
-            AssetTaxCharacteristics("X", dividend_yield=0.02, mer=1.5)
+            AssetTaxCharacteristics(
+                "X", dividend_yield=0.02, distribution_yield=0.02, mer=1.5
+            )
+
+
+def test_foreign_distribution_on_100000_nav():
+    asset = AssetTaxCharacteristics(
+        "foreign",
+        dividend_yield=0.01,
+        distribution_yield=0.01,
+        is_us_domiciled=True,
+        income_frac_eligible_dividends=0,
+        income_frac_foreign_income=1,
+    )
+    engine = AssetLocationEngine(TaxProfile(marginal_tax_rate=0.45))
+    drag = engine.compute_income_tax_drag(asset, "Taxable")
+    assert drag * 100_000 == pytest.approx(450)
+    assert drag * 10_000 == pytest.approx(45)
+    assert engine.compute_tax_adjusted_return(0.08, asset, "Taxable") == pytest.approx(
+        0.0755
+    )
+
+
+def test_unknown_tax_inputs_refused():
+    asset = AssetTaxCharacteristics("bond", dividend_yield=0)
+    engine = AssetLocationEngine(TaxProfile(marginal_tax_rate=0.45))
+    with pytest.raises(DataValidationError, match="Unknown account"):
+        engine.compute_fwt_drag(asset, "unclassified")
+    with pytest.raises(DataValidationError, match="distribution_yield"):
+        engine.compute_tax_adjusted_return(0.08, asset, "Taxable")
+
+
+def test_interest_distribution_with_no_dividends():
+    asset = AssetTaxCharacteristics(
+        "bond",
+        dividend_yield=0,
+        distribution_yield=0.04,
+        income_frac_interest=1,
+        income_frac_eligible_dividends=0,
+    )
+    engine = AssetLocationEngine(TaxProfile(marginal_tax_rate=0.30))
+    # CAD 100,000 earns 6,000 including 4,000 interest. Tax is 1,200.
+    assert engine.compute_income_tax_drag(asset, "Taxable") == pytest.approx(0.012)
+    assert engine.compute_tax_adjusted_return(0.06, asset, "Taxable") == pytest.approx(
+        0.048
+    )
