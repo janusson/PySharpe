@@ -71,12 +71,12 @@ The same discipline that guards the math guards the code:
 
 | Guard | How it's enforced |
 | ----- | ----------------- |
-| **Strict typing** | [Pyright](https://microsoft.github.io/pyright/) runs on every PR in `standard` mode with **warnings promoted to fatal** (`pyright --warnings src/`) — the suite holds **0 errors, 0 warnings**. |
+| **Strict typing** | [Pyright](https://microsoft.github.io/pyright/) runs on every PR in `standard` mode with **warnings promoted to fatal** (`pyright --warnings`, whole repository) — the suite holds **0 errors, 0 warnings**. |
 | **Lint & format** | [Ruff](https://docs.astral.sh/ruff/) is the sole linter *and* formatter (88-char, double-quote, import-sorted). CI fails on any drift. |
 | **Dependency lock** | [uv](https://docs.astral.sh/uv/) manages the environment; `uv sync --locked` in CI means a build is bit-reproducible from `uv.lock`. |
 | **DuckDB write-through cache** | Price downloads are cached behind DuckDB; cache freshness and historical data vintages require separate verification. |
-| **CI gate** | Three parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, and a **strict MkDocs build** (`--strict`: warnings are fatal). |
-| **Test suite** | **990+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
+| **CI gate** | Five parallel jobs — `lint + typecheck`, `tests` with a **75% coverage floor**, an **installed-wheel smoke** test, a **strict MkDocs build** (`--strict`: warnings are fatal), and a **gitleaks** secret scan. |
+| **Test suite** | **1,400+ tests**, all synthetic data with fixed seeds — zero network calls, zero nondeterminism. PyMC samplers are isolated with `pytest.MonkeyPatch` so CI passes even without a C toolchain. |
 | **Lookahead guardrails** | Synthetic prefix tests cover selected FX, dashboard and rebalance paths. FX excludes uncovered rows; fold separation alone does not prove causal evaluation. See the [temporal audit](docs/temporal_leakage.md) for remaining limitations. |
 | **Domain error contracts** | A dedicated exception hierarchy (`DataValidationError`, `DataIngestionError`, `ExecutionConfigError`) replaces raw stack traces with actionable messages. |
 | **Self-documenting** | MkDocs Material site built from docstrings (griffe-parsed, `--strict`-clean), plus `docs/TEST_MAP.md` and `docs/GOTCHAS.md` that accumulate every failure pattern. |
@@ -376,12 +376,12 @@ CLI's output against that arithmetic. All of its data is synthetic.
 
 ### Streamlit Dashboard
 
-The dashboard provides four tabs:
+The dashboard provides exactly four tabs, in this order:
 
-- **Analytics** — Metrics, optimized weights, efficient frontier with Canadian ETF benchmarks, and DCA projections.
-- **Backtest** — Historical simulation with configurable rebalancing, fees, slippage, and benchmark overlays.
-- **Data** — Raw price history and collated data inspection.
-- **DCA** — Interactive dollar-cost averaging projections.
+- **Portfolio Metrics & Comparison** — Portfolio metrics, optimized weights, and the 1/N equal-weight comparison; the *Portfolio Backtesting* and *Execution & Rebalancing* panels expand from inside this tab.
+- **Efficient Frontier** — The efficient frontier with the optimizer's weights.
+- **DCA Simulation** — Interactive dollar-cost averaging projections.
+- **Raw Data & Logs** — Raw price history, collated data, and log inspection.
 
 ### Configuration
 
@@ -471,7 +471,7 @@ fwt_rrsp = engine.compute_fwt_drag(voo, "RRSP")  # 0.0 (treaty-protected)
 4. Document public APIs in docstrings — the strict docs build parses every one.
 
 ```bash
-# Run the full suite (990+ tests, no network calls)
+# Run the full suite (1,400+ tests, no network calls)
 uv run pytest
 ```
 

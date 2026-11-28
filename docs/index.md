@@ -77,8 +77,8 @@ and commissions using only execution-date prices.
 
 - **Strict typing**: Pyright `--warnings` promoted to fatal — 0 errors, 0 warnings.
 - **Ruff** sole linter + formatter; **uv** lockfile reproducibility.
-- **CI**: lint + typecheck, tests with a 75% coverage floor, strict docs build.
-- **990+ tests**, all synthetic with fixed seeds — no network calls.
+- **CI**: lint + typecheck, tests with a 75% coverage floor, installed-wheel smoke test, strict docs build, secret scan.
+- **1,400+ tests**, all synthetic with fixed seeds — no network calls.
 - **DuckDB write-through cache**; freshness and historical data vintages require separate verification.
 
 ## Documentation
